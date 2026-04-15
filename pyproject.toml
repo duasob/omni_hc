@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "omni-hc"
+version = "0.1.0"
+description = "A modular framework for hard constraints across scientific machine learning benchmarks."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "scipy>=1.10",
+  "pyyaml>=6.0",
+  "torch>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+experiments = [
+  "optuna>=4.0",
+  "wandb>=0.18",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,18 @@
+model:
+  backbone: "Galerkin_Transformer"
+  args:
+    loader: "ns"
+    geotype: "structured_2D"
+    task: "dynamic_autoregressive"
+    space_dim: 2
+    fun_dim: 10
+    out_dim: 1
+    n_hidden: 256
+    n_heads: 8
+    n_layers: 6
+    mlp_ratio: 2
+    dropout: 0.1
+    act: "gelu"
+    unified_pos: 1
+    ref: 8
+

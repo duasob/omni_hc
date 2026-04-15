@@ -1,0 +1,22 @@
+import torch
+
+from omni_hc.constraints import MeanConstraint, match_mean
+
+
+def test_match_mean_aligns_to_target_mean():
+    x = torch.randn(2, 16, 1)
+    target = torch.randn(2, 16, 1)
+
+    aligned = match_mean(x, target)
+
+    assert torch.allclose(aligned.mean(dim=1), target.mean(dim=1))
+
+
+def test_post_output_constraint_zeroes_mean():
+    pred = torch.randn(4, 32, 1)
+    constraint = MeanConstraint(mode="post_output", out_dim=1)
+
+    out = constraint(pred=pred)
+
+    zeros = torch.zeros_like(out.mean(dim=1))
+    assert torch.allclose(out.mean(dim=1), zeros, atol=1e-6)
