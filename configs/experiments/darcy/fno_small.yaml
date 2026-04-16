@@ -1,27 +1,31 @@
 extends:
-  - ../../benchmarks/navier_stokes/base.yaml
+  - ../../benchmarks/darcy/base.yaml
   - ../../backbones/FNO.yaml
-  - ../../constraints/mean_correction.yaml
+
+model:
+  args:
+    unified_pos: 0
+    task: "steady"
+    loader: "darcy"
+    geotype: "structured_2D"
+    fun_dim: 1
+    out_dim: 1
 
 paths:
-  output_dir: "outputs/navier_stokes/fno_small_mean"
-
-constraint:
-  name: "mean_correction"
-  mode: "post_output"
+  output_dir: "outputs/darcy/fno_small"
 
 wandb_logging:
   wandb: true
   project: "omni_hc"
-  run_name: "fno_small_mean"
+  run_name: "darcy_fno_small"
   log_every: 100
-  image_log_every: 10
+  image_log_every: 1
 
 optuna:
   num_trials: 2
   direction: "minimize"
-  save_dir: "outputs/navier_stokes/fno_small_mean_optuna"
-  run_name: "fno_small_mean"
+  save_dir: "outputs/darcy/fno_small_optuna"
+  run_name: "darcy_fno_small"
   search_space:
     training.learning_rate:
       type: "float"

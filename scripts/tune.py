@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 
 from omni_hc.core import load_composed_config
-from omni_hc.training.ns_demo import train_ns_demo
+from omni_hc.training import tune_benchmark
 
 
 def parse_args():
@@ -38,8 +38,10 @@ def resolve_device(device_arg: str):
 if __name__ == "__main__":
     args = parse_args()
     cfg = load_composed_config(args.config)
-    train_ns_demo(
+    study = tune_benchmark(
         cfg,
         nsl_root=None if args.nsl_root is None else Path(args.nsl_root),
         device=resolve_device(args.device),
     )
+    print("best_trial_value", study.best_value)
+    print("best_trial_params", study.best_trial.params)

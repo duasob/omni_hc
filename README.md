@@ -72,17 +72,19 @@ Example commands:
 conda activate omni-hc
 cd /Users/bruno/Documents/Y4/FYP/omni_hc
 
-python scripts/train_ns_demo.py \
+python scripts/train.py \
   --config configs/experiments/navier_stokes/fno_small_mean.yaml \
   --device cpu
 
-python scripts/test_ns_demo.py \
+python scripts/test.py \
   --config configs/experiments/navier_stokes/fno_small_mean.yaml \
   --device cpu
 
-python scripts/optuna_ns_demo.py \
+python scripts/tune.py \
   --config configs/experiments/navier_stokes/fno_small_mean.yaml \
   --device cpu
 ```
 
 W&B is optional and controlled by the `wandb_logging` section in each experiment config.
+
+The benchmark adapter is selected from `benchmark.name`, so the same entrypoints can be reused as additional datasets are added.

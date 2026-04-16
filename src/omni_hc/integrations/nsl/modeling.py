@@ -5,7 +5,12 @@ from typing import Any
 
 import torch
 
-from omni_hc.constraints import ConstrainedModel, ForwardHookLatentExtractor, MeanConstraint
+from omni_hc.constraints import (
+    ConstrainedModel,
+    DirichletBoundaryAnsatz,
+    ForwardHookLatentExtractor,
+    MeanConstraint,
+)
 from omni_hc.core import load_yaml_file
 from omni_hc.integrations.nsl.defaults import get_nsl_default_args
 from omni_hc.integrations.nsl.paths import resolve_nsl_root
@@ -88,9 +93,25 @@ def _build_constraint(backbone: torch.nn.Module, args, cfg: dict):
         return backbone
 
     name = str(constraint_cfg.get("name", "")).strip().lower()
+    if name in {"dirichlet_ansatz", "dirichlet_boundary_ansatz"}:
+        constraint = DirichletBoundaryAnsatz(
+            out_dim=int(args.out_dim),
+            boundary_value=float(constraint_cfg.get("boundary_value", 0.0)),
+            lower=float(constraint_cfg.get("lower", 0.0)),
+            upper=float(constraint_cfg.get("upper", 1.0)),
+            distance_power=float(constraint_cfg.get("distance_power", 1.0)),
+            distance_reduce=str(constraint_cfg.get("distance_reduce", "product")),
+        )
+        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
+        if bool(constraint_cfg.get("freeze_base", False)):
+            for param in wrapped.backbone.parameters():
+                param.requires_grad = False
+        return wrapped
+
     if name not in {"mean_correction", "mean_constraint"}:
         raise ValueError(
-            f"Unsupported constraint '{name}'. Currently supported: mean_correction"
+            "Unsupported constraint "
+            f"'{name}'. Currently supported: mean_correction, dirichlet_ansatz"
         )
 
     mode = str(constraint_cfg.get("mode", "post_output")).lower()

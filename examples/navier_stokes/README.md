@@ -7,6 +7,8 @@ This is the first benchmark slice to migrate from `hc_fluid`.
 The initial goal is not to port the entire old repo in one shot. The goal is to establish the pattern for all future benchmarks:
 
 - benchmark metadata in `src/omni_hc/benchmarks`
+- benchmark adapter in `src/omni_hc/benchmarks/navier_stokes/adapter.py`
+- autoregressive task runner in `src/omni_hc/training/tasks/autoregressive.py`
 - reusable constraints in `src/omni_hc/constraints`
 - backend glue in `src/omni_hc/integrations/nsl`
 - benchmark-specific run config in `configs/experiments/navier_stokes`
@@ -21,12 +23,14 @@ For the periodic 2D Navier-Stokes setup, the first hard constraint is preservati
 2. Use OmniHC scripts as the experiment harness, while NSL provides the backbone implementations.
 3. Compare at least two backbones under the same Navier-Stokes harness.
 
+The runtime is selected from `benchmark.name` in the config, so these same scripts should remain stable as other datasets are added.
+
 ## Current Commands
 
 Train:
 
 ```bash
-python scripts/train_ns_demo.py \
+python scripts/train.py \
   --config configs/experiments/navier_stokes/fno_small_mean.yaml \
   --device cpu
 ```
@@ -34,7 +38,7 @@ python scripts/train_ns_demo.py \
 Test:
 
 ```bash
-python scripts/test_ns_demo.py \
+python scripts/test.py \
   --config configs/experiments/navier_stokes/fno_small_mean.yaml \
   --device cpu
 ```
@@ -42,7 +46,7 @@ python scripts/test_ns_demo.py \
 Optuna:
 
 ```bash
-python scripts/optuna_ns_demo.py \
+python scripts/tune.py \
   --config configs/experiments/navier_stokes/fno_small_mean.yaml \
   --device cpu
 ```
