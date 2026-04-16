@@ -103,7 +103,7 @@ class MeanConstraint(ConstraintModule):
                 "Use one of: post_output, post_output_learned, latent_head."
             )
 
-    def forward(self, *, pred, latent=None, return_aux=False):
+    def forward(self, *, pred, latent=None, return_aux=False, **_unused):
         reduce_dims = _resolve_reduce_dims(pred, self.channel_dim, self.reduce_dims)
 
         if self.mode == "post_output":
@@ -151,5 +151,12 @@ class ConstrainedModel(nn.Module):
 
         pred = self.backbone(*args, **kwargs)
         latent = None if self.latent_extractor is None else self.latent_extractor.get()
-        return self.constraint(pred=pred, latent=latent, return_aux=return_aux)
-
+        coords = args[0] if len(args) > 0 else kwargs.get("coords")
+        fx = args[1] if len(args) > 1 else kwargs.get("fx")
+        return self.constraint(
+            pred=pred,
+            latent=latent,
+            coords=coords,
+            fx=fx,
+            return_aux=return_aux,
+        )

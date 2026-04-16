@@ -8,3 +8,10 @@ Configs are split by responsibility:
 
 A run config can compose these layers with `extends`.
 
+The intended entrypoints are:
+
+- `python scripts/train.py --config ...`
+- `python scripts/test.py --config ...`
+- `python scripts/tune.py --config ...`
+
+The runtime is selected from `benchmark.name` inside the resolved config.

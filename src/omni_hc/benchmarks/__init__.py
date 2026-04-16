@@ -1,10 +1,9 @@
 from omni_hc.core import Registry
 
-from .base import BenchmarkSpec
+from .base import BenchmarkAdapter, BenchmarkSpec
 
-BENCHMARKS = Registry[BenchmarkSpec]("benchmarks")
+BENCHMARKS = Registry[BenchmarkAdapter]("benchmarks")
 
-from . import navier_stokes  # noqa: F401
+from . import darcy, navier_stokes  # noqa: F401
 
-__all__ = ["BENCHMARKS", "BenchmarkSpec"]
-
+__all__ = ["BENCHMARKS", "BenchmarkAdapter", "BenchmarkSpec"]

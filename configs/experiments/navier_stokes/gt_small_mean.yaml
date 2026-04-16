@@ -1,32 +1,17 @@
 extends:
+  - ../../benchmarks/navier_stokes/base.yaml
   - ../../backbones/Galerkin_Transformer.yaml
   - ../../constraints/mean_correction.yaml
-
-benchmark:
-  name: "navier_stokes_2d"
-  dataset: "NavierStokes_V1e-5_N1200_T20"
-  invariant: "global_vorticity"
-  geometry: "periodic_grid"
 
 model:
   args:
     unified_pos: 0
 
 paths:
-  root_dir: "data/NavierStokes_V1e-5_N1200_T20"
   output_dir: "outputs/navier_stokes/gt_small_mean"
-
-data:
-  ntrain: 128
-  ntest: 32
-  T_in: 10
-  T_out: 10
-  downsamplex: 1
-  downsampley: 1
 
 training:
   batch_size: 2
-  val_size: 16
   num_epochs: 3
   optimizer: "adamw"
   learning_rate: 0.001

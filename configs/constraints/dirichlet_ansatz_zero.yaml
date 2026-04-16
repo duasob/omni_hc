@@ -1,0 +1,7 @@
+constraint:
+  name: "dirichlet_ansatz"
+  boundary_value: 0.0
+  lower: 0.0
+  upper: 1.0
+  distance_power: 1.0
+  distance_reduce: "product"

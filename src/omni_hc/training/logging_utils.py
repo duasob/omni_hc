@@ -49,8 +49,18 @@ def _normalize_image(image):
     return (img - vmin) / (vmax - vmin)
 
 
-def _to_grayscale_rgb(image):
-    img = _normalize_image(image)
+def _normalize_image_with_range(image, *, vmin: float, vmax: float):
+    img = image.detach().cpu().numpy()
+    if vmax <= vmin:
+        vmax = vmin + 1e-12
+    return np.clip((img - vmin) / (vmax - vmin), 0.0, 1.0)
+
+
+def _to_grayscale_rgb(image, *, vmin: float | None = None, vmax: float | None = None):
+    if vmin is None or vmax is None:
+        img = _normalize_image(image)
+    else:
+        img = _normalize_image_with_range(image, vmin=vmin, vmax=vmax)
     rgb = np.stack([img, img, img], axis=-1)
     return (rgb * 255).astype("uint8")
 
@@ -84,6 +94,40 @@ def log_prediction_images(pred, target, fx, h, w, *, prefix, epoch):
             f"{prefix}/pred": wandb.Image(_to_grayscale_rgb(pred_merge)),
             f"{prefix}/target": wandb.Image(_to_grayscale_rgb(target_merge)),
             f"{prefix}/error": wandb.Image(_to_red_blue_rgb(diff_img)),
+            "epoch": epoch + 1,
+        }
+    )
+
+
+def log_steady_field_images(coeff, pred, target, h, w, *, prefix, epoch):
+    if wandb is None or getattr(wandb, "run", None) is None:
+        return
+
+    coeff_img = coeff[0, :, 0].view(h, w)
+    pred_img = pred[0, :, 0].view(h, w)
+    target_img = target[0, :, 0].view(h, w)
+    error_signed = pred_img - target_img
+    error_abs = error_signed.abs()
+
+    pred_vmin = float(min(pred_img.min().item(), target_img.min().item()))
+    pred_vmax = float(max(pred_img.max().item(), target_img.max().item()))
+    abs_vmax = float(error_abs.max().item())
+    if abs_vmax <= 0.0:
+        abs_vmax = 1e-12
+
+    wandb.log(
+        {
+            f"{prefix}/coeff": wandb.Image(_to_grayscale_rgb(coeff_img)),
+            f"{prefix}/pred": wandb.Image(
+                _to_grayscale_rgb(pred_img, vmin=pred_vmin, vmax=pred_vmax)
+            ),
+            f"{prefix}/target": wandb.Image(
+                _to_grayscale_rgb(target_img, vmin=pred_vmin, vmax=pred_vmax)
+            ),
+            f"{prefix}/error_signed": wandb.Image(_to_red_blue_rgb(error_signed)),
+            f"{prefix}/error_abs": wandb.Image(
+                _to_grayscale_rgb(error_abs, vmin=0.0, vmax=abs_vmax)
+            ),
             "epoch": epoch + 1,
         }
     )
