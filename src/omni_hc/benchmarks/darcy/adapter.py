@@ -30,19 +30,6 @@ def _prepare_batch(batch, *, device):
     return batch["coords"].to(device), batch["x"].to(device), batch["y"].to(device)
 
 
-def _boundary_check(cfg: dict):
-    constraint_cfg = cfg.get("constraint", {}) or {}
-    name = str(constraint_cfg.get("name", "")).strip().lower()
-    if name not in {"dirichlet_ansatz", "dirichlet_boundary_ansatz"}:
-        return None
-    return {
-        "target_value": float(constraint_cfg.get("boundary_value", 0.0)),
-        "lower": float(constraint_cfg.get("lower", 0.0)),
-        "upper": float(constraint_cfg.get("upper", 1.0)),
-        "atol": float(constraint_cfg.get("boundary_atol", 1e-6)),
-    }
-
-
 def train(cfg: dict, *, nsl_root: str | Path | None, device):
     return train_steady_task(
         cfg,
@@ -71,7 +58,6 @@ def test(
         get_meta=_get_meta,
         runtime_overrides=_runtime_overrides,
         prepare_batch=_prepare_batch,
-        boundary_check=_boundary_check(cfg),
     )
     output_dir = Path(cfg["paths"]["output_dir"])
     with open(output_dir / "test_metrics.yaml", "w", encoding="utf-8") as handle:

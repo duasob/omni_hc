@@ -97,8 +97,19 @@ or, if configured, the minimum across dimensions instead of the product.
 Current assumptions:
 
 - the domain is axis-aligned
-- coordinates are already normalized to `[lower, upper]`
+- benchmark metadata provides the default box bounds
+- coordinates lie inside that box, typically `[0, 1]^d` for the current structured benchmarks
 - `g(x)` is currently a constant scalar boundary value
+
+For the current 2D Darcy setup, this reduces to:
+
+```text
+l(x, y) = x (1 - x) y (1 - y)
+```
+
+because the benchmark adapter provides `domain_bounds = (0.0, 1.0)` and the loader builds coordinates on the unit square.
+
+`axis-aligned` means the domain boundaries line up with the coordinate axes. In 2D, that means a rectangle whose sides are parallel to the `x` and `y` axes. The current ansatz is written for box domains of that form; it is not yet a general signed-distance function for curved or rotated domains.
 
 ## Config Interface
 
@@ -125,11 +136,17 @@ See [dirichlet_ansatz_zero.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/c
 constraint:
   name: "dirichlet_ansatz"
   boundary_value: 0.0
-  lower: 0.0
-  upper: 1.0
   distance_power: 1.0
   distance_reduce: "product"
 ```
+
+For the current Darcy and Navier-Stokes loaders, `lower` and `upper` do not need to be specified in the experiment config because the benchmark metadata already declares `domain_bounds = (0.0, 1.0)`.
+
+If a future benchmark lives on a different box, the preferred pattern is:
+
+- the benchmark adapter sets `meta["domain_bounds"]`
+- the constraint uses those bounds automatically
+- the config only sets `constraint.lower` / `constraint.upper` when you want to override the benchmark default
 
 ## Normalization Caveat
 

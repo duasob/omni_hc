@@ -117,6 +117,7 @@ def _load_darcy_raw(cfg: dict):
         "fun_dim": 1,
         "out_dim": 1,
         "space_dim": 2,
+        "domain_bounds": (0.0, 1.0),
         "task": "steady",
         "loader": "darcy",
         "geotype": "structured_2D",

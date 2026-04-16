@@ -32,6 +32,26 @@ def _decode_if_needed(normalizer, tensor: torch.Tensor) -> torch.Tensor:
     return normalizer.decode(tensor) if normalizer is not None else tensor
 
 
+def _resolve_boundary_check(cfg: dict, meta: dict) -> dict[str, float] | None:
+    constraint_cfg = cfg.get("constraint", {}) or {}
+    constraint_name = str(constraint_cfg.get("name", "")).strip().lower()
+    if constraint_name not in {"dirichlet_ansatz", "dirichlet_boundary_ansatz"}:
+        return None
+
+    domain_bounds = meta.get("domain_bounds", (0.0, 1.0))
+    if len(domain_bounds) != 2:
+        raise ValueError(
+            f"Expected meta['domain_bounds'] to contain (lower, upper), got {domain_bounds!r}"
+        )
+    lower_default, upper_default = domain_bounds
+    return {
+        "target_value": float(constraint_cfg.get("boundary_value", 0.0)),
+        "lower": float(constraint_cfg.get("lower", lower_default)),
+        "upper": float(constraint_cfg.get("upper", upper_default)),
+        "atol": float(constraint_cfg.get("boundary_atol", 1e-6)),
+    }
+
+
 def evaluate_steady(
     model,
     loader,
@@ -112,6 +132,13 @@ def train_steady_task(
         and hasattr(model.constraint, "set_target_normalizer")
     ):
         model.constraint.set_target_normalizer(y_normalizer)
+    if hasattr(model, "constraint") and hasattr(model.constraint, "set_domain_bounds"):
+        domain_bounds = meta.get("domain_bounds")
+        if domain_bounds is not None and len(domain_bounds) == 2:
+            model.constraint.set_domain_bounds(
+                lower=float(domain_bounds[0]),
+                upper=float(domain_bounds[1]),
+            )
 
     output_dir = resolve_output_dir(cfg)
     write_resolved_config(cfg, output_dir=output_dir, resolved_nsl_root=resolved_nsl_root)
@@ -125,16 +152,7 @@ def train_steady_task(
     wandb_cfg = cfg.get("wandb_logging", {}) or {}
     log_every = normalize_interval(wandb_cfg.get("log_every", 100))
     image_log_every = normalize_interval(wandb_cfg.get("image_log_every"))
-    constraint_cfg = cfg.get("constraint", {}) or {}
-    constraint_name = str(constraint_cfg.get("name", "")).strip().lower()
-    boundary_check = None
-    if constraint_name in {"dirichlet_ansatz", "dirichlet_boundary_ansatz"}:
-        boundary_check = {
-            "target_value": float(constraint_cfg.get("boundary_value", 0.0)),
-            "lower": float(constraint_cfg.get("lower", 0.0)),
-            "upper": float(constraint_cfg.get("upper", 1.0)),
-            "atol": float(constraint_cfg.get("boundary_atol", 1e-6)),
-        }
+    boundary_check = _resolve_boundary_check(cfg, meta)
 
     init_wandb_if_enabled(cfg)
     try:
@@ -385,8 +403,17 @@ def test_steady_task(
         and hasattr(model.constraint, "set_target_normalizer")
     ):
         model.constraint.set_target_normalizer(y_normalizer)
+    if hasattr(model, "constraint") and hasattr(model.constraint, "set_domain_bounds"):
+        domain_bounds = meta.get("domain_bounds")
+        if domain_bounds is not None and len(domain_bounds) == 2:
+            model.constraint.set_domain_bounds(
+                lower=float(domain_bounds[0]),
+                upper=float(domain_bounds[1]),
+            )
     checkpoint = load_checkpoint_state(checkpoint_path, device=device)
     model.load_state_dict(checkpoint["model_state_dict"])
+    if boundary_check is None:
+        boundary_check = _resolve_boundary_check(cfg, meta)
     metrics = evaluate_steady(
         model,
         test_loader,
