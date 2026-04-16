@@ -42,6 +42,8 @@ Boundary inspection on the shipped Darcy targets shows the intended boundary pro
 
 That is consistent with using `g(x)=0` in the architectural ansatz.
 
+For this benchmark, the structured grid is built on `[0, 1] x [0, 1]`, and the adapter exposes that through `meta["domain_bounds"] = (0.0, 1.0)`. The Dirichlet ansatz uses those bounds automatically, so the constraint config does not need explicit `lower` / `upper` fields unless you want to override the benchmark default.
+
 Note:
 
 - the current CPU smoke config forces `model.args.unified_pos: 0` because the upstream NSL positional embedding helper still assumes CUDA.

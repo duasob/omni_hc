@@ -79,6 +79,7 @@ def _load_ns_dataset_info(cfg: dict):
         "t_out": int(t_out),
         "out_dim": int(out_dim),
         "fun_dim": int(out_dim * t_in),
+        "domain_bounds": (0.0, 1.0),
         "ntrain": int(min(ntrain, n_samples)),
         "ntest": int(min(ntest, n_samples)),
         "path": str(mat_path),

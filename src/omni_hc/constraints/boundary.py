@@ -69,6 +69,10 @@ class DirichletBoundaryAnsatz(ConstraintModule):
     def set_target_normalizer(self, normalizer) -> None:
         self.target_normalizer = normalizer
 
+    def set_domain_bounds(self, *, lower: float, upper: float) -> None:
+        self.lower = float(lower)
+        self.upper = float(upper)
+
     def _boundary_value_tensor(self, coords: torch.Tensor, pred: torch.Tensor) -> torch.Tensor:
         g = constant_boundary_value(
             coords,
