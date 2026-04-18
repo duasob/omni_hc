@@ -4,7 +4,7 @@ from typing import Sequence
 
 import torch
 
-from .base import ConstraintModule
+from .base import ConstraintDiagnostic, ConstraintModule
 
 
 def unit_box_distance(
@@ -96,7 +96,37 @@ class DirichletBoundaryAnsatz(ConstraintModule):
         )
         out = g + distance * pred
         if return_aux:
-            return out, pred, distance
+            field = (
+                out
+                if self.target_normalizer is None
+                else self.target_normalizer.decode(out)
+            )
+            stats = boundary_stats(
+                field,
+                coords,
+                target_value=self.boundary_value,
+                lower=self.lower,
+                upper=self.upper,
+            )
+            diagnostics = {
+                "constraint/boundary_abs_mean": ConstraintDiagnostic(
+                    value=stats["boundary_abs_mean"],
+                    reduce="mean",
+                ),
+                "constraint/boundary_abs_max": ConstraintDiagnostic(
+                    value=stats["boundary_abs_max"],
+                    reduce="max",
+                ),
+                "constraint/distance_mean": ConstraintDiagnostic(
+                    value=distance.mean(),
+                    reduce="mean",
+                ),
+            }
+            return self.as_output(
+                out,
+                aux={"pred_base": pred, "distance": distance},
+                diagnostics=diagnostics,
+            )
         return out
 
 

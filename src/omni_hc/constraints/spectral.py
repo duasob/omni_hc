@@ -156,6 +156,57 @@ def spectral_divergence_2d(
     return torch.fft.ifft2(div_ft, dim=(-2, -1)).real
 
 
+def spectral_gradient_2d(
+    field: torch.Tensor,
+    *,
+    dy: float,
+    dx: float,
+) -> torch.Tensor:
+    if field.ndim != 4 or field.shape[1] != 1:
+        raise ValueError(
+            "Expected a scalar field with shape (batch, 1, height, width), "
+            f"got {tuple(field.shape)!r}"
+        )
+    height, width = field.shape[-2], field.shape[-1]
+    ky, kx = spectral_wavenumbers_2d(
+        height,
+        width,
+        dy=dy,
+        dx=dx,
+        device=field.device,
+        dtype=field.dtype,
+    )
+    field_ft = torch.fft.fft2(field, dim=(-2, -1))
+    grad_x = torch.fft.ifft2(1j * kx * field_ft, dim=(-2, -1)).real
+    grad_y = torch.fft.ifft2(1j * ky * field_ft, dim=(-2, -1)).real
+    return torch.cat([grad_x, grad_y], dim=1)
+
+
+def spectral_curl_2d(
+    field: torch.Tensor,
+    *,
+    dy: float,
+    dx: float,
+) -> torch.Tensor:
+    if field.ndim != 4 or field.shape[1] != 2:
+        raise ValueError(
+            "Expected a 2D vector field with shape (batch, 2, height, width), "
+            f"got {tuple(field.shape)!r}"
+        )
+    height, width = field.shape[-2], field.shape[-1]
+    ky, kx = spectral_wavenumbers_2d(
+        height,
+        width,
+        dy=dy,
+        dx=dx,
+        device=field.device,
+        dtype=field.real.dtype,
+    )
+    field_ft = torch.fft.fft2(field, dim=(-2, -1))
+    curl_ft = 1j * (kx * field_ft[:, 1:2] - ky * field_ft[:, 0:1])
+    return torch.fft.ifft2(curl_ft, dim=(-2, -1)).real
+
+
 def spectral_poisson_solve_2d(
     rhs: torch.Tensor,
     *,

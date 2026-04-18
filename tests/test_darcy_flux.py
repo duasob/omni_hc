@@ -1,6 +1,6 @@
 import torch
 
-from omni_hc.constraints import DarcyFluxConstraint, fft_leray_project_2d
+from omni_hc.constraints import ConstraintOutput, DarcyFluxConstraint, fft_leray_project_2d
 from omni_hc.constraints.spectral import spectral_divergence_2d
 
 
@@ -70,3 +70,41 @@ def test_darcy_flux_constraint_recovers_scalar_pressure_with_zero_boundary():
         torch.zeros_like(pressure_grid[:, :, -1, :]),
         atol=1e-6,
     )
+
+
+def test_darcy_flux_constraint_emits_physics_diagnostics():
+    torch.manual_seed(0)
+    height = width = 8
+    n_points = height * width
+
+    constraint = DarcyFluxConstraint(
+        spectral_backend="fft_pad",
+        padding=2,
+        padding_mode="reflect",
+        enforce_boundary=False,
+        boundary_value=0.0,
+        shapelist=(height, width),
+    )
+
+    flux_pred = torch.randn(1, n_points, 2)
+    permeability_physical = torch.full((1, n_points, 1), 4.0)
+    coords = torch.stack(
+        torch.meshgrid(
+            torch.linspace(0.0, 1.0, height),
+            torch.linspace(0.0, 1.0, width),
+            indexing="ij",
+        ),
+        dim=-1,
+    ).reshape(1, n_points, 2)
+
+    out = constraint(
+        pred=flux_pred,
+        fx=permeability_physical,
+        coords=coords,
+        return_aux=True,
+    )
+
+    assert isinstance(out, ConstraintOutput)
+    assert "constraint/flux_div_abs_mean" in out.diagnostics
+    assert "constraint/darcy_res_abs_mean" in out.diagnostics
+    assert "constraint/grad_curl_abs_mean" in out.diagnostics

@@ -9,11 +9,14 @@ import torch.nn.functional as F
 
 from omni_hc.integrations.nsl import create_model
 from omni_hc.training.common import (
+    MetricAccumulator,
     build_optimizer,
     build_scheduler,
+    diagnostic_values,
     forward_with_optional_aux,
     load_checkpoint_state,
     normalize_interval,
+    prefix_metric_names,
     relative_l2_per_sample,
     resolve_output_dir,
     save_checkpoint_bundle,
@@ -34,34 +37,23 @@ def rollout_autoregressive(
     current_fx = fx
     step_rel_l2 = torch.zeros((), device=coords.device)
     pred_mean_sum = 0.0
-    pred_base_sum = 0.0
-    corr_sum = 0.0
-    pred_base_count = 0
-    corr_count = 0
+    diag_metrics = MetricAccumulator()
     for step in range(int(t_out)):
         out = forward_with_optional_aux(model, coords, current_fx)
         pred_t = out["pred"]
         preds.append(pred_t)
         pred_mean_sum += float(out["pred_mean"])
-        if out["pred_base_mean"] is not None:
-            pred_base_sum += float(out["pred_base_mean"])
-            pred_base_count += 1
-        if out["corr_mean"] is not None:
-            corr_sum += float(out["corr_mean"])
-            corr_count += 1
+        diag_metrics.update(out["diagnostics"])
         y_t = target[..., out_dim * step : out_dim * (step + 1)]
         step_rel_l2 = step_rel_l2 + relative_l2_per_sample(pred_t, y_t).sum()
         next_tail = y_t if teacher_forcing else pred_t
         current_fx = torch.cat((current_fx[..., out_dim:], next_tail), dim=-1)
     pred = torch.cat(preds, dim=-1)
-    aux = {
+    summary = {
         "pred_mean": pred_mean_sum / max(int(t_out), 1),
-        "pred_base_mean": None
-        if pred_base_count == 0
-        else pred_base_sum / pred_base_count,
-        "corr_mean": None if corr_count == 0 else corr_sum / corr_count,
+        "diagnostics": diag_metrics.as_diagnostics(),
     }
-    return pred, step_rel_l2, aux
+    return pred, step_rel_l2, summary
 
 
 def evaluate_autoregressive(
@@ -77,13 +69,14 @@ def evaluate_autoregressive(
     model.eval()
     mse_sum = 0.0
     rel_l2_sum = 0.0
+    diag_metrics = MetricAccumulator()
     samples = 0
     with torch.no_grad():
         for batch in loader:
             coords, fx, target = prepare_batch(
                 batch, device=device, task_state=task_state
             )
-            pred, _, _ = rollout_autoregressive(
+            pred, _, summary = rollout_autoregressive(
                 model,
                 coords,
                 fx,
@@ -101,9 +94,12 @@ def evaluate_autoregressive(
                 .item()
             )
             rel_l2_sum += float(relative_l2_per_sample(pred, target).sum().item())
+            diag_metrics.update(summary["diagnostics"], weight=batch_size)
             samples += batch_size
     denom = max(samples, 1)
-    return {"mse": mse_sum / denom, "rel_l2": rel_l2_sum / denom}
+    metrics = {"mse": mse_sum / denom, "rel_l2": rel_l2_sum / denom}
+    metrics.update(diag_metrics.compute())
+    return metrics
 
 
 def train_autoregressive_task(
@@ -153,17 +149,14 @@ def train_autoregressive_task(
             train_loss_sum = 0.0
             train_rel_l2_sum = 0.0
             train_pred_mean_sum = 0.0
-            train_pred_base_mean_sum = 0.0
-            train_corr_mean_sum = 0.0
-            pred_base_count = 0
-            corr_count = 0
+            train_diag_metrics = MetricAccumulator()
             samples = 0
 
             for step, batch in enumerate(train_loader):
                 coords, fx, target = prepare_batch(
                     batch, device=device, task_state=task_state
                 )
-                pred, _, aux = rollout_autoregressive(
+                pred, _, summary = rollout_autoregressive(
                     model,
                     coords,
                     fx,
@@ -189,13 +182,8 @@ def train_autoregressive_task(
                 train_rel_l2_sum += float(
                     relative_l2_per_sample(pred, target).sum().item()
                 )
-                train_pred_mean_sum += float(aux["pred_mean"]) * batch_size
-                if aux["pred_base_mean"] is not None:
-                    train_pred_base_mean_sum += float(aux["pred_base_mean"]) * batch_size
-                    pred_base_count += batch_size
-                if aux["corr_mean"] is not None:
-                    train_corr_mean_sum += float(aux["corr_mean"]) * batch_size
-                    corr_count += batch_size
+                train_pred_mean_sum += float(summary["pred_mean"]) * batch_size
+                train_diag_metrics.update(summary["diagnostics"], weight=batch_size)
                 samples += batch_size
 
                 if log_every is not None and log_every > 0:
@@ -208,14 +196,14 @@ def train_autoregressive_task(
                             "train/step_rel_l2": float(
                                 relative_l2_per_sample(pred, target).mean().item()
                             ),
-                            "train/pred_mean": float(aux["pred_mean"]),
+                            "train/pred_mean": float(summary["pred_mean"]),
                         }
-                        if aux["pred_base_mean"] is not None:
-                            payload["train/pred_base_mean"] = float(
-                                aux["pred_base_mean"]
+                        payload.update(
+                            prefix_metric_names(
+                                diagnostic_values(summary["diagnostics"]),
+                                "train",
                             )
-                        if aux["corr_mean"] is not None:
-                            payload["train/corr_mean"] = float(aux["corr_mean"])
+                        )
                         log_metrics(payload, step=global_step)
 
             if scheduler is not None and not scheduler_step_per_batch:
@@ -225,13 +213,8 @@ def train_autoregressive_task(
                 "mse": train_loss_sum / max(samples, 1),
                 "rel_l2": train_rel_l2_sum / max(samples, 1),
                 "pred_mean": train_pred_mean_sum / max(samples, 1),
-                "pred_base_mean": None
-                if pred_base_count == 0
-                else train_pred_base_mean_sum / pred_base_count,
-                "corr_mean": None
-                if corr_count == 0
-                else train_corr_mean_sum / corr_count,
             }
+            train_metrics.update(train_diag_metrics.compute())
 
             if (
                 (image_log_every is not None and image_log_every > 0)
@@ -245,7 +228,7 @@ def train_autoregressive_task(
                         coords, fx, target = prepare_batch(
                             batch, device=device, task_state=task_state
                         )
-                        pred, _, aux = rollout_autoregressive(
+                        pred, _, summary = rollout_autoregressive(
                             model,
                             coords,
                             fx,
@@ -276,14 +259,14 @@ def train_autoregressive_task(
                         ):
                             payload = {
                                 "epoch": epoch + 1,
-                                "val/pred_mean": float(aux["pred_mean"]),
+                                "val/pred_mean": float(summary["pred_mean"]),
                             }
-                            if aux["pred_base_mean"] is not None:
-                                payload["val/pred_base_mean"] = float(
-                                    aux["pred_base_mean"]
+                            payload.update(
+                                prefix_metric_names(
+                                    diagnostic_values(summary["diagnostics"]),
+                                    "val",
                                 )
-                            if aux["corr_mean"] is not None:
-                                payload["val/corr_mean"] = float(aux["corr_mean"])
+                            )
                             log_metrics(payload)
                 model.train()
 
@@ -304,14 +287,11 @@ def train_autoregressive_task(
                 f"val_rel_l2={val_metrics['rel_l2']:.6f}"
             )
             log_metrics(
-                {
-                    "epoch": epoch + 1,
-                    "train/mse": train_metrics["mse"],
-                    "train/rel_l2": train_metrics["rel_l2"],
-                    "train/pred_mean": train_metrics["pred_mean"],
-                    "val/mse": val_metrics["mse"],
-                    "val/rel_l2": val_metrics["rel_l2"],
-                },
+                (
+                    {"epoch": epoch + 1}
+                    | prefix_metric_names(train_metrics, "train")
+                    | prefix_metric_names(val_metrics, "val")
+                ),
                 step=epoch + 1,
             )
 

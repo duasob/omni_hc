@@ -1,6 +1,7 @@
 import torch
 
 from omni_hc.constraints import (
+    ConstraintOutput,
     DirichletBoundaryAnsatz,
     boundary_stats,
     is_boundary_point,
@@ -72,3 +73,17 @@ def test_dirichlet_ansatz_enforces_physical_boundary_with_normalizer():
     assert torch.allclose(
         out_physical[mask], torch.zeros_like(out_physical[mask]), atol=1e-8
     )
+
+
+def test_dirichlet_ansatz_emits_boundary_diagnostics():
+    coords = torch.tensor(
+        [[[0.0, 0.3], [1.0, 0.7], [0.4, 0.0], [0.6, 1.0], [0.5, 0.5]]]
+    )
+    latent_pred = torch.randn(1, 5, 1)
+    constraint = DirichletBoundaryAnsatz(out_dim=1, boundary_value=0.0)
+
+    out = constraint(pred=latent_pred, coords=coords, return_aux=True)
+
+    assert isinstance(out, ConstraintOutput)
+    assert "constraint/boundary_abs_mean" in out.diagnostics
+    assert "constraint/boundary_abs_max" in out.diagnostics
