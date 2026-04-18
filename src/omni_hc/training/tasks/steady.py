@@ -7,14 +7,16 @@ import random
 import torch
 import torch.nn.functional as F
 
-from omni_hc.constraints import boundary_stats
 from omni_hc.integrations.nsl import create_model
 from omni_hc.training.common import (
+    MetricAccumulator,
     build_optimizer,
     build_scheduler,
+    diagnostic_values,
     forward_with_optional_aux,
     load_checkpoint_state,
     normalize_interval,
+    prefix_metric_names,
     relative_l2_per_sample,
     resolve_output_dir,
     save_checkpoint_bundle,
@@ -32,35 +34,6 @@ def _decode_if_needed(normalizer, tensor: torch.Tensor) -> torch.Tensor:
     return normalizer.decode(tensor) if normalizer is not None else tensor
 
 
-def _resolve_boundary_check(cfg: dict, meta: dict) -> dict[str, float] | None:
-    constraint_cfg = cfg.get("constraint", {}) or {}
-    constraint_name = str(constraint_cfg.get("name", "")).strip().lower()
-    if constraint_name not in {
-        "dirichlet_ansatz",
-        "dirichlet_boundary_ansatz",
-        "darcy_flux_projection",
-        "darcy_flux_fft_pad",
-    }:
-        return None
-    if constraint_name in {"darcy_flux_projection", "darcy_flux_fft_pad"} and not bool(
-        constraint_cfg.get("enforce_boundary", True)
-    ):
-        return None
-
-    domain_bounds = meta.get("domain_bounds", (0.0, 1.0))
-    if len(domain_bounds) != 2:
-        raise ValueError(
-            f"Expected meta['domain_bounds'] to contain (lower, upper), got {domain_bounds!r}"
-        )
-    lower_default, upper_default = domain_bounds
-    return {
-        "target_value": float(constraint_cfg.get("boundary_value", 0.0)),
-        "lower": float(constraint_cfg.get("lower", lower_default)),
-        "upper": float(constraint_cfg.get("upper", upper_default)),
-        "atol": float(constraint_cfg.get("boundary_atol", 1e-6)),
-    }
-
-
 def evaluate_steady(
     model,
     loader,
@@ -68,13 +41,11 @@ def evaluate_steady(
     device,
     y_normalizer,
     prepare_batch,
-    boundary_check=None,
 ):
     model.eval()
     mse_sum = 0.0
     rel_l2_sum = 0.0
-    boundary_mean_sum = 0.0
-    boundary_max = 0.0
+    diag_metrics = MetricAccumulator()
     samples = 0
     with torch.no_grad():
         for batch in loader:
@@ -93,23 +64,11 @@ def evaluate_steady(
             rel_l2_sum += float(
                 relative_l2_per_sample(pred, target_decoded).sum().item()
             )
-            if boundary_check is not None:
-                stats = boundary_stats(
-                    pred,
-                    coords,
-                    target_value=float(boundary_check["target_value"]),
-                    lower=float(boundary_check["lower"]),
-                    upper=float(boundary_check["upper"]),
-                    atol=float(boundary_check["atol"]),
-                )
-                boundary_mean_sum += stats["boundary_abs_mean"] * batch_size
-                boundary_max = max(boundary_max, stats["boundary_abs_max"])
+            diag_metrics.update(out["diagnostics"], weight=batch_size)
             samples += batch_size
     denom = max(samples, 1)
     metrics = {"mse": mse_sum / denom, "rel_l2": rel_l2_sum / denom}
-    if boundary_check is not None:
-        metrics["boundary_abs_mean"] = boundary_mean_sum / denom
-        metrics["boundary_abs_max"] = boundary_max
+    metrics.update(diag_metrics.compute())
     return metrics
 
 
@@ -174,7 +133,6 @@ def train_steady_task(
     wandb_cfg = cfg.get("wandb_logging", {}) or {}
     log_every = normalize_interval(wandb_cfg.get("log_every", 100))
     image_log_every = normalize_interval(wandb_cfg.get("image_log_every"))
-    boundary_check = _resolve_boundary_check(cfg, meta)
 
     init_wandb_if_enabled(cfg)
     try:
@@ -184,12 +142,7 @@ def train_steady_task(
             train_mse_sum = 0.0
             train_rel_l2_sum = 0.0
             train_pred_mean_sum = 0.0
-            train_pred_base_mean_sum = 0.0
-            train_corr_mean_sum = 0.0
-            pred_base_count = 0
-            corr_count = 0
-            train_boundary_mean_sum = 0.0
-            train_boundary_max = 0.0
+            train_diag_metrics = MetricAccumulator()
             samples = 0
 
             for step, batch in enumerate(train_loader):
@@ -222,25 +175,7 @@ def train_steady_task(
                 )
                 train_rel_l2_sum += float(rel_l2.sum().item())
                 train_pred_mean_sum += float(pred_decoded.mean().item()) * batch_size
-                if out["pred_base_mean"] is not None:
-                    train_pred_base_mean_sum += float(out["pred_base_mean"]) * batch_size
-                    pred_base_count += batch_size
-                if out["corr_mean"] is not None:
-                    train_corr_mean_sum += float(out["corr_mean"]) * batch_size
-                    corr_count += batch_size
-                if boundary_check is not None:
-                    stats = boundary_stats(
-                        pred_decoded,
-                        coords,
-                        target_value=float(boundary_check["target_value"]),
-                        lower=float(boundary_check["lower"]),
-                        upper=float(boundary_check["upper"]),
-                        atol=float(boundary_check["atol"]),
-                    )
-                    train_boundary_mean_sum += stats["boundary_abs_mean"] * batch_size
-                    train_boundary_max = max(
-                        train_boundary_max, stats["boundary_abs_max"]
-                    )
+                train_diag_metrics.update(out["diagnostics"], weight=batch_size)
                 samples += batch_size
 
                 if log_every is not None and log_every > 0:
@@ -253,12 +188,12 @@ def train_steady_task(
                             "train/step_rel_l2": float(rel_l2.mean().item()),
                             "train/pred_mean": float(pred_decoded.mean().item()),
                         }
-                        if out["pred_base_mean"] is not None:
-                            payload["train/pred_base_mean"] = float(
-                                out["pred_base_mean"]
+                        payload.update(
+                            prefix_metric_names(
+                                diagnostic_values(out["diagnostics"]),
+                                "train",
                             )
-                        if out["corr_mean"] is not None:
-                            payload["train/corr_mean"] = float(out["corr_mean"])
+                        )
                         log_metrics(payload, step=global_step)
 
             if scheduler is not None and not scheduler_step_per_batch:
@@ -269,18 +204,8 @@ def train_steady_task(
                 "mse": train_mse_sum / max(samples, 1),
                 "rel_l2": train_rel_l2_sum / max(samples, 1),
                 "pred_mean": train_pred_mean_sum / max(samples, 1),
-                "pred_base_mean": None
-                if pred_base_count == 0
-                else train_pred_base_mean_sum / pred_base_count,
-                "corr_mean": None
-                if corr_count == 0
-                else train_corr_mean_sum / corr_count,
             }
-            if boundary_check is not None:
-                train_metrics["boundary_abs_mean"] = (
-                    train_boundary_mean_sum / max(samples, 1)
-                )
-                train_metrics["boundary_abs_max"] = train_boundary_max
+            train_metrics.update(train_diag_metrics.compute())
 
             if (
                 (image_log_every is not None and image_log_every > 0)
@@ -320,12 +245,12 @@ def train_steady_task(
                                 "epoch": epoch + 1,
                                 "val/pred_mean": float(pred_decoded.mean().item()),
                             }
-                            if out["pred_base_mean"] is not None:
-                                payload["val/pred_base_mean"] = float(
-                                    out["pred_base_mean"]
+                            payload.update(
+                                prefix_metric_names(
+                                    diagnostic_values(out["diagnostics"]),
+                                    "val",
                                 )
-                            if out["corr_mean"] is not None:
-                                payload["val/corr_mean"] = float(out["corr_mean"])
+                            )
                             log_metrics(payload)
                 model.train()
 
@@ -335,7 +260,6 @@ def train_steady_task(
                 device=device,
                 y_normalizer=y_normalizer,
                 prepare_batch=prepare_batch,
-                boundary_check=boundary_check,
             )
             print(
                 f"epoch {epoch + 1}/{int(training_cfg.get('num_epochs', 1))} "
@@ -344,27 +268,13 @@ def train_steady_task(
                 f"val_mse={val_metrics['mse']:.6f}"
             )
             log_metrics(
-                {
-                    "epoch": epoch + 1,
-                    "train/loss": train_metrics["loss"],
-                    "train/mse": train_metrics["mse"],
-                    "train/rel_l2": train_metrics["rel_l2"],
-                    "val/mse": val_metrics["mse"],
-                    "val/rel_l2": val_metrics["rel_l2"],
-                },
+                (
+                    {"epoch": epoch + 1}
+                    | prefix_metric_names(train_metrics, "train")
+                    | prefix_metric_names(val_metrics, "val")
+                ),
                 step=epoch + 1,
             )
-            if boundary_check is not None:
-                log_metrics(
-                    {
-                        "epoch": epoch + 1,
-                        "train/boundary_abs_mean": train_metrics["boundary_abs_mean"],
-                        "train/boundary_abs_max": train_metrics["boundary_abs_max"],
-                        "val/boundary_abs_mean": val_metrics["boundary_abs_mean"],
-                        "val/boundary_abs_max": val_metrics["boundary_abs_max"],
-                    },
-                    step=epoch + 1,
-                )
 
             checkpoint_payload = {
                 "epoch": epoch + 1,
@@ -403,7 +313,6 @@ def test_steady_task(
     get_meta,
     runtime_overrides,
     prepare_batch,
-    boundary_check=None,
 ):
     output_dir = resolve_output_dir(cfg)
     if checkpoint_path is None:
@@ -447,15 +356,12 @@ def test_steady_task(
             )
     checkpoint = load_checkpoint_state(checkpoint_path, device=device)
     model.load_state_dict(checkpoint["model_state_dict"])
-    if boundary_check is None:
-        boundary_check = _resolve_boundary_check(cfg, meta)
     metrics = evaluate_steady(
         model,
         test_loader,
         device=device,
         y_normalizer=y_normalizer,
         prepare_batch=prepare_batch,
-        boundary_check=boundary_check,
     )
     return {
         "checkpoint": str(Path(checkpoint_path).resolve()),

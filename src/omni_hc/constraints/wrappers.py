@@ -4,7 +4,7 @@ from typing import Optional, Sequence
 
 import torch.nn as nn
 
-from .base import ConstraintModule
+from .base import ConstraintDiagnostic, ConstraintModule
 from .mean import build_mlp, match_mean
 
 
@@ -125,7 +125,21 @@ class MeanConstraint(ConstraintModule):
             out = pred - corr
 
         if return_aux:
-            return out, pred, corr
+            diagnostics = {
+                "constraint/pred_base_mean": ConstraintDiagnostic(
+                    value=pred.mean(),
+                    reduce="mean",
+                ),
+                "constraint/corr_mean": ConstraintDiagnostic(
+                    value=corr.mean(),
+                    reduce="mean",
+                ),
+            }
+            return self.as_output(
+                out,
+                aux={"pred_base": pred, "corr": corr},
+                diagnostics=diagnostics,
+            )
         return out
 
 

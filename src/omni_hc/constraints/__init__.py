@@ -1,4 +1,4 @@
-from .base import ConstraintModule
+from .base import ConstraintDiagnostic, ConstraintModule, ConstraintOutput
 from .boundary import (
     DirichletBoundaryAnsatz,
     boundary_residual,
@@ -14,7 +14,9 @@ from .wrappers import ConstrainedModel, ForwardHookLatentExtractor, MeanConstrai
 
 __all__ = [
     "ConstrainedModel",
+    "ConstraintDiagnostic",
     "ConstraintModule",
+    "ConstraintOutput",
     "DarcyFluxConstraint",
     "DirichletBoundaryAnsatz",
     "ForwardHookLatentExtractor",

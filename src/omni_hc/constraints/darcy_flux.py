@@ -4,7 +4,8 @@ from typing import Sequence
 
 import torch
 
-from .base import ConstraintModule
+from .base import ConstraintDiagnostic, ConstraintModule
+from .boundary import boundary_stats
 from .spectral import (
     crop_spatial_2d,
     fft_leray_project_2d,
@@ -12,7 +13,9 @@ from .spectral import (
     pad_spatial_2d,
     reshape_channels_last_to_grid,
     reshape_grid_to_channels_last,
+    spectral_curl_2d,
     spectral_divergence_2d,
+    spectral_gradient_2d,
     spectral_poisson_solve_2d,
 )
 
@@ -139,7 +142,7 @@ class DarcyFluxConstraint(ConstraintModule):
         out[..., :, -1] = self.boundary_value
         return out
 
-    def forward(self, *, pred, fx=None, return_aux=False, **_unused):
+    def forward(self, *, pred, fx=None, coords=None, return_aux=False, **_unused):
         if fx is None:
             raise ValueError("fx is required for DarcyFluxConstraint")
         if pred.ndim != 3:
@@ -210,9 +213,91 @@ class DarcyFluxConstraint(ConstraintModule):
         pressure_encoded = self._encode_pressure(pressure_flat)
 
         if return_aux:
-            constrained_flux_flat = reshape_grid_to_channels_last(
-                crop_spatial_2d(constrained_flux, self.padding)
-            )
+            constrained_flux_physical = crop_spatial_2d(constrained_flux, self.padding)
+            constrained_flux_flat = reshape_grid_to_channels_last(constrained_flux_physical)
             flux_correction_flat = constrained_flux_flat - pred
-            return pressure_encoded, pred, flux_correction_flat
+            physical_gradient = crop_spatial_2d(pressure_gradient, self.padding)
+            flux_divergence = spectral_divergence_2d(
+                constrained_flux_physical,
+                dy=dy,
+                dx=dx,
+            )
+            flux_divergence_residual = flux_divergence - self.force_value
+            gradient_curl = spectral_curl_2d(
+                physical_gradient,
+                dy=dy,
+                dx=dx,
+            )
+            pressure_gradient_from_u = spectral_gradient_2d(
+                pressure,
+                dy=dy,
+                dx=dx,
+            )
+            darcy_flux_from_pressure = -permeability * pressure_gradient_from_u
+            darcy_residual = spectral_divergence_2d(
+                darcy_flux_from_pressure,
+                dy=dy,
+                dx=dx,
+            ) - self.force_value
+
+            diagnostics = {
+                "constraint/flux_div_abs_mean": ConstraintDiagnostic(
+                    value=flux_divergence_residual.abs().mean(),
+                    reduce="mean",
+                ),
+                "constraint/flux_div_abs_max": ConstraintDiagnostic(
+                    value=flux_divergence_residual.abs().max(),
+                    reduce="max",
+                ),
+                "constraint/darcy_res_abs_mean": ConstraintDiagnostic(
+                    value=darcy_residual.abs().mean(),
+                    reduce="mean",
+                ),
+                "constraint/darcy_res_abs_max": ConstraintDiagnostic(
+                    value=darcy_residual.abs().max(),
+                    reduce="max",
+                ),
+                "constraint/grad_curl_abs_mean": ConstraintDiagnostic(
+                    value=gradient_curl.abs().mean(),
+                    reduce="mean",
+                ),
+                "constraint/grad_curl_abs_max": ConstraintDiagnostic(
+                    value=gradient_curl.abs().max(),
+                    reduce="max",
+                ),
+                "constraint/flux_correction_rel_l2": ConstraintDiagnostic(
+                    value=flux_correction_flat.reshape(flux_correction_flat.shape[0], -1)
+                    .norm(dim=1)
+                    .div(
+                        pred.reshape(pred.shape[0], -1).norm(dim=1).clamp_min(1e-12)
+                    )
+                    .mean(),
+                    reduce="mean",
+                ),
+            }
+            if coords is not None:
+                boundary = boundary_stats(
+                    pressure_flat,
+                    coords,
+                    target_value=self.boundary_value,
+                    lower=self.lower,
+                    upper=self.upper,
+                )
+                diagnostics["constraint/boundary_abs_mean"] = ConstraintDiagnostic(
+                    value=boundary["boundary_abs_mean"],
+                    reduce="mean",
+                )
+                diagnostics["constraint/boundary_abs_max"] = ConstraintDiagnostic(
+                    value=boundary["boundary_abs_max"],
+                    reduce="max",
+                )
+            return self.as_output(
+                pressure_encoded,
+                aux={
+                    "pred_base": pred,
+                    "flux_correction": flux_correction_flat,
+                    "constrained_flux": constrained_flux_flat,
+                },
+                diagnostics=diagnostics,
+            )
         return pressure_encoded
