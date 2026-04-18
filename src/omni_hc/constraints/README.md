@@ -49,6 +49,24 @@ Contains Dirichlet architectural-ansatz utilities:
 
 This is the current path for enforcing boundary conditions by construction.
 
+### `darcy_flux.py`
+
+Contains the first Darcy-specific flux-to-pressure wrapper constraint:
+
+- `DarcyFluxConstraint`
+
+The current MVP backend is `fft_pad`:
+
+- the backbone predicts a 2-channel latent flux field
+- the wrapper decodes the physical permeability field
+- the flux correction is projected with a padded Fourier Leray projection
+- the constrained flux is converted to a pressure gradient estimate
+- a padded Poisson solve recovers a scalar pressure field
+- the cropped pressure field is re-encoded to match the training target space
+
+This keeps the backbone generic while moving the Darcy-specific operator logic
+into the constraint layer.
+
 ## Supported Constraint Families
 
 ## Mean Correction
@@ -111,6 +129,49 @@ because the benchmark adapter provides `domain_bounds = (0.0, 1.0)` and the load
 
 `axis-aligned` means the domain boundaries line up with the coordinate axes. In 2D, that means a rectangle whose sides are parallel to the `x` and `y` axes. The current ansatz is written for box domains of that form; it is not yet a general signed-distance function for curved or rotated domains.
 
+## Darcy Flux Projection
+
+For Darcy flow, the PDE is
+
+```text
+-div(a grad u) = 1
+```
+
+The current MVP reformulates this through the flux
+
+```text
+v = -a grad u
+```
+
+so that
+
+```text
+div(v) = 1
+```
+
+The backbone therefore predicts a latent vector field instead of pressure
+directly. The wrapper then:
+
+1. pads the latent flux and permeability fields
+2. subtracts a simple particular field with divergence `1`
+3. projects the remaining correction to a divergence-free field with an FFT
+   Leray projection
+4. reconstructs a constrained flux
+5. computes `grad u = -v / a`
+6. recovers `u` through a padded Poisson solve
+7. crops back to the physical domain
+
+Important limitation of the `fft_pad` backend:
+
+- it is a practical padded Fourier approximation, not a fully Dirichlet-aware
+  spectral method
+- it improves non-periodic behavior by padding and cropping
+- it does not provide the same boundary fidelity that a future sine-transform
+  backend can provide
+
+The wrapper can still clamp the final pressure boundary values exactly when the
+benchmark uses a constant Dirichlet boundary.
+
 ## Config Interface
 
 Constraints are selected through the top-level `constraint` section in the experiment config.
@@ -138,6 +199,23 @@ constraint:
   boundary_value: 0.0
   distance_power: 1.0
   distance_reduce: "product"
+```
+
+### Darcy Flux Projection Example
+
+See [darcy_flux_fft_pad.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/constraints/darcy_flux_fft_pad.yaml):
+
+```yaml
+constraint:
+  name: "darcy_flux_projection"
+  spectral_backend: "fft_pad"
+  backbone_out_dim: 2
+  pressure_out_dim: 1
+  force_value: 1.0
+  padding: 8
+  padding_mode: "reflect"
+  enforce_boundary: true
+  boundary_value: 0.0
 ```
 
 For the current Darcy and Navier-Stokes loaders, `lower` and `upper` do not need to be specified in the experiment config because the benchmark metadata already declares `domain_bounds = (0.0, 1.0)`.
@@ -191,6 +269,7 @@ The next likely extensions are:
 - non-constant Dirichlet profiles `g(x)`
 - more general distance functions for non-rectangular domains
 - Neumann or flux-based constraints
+- a Dirichlet-aware sine-transform backend for Darcy flux projection
 - explicit validation hooks that expose constraint violation metrics to W&B in a uniform way
 
 The core principle should remain the same: benchmark adapters choose constraints, but the constraint implementations themselves stay reusable and testable in isolation.

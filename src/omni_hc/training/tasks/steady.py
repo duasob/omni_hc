@@ -35,7 +35,16 @@ def _decode_if_needed(normalizer, tensor: torch.Tensor) -> torch.Tensor:
 def _resolve_boundary_check(cfg: dict, meta: dict) -> dict[str, float] | None:
     constraint_cfg = cfg.get("constraint", {}) or {}
     constraint_name = str(constraint_cfg.get("name", "")).strip().lower()
-    if constraint_name not in {"dirichlet_ansatz", "dirichlet_boundary_ansatz"}:
+    if constraint_name not in {
+        "dirichlet_ansatz",
+        "dirichlet_boundary_ansatz",
+        "darcy_flux_projection",
+        "darcy_flux_fft_pad",
+    }:
+        return None
+    if constraint_name in {"darcy_flux_projection", "darcy_flux_fft_pad"} and not bool(
+        constraint_cfg.get("enforce_boundary", True)
+    ):
         return None
 
     domain_bounds = meta.get("domain_bounds", (0.0, 1.0))
@@ -116,6 +125,9 @@ def train_steady_task(
 ):
     train_loader, val_loader = build_train_val_loaders(cfg)
     meta = get_meta(train_loader)
+    x_normalizer = getattr(train_loader, "x_normalizer", None)
+    if x_normalizer is not None:
+        x_normalizer = x_normalizer.to(device)
     y_normalizer = getattr(train_loader, "y_normalizer", None)
     if y_normalizer is not None:
         y_normalizer = y_normalizer.to(device)
@@ -132,6 +144,16 @@ def train_steady_task(
         and hasattr(model.constraint, "set_target_normalizer")
     ):
         model.constraint.set_target_normalizer(y_normalizer)
+    if (
+        x_normalizer is not None
+        and hasattr(model, "constraint")
+        and hasattr(model.constraint, "set_input_normalizer")
+    ):
+        model.constraint.set_input_normalizer(x_normalizer)
+    if hasattr(model, "constraint") and hasattr(model.constraint, "set_grid_shape"):
+        shapelist = meta.get("shapelist")
+        if shapelist is not None:
+            model.constraint.set_grid_shape(tuple(shapelist))
     if hasattr(model, "constraint") and hasattr(model.constraint, "set_domain_bounds"):
         domain_bounds = meta.get("domain_bounds")
         if domain_bounds is not None and len(domain_bounds) == 2:
@@ -388,6 +410,9 @@ def test_steady_task(
         checkpoint_path = output_dir / "best.pt"
     test_loader = build_test_loader(cfg)
     meta = get_meta(test_loader)
+    x_normalizer = getattr(test_loader, "x_normalizer", None)
+    if x_normalizer is not None:
+        x_normalizer = x_normalizer.to(device)
     y_normalizer = getattr(test_loader, "y_normalizer", None)
     if y_normalizer is not None:
         y_normalizer = y_normalizer.to(device)
@@ -403,6 +428,16 @@ def test_steady_task(
         and hasattr(model.constraint, "set_target_normalizer")
     ):
         model.constraint.set_target_normalizer(y_normalizer)
+    if (
+        x_normalizer is not None
+        and hasattr(model, "constraint")
+        and hasattr(model.constraint, "set_input_normalizer")
+    ):
+        model.constraint.set_input_normalizer(x_normalizer)
+    if hasattr(model, "constraint") and hasattr(model.constraint, "set_grid_shape"):
+        shapelist = meta.get("shapelist")
+        if shapelist is not None:
+            model.constraint.set_grid_shape(tuple(shapelist))
     if hasattr(model, "constraint") and hasattr(model.constraint, "set_domain_bounds"):
         domain_bounds = meta.get("domain_bounds")
         if domain_bounds is not None and len(domain_bounds) == 2:
