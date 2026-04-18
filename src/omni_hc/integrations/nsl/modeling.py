@@ -7,6 +7,7 @@ import torch
 
 from omni_hc.constraints import (
     ConstrainedModel,
+    DarcyFluxConstraint,
     DirichletBoundaryAnsatz,
     ForwardHookLatentExtractor,
     MeanConstraint,
@@ -79,6 +80,14 @@ def build_model_args(cfg: dict, runtime_overrides: dict[str, Any] | None = None)
     if runtime_overrides:
         args_dict.update(runtime_overrides)
 
+    constraint_cfg = cfg.get("constraint", {}) or {}
+    backbone_out_dim = constraint_cfg.get("backbone_out_dim")
+    if backbone_out_dim is not None:
+        target_out_dim = args_dict.get("out_dim")
+        if target_out_dim is not None:
+            args_dict["target_out_dim"] = int(target_out_dim)
+        args_dict["out_dim"] = int(backbone_out_dim)
+
     shapelist = args_dict.get("shapelist")
     if isinstance(shapelist, list):
         args_dict["shapelist"] = tuple(shapelist)
@@ -108,10 +117,35 @@ def _build_constraint(backbone: torch.nn.Module, args, cfg: dict):
                 param.requires_grad = False
         return wrapped
 
+    if name in {"darcy_flux_projection", "darcy_flux_fft_pad"}:
+        constraint = DarcyFluxConstraint(
+            spectral_backend=str(constraint_cfg.get("spectral_backend", "fft_pad")),
+            force_value=float(constraint_cfg.get("force_value", 1.0)),
+            permeability_eps=float(constraint_cfg.get("permeability_eps", 1e-6)),
+            padding=constraint_cfg.get("padding", 8),
+            padding_mode=str(constraint_cfg.get("padding_mode", "reflect")),
+            pressure_out_dim=int(
+                constraint_cfg.get(
+                    "pressure_out_dim",
+                    getattr(args, "target_out_dim", 1),
+                )
+            ),
+            enforce_boundary=bool(constraint_cfg.get("enforce_boundary", True)),
+            boundary_value=float(constraint_cfg.get("boundary_value", 0.0)),
+            shapelist=getattr(args, "shapelist", None),
+            lower=float(constraint_cfg.get("lower", 0.0)),
+            upper=float(constraint_cfg.get("upper", 1.0)),
+        )
+        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
+        if bool(constraint_cfg.get("freeze_base", False)):
+            for param in wrapped.backbone.parameters():
+                param.requires_grad = False
+        return wrapped
+
     if name not in {"mean_correction", "mean_constraint"}:
         raise ValueError(
             "Unsupported constraint "
-            f"'{name}'. Currently supported: mean_correction, dirichlet_ansatz"
+            f"'{name}'. Currently supported: mean_correction, dirichlet_ansatz, darcy_flux_projection"
         )
 
     mode = str(constraint_cfg.get("mode", "post_output")).lower()

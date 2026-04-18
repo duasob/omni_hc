@@ -13,9 +13,9 @@ build/
 dist/
 *.egg-info/
 
-data/
+data
 artifacts/
-outputs/
+outputs
 wandb/
 checkpoints/
 logs/

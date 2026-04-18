@@ -165,6 +165,8 @@ def build_train_val_loaders(cfg: dict):
     val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False, num_workers=0)
     train_loader.darcy_meta = meta
     val_loader.darcy_meta = meta
+    train_loader.x_normalizer = x_normalizer
+    val_loader.x_normalizer = x_normalizer
     train_loader.y_normalizer = y_normalizer
     val_loader.y_normalizer = y_normalizer
     return train_loader, val_loader
@@ -185,5 +187,6 @@ def build_test_loader(cfg: dict):
     )
     test_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
     test_loader.darcy_meta = meta
+    test_loader.x_normalizer = x_normalizer
     test_loader.y_normalizer = y_normalizer
     return test_loader
