@@ -1,11 +1,11 @@
 constraint:
   name: "darcy_flux_projection"
-  spectral_backend: "fft_pad"
-  backbone_out_dim: 2
+  spectral_backend: "helmholtz_sine"
   pressure_out_dim: 1
   force_value: 1.0
   permeability_eps: 1.0e-6
   padding: 8
   padding_mode: "reflect"
-  enforce_boundary: false
+  particular_field: "y_only"
+  enforce_boundary: true
   boundary_value: 0.0

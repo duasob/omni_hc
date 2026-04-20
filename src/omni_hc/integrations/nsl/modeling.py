@@ -80,14 +80,6 @@ def build_model_args(cfg: dict, runtime_overrides: dict[str, Any] | None = None)
     if runtime_overrides:
         args_dict.update(runtime_overrides)
 
-    constraint_cfg = cfg.get("constraint", {}) or {}
-    backbone_out_dim = constraint_cfg.get("backbone_out_dim")
-    if backbone_out_dim is not None:
-        target_out_dim = args_dict.get("out_dim")
-        if target_out_dim is not None:
-            args_dict["target_out_dim"] = int(target_out_dim)
-        args_dict["out_dim"] = int(backbone_out_dim)
-
     shapelist = args_dict.get("shapelist")
     if isinstance(shapelist, list):
         args_dict["shapelist"] = tuple(shapelist)
@@ -117,17 +109,25 @@ def _build_constraint(backbone: torch.nn.Module, args, cfg: dict):
                 param.requires_grad = False
         return wrapped
 
-    if name in {"darcy_flux_projection", "darcy_flux_fft_pad"}:
+    if name in {
+        "darcy_flux_projection",
+        "darcy_flux_fft_pad",
+        "darcy_helmholtz",
+        "darcy_streamfunction",
+    }:
         constraint = DarcyFluxConstraint(
-            spectral_backend=str(constraint_cfg.get("spectral_backend", "fft_pad")),
+            spectral_backend=str(
+                constraint_cfg.get("spectral_backend", "helmholtz_sine")
+            ),
             force_value=float(constraint_cfg.get("force_value", 1.0)),
             permeability_eps=float(constraint_cfg.get("permeability_eps", 1e-6)),
             padding=constraint_cfg.get("padding", 8),
             padding_mode=str(constraint_cfg.get("padding_mode", "reflect")),
+            particular_field=str(constraint_cfg.get("particular_field", "y_only")),
             pressure_out_dim=int(
                 constraint_cfg.get(
                     "pressure_out_dim",
-                    getattr(args, "target_out_dim", 1),
+                    1,
                 )
             ),
             enforce_boundary=bool(constraint_cfg.get("enforce_boundary", True)),

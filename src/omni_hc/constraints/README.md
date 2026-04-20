@@ -51,18 +51,19 @@ This is the current path for enforcing boundary conditions by construction.
 
 ### `darcy_flux.py`
 
-Contains the first Darcy-specific flux-to-pressure wrapper constraint:
+Contains the Darcy-specific Helmholtz stream-function wrapper constraint:
 
 - `DarcyFluxConstraint`
 
-The current MVP backend is `fft_pad`:
+The current implementation predicts a scalar stream function `psi`:
 
-- the backbone predicts a 2-channel latent flux field
+- the backbone predicts a 1-channel latent stream function
 - the wrapper decodes the physical permeability field
-- the flux correction is projected with a padded Fourier Leray projection
-- the constrained flux is converted to a pressure gradient estimate
-- a padded Poisson solve recovers a scalar pressure field
-- the cropped pressure field is re-encoded to match the training target space
+- `v_corr = grad_perp(psi)` is built spectrally on a padded grid
+- a fixed particular field `v_part` supplies the forcing `div(v_part) = 1`
+- the cropped physical flux is converted to a gradient candidate `w = -v / a`
+- a Dirichlet-aware sine Poisson solve recovers a scalar pressure field
+- the recovered pressure is re-encoded to match the training target space
 
 This keeps the backbone generic while moving the Darcy-specific operator logic
 into the constraint layer.
@@ -137,7 +138,7 @@ For Darcy flow, the PDE is
 -div(a grad u) = 1
 ```
 
-The current MVP reformulates this through the flux
+The current implementation reformulates this through the flux
 
 ```text
 v = -a grad u
@@ -149,28 +150,35 @@ so that
 div(v) = 1
 ```
 
-The backbone therefore predicts a latent vector field instead of pressure
-directly. The wrapper then:
+Instead of predicting the full flux field directly, the backbone predicts a
+scalar stream function `psi`. The wrapper then:
 
-1. pads the latent flux and permeability fields
-2. subtracts a simple particular field with divergence `1`
-3. projects the remaining correction to a divergence-free field with an FFT
-   Leray projection
-4. reconstructs a constrained flux
-5. computes `grad u = -v / a`
-6. recovers `u` through a padded Poisson solve
-7. crops back to the physical domain
+1. pads `psi` on a larger computational box
+2. builds a divergence-free correction
+   ```text
+   v_corr = grad_perp(psi)
+   ```
+3. adds a fixed particular field `v_part` with `div(v_part) = 1`
+4. crops back to the physical Darcy grid and forms
+   ```text
+   v_valid = v_part + v_corr
+   ```
+5. computes
+   ```text
+   w = -v_valid / a
+   ```
+6. recovers `u` through a sine-transform Dirichlet Poisson solve
 
-Important limitation of the `fft_pad` backend:
+What this does enforce well:
 
-- it is a practical padded Fourier approximation, not a fully Dirichlet-aware
-  spectral method
-- it improves non-periodic behavior by padding and cropping
-- it does not provide the same boundary fidelity that a future sine-transform
-  backend can provide
+- `v_corr` is divergence-free by construction on the padded spectral domain
+- the recovered pressure satisfies the constant Dirichlet boundary value exactly
+  after the sine solve
 
-The wrapper can still clamp the final pressure boundary values exactly when the
-benchmark uses a constant Dirichlet boundary.
+What this does not yet hard-enforce:
+
+- `w = -v_valid / a` being exactly curl-free / integrable everywhere
+- the full Darcy residual being identically zero on the discrete grid
 
 ## Config Interface
 
@@ -208,12 +216,12 @@ See [darcy_flux_fft_pad.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/cons
 ```yaml
 constraint:
   name: "darcy_flux_projection"
-  spectral_backend: "fft_pad"
-  backbone_out_dim: 2
+  spectral_backend: "helmholtz_sine"
   pressure_out_dim: 1
   force_value: 1.0
   padding: 8
   padding_mode: "reflect"
+  particular_field: "y_only"
   enforce_boundary: true
   boundary_value: 0.0
 ```
@@ -269,7 +277,8 @@ The next likely extensions are:
 - non-constant Dirichlet profiles `g(x)`
 - more general distance functions for non-rectangular domains
 - Neumann or flux-based constraints
-- a Dirichlet-aware sine-transform backend for Darcy flux projection
+- stronger integrability control for `w = -v / a`
+- alternative particular fields and padding strategies for Darcy
 - explicit validation hooks that expose constraint violation metrics to W&B in a uniform way
 
 The core principle should remain the same: benchmark adapters choose constraints, but the constraint implementations themselves stay reusable and testable in isolation.
