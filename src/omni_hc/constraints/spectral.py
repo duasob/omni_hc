@@ -235,3 +235,212 @@ def spectral_poisson_solve_2d(
     solution_ft = torch.where(k2 == 0, torch.zeros_like(solution_ft), solution_ft)
 
     return torch.fft.ifft2(solution_ft, dim=(-2, -1)).real
+
+
+def finite_difference_derivative_2d(
+    tensor: torch.Tensor,
+    *,
+    spacing: float,
+    axis: int,
+) -> torch.Tensor:
+    if tensor.ndim != 4:
+        raise ValueError(
+            "Expected a grid tensor with shape (batch, channels, height, width), "
+            f"got {tuple(tensor.shape)!r}"
+        )
+    if axis not in {-2, -1}:
+        raise ValueError(f"Unsupported axis {axis}; expected -2 or -1")
+
+    deriv = torch.empty_like(tensor)
+    if axis == -2:
+        deriv[..., 1:-1, :] = (tensor[..., 2:, :] - tensor[..., :-2, :]) / (
+            2.0 * spacing
+        )
+        deriv[..., 0, :] = (tensor[..., 1, :] - tensor[..., 0, :]) / spacing
+        deriv[..., -1, :] = (tensor[..., -1, :] - tensor[..., -2, :]) / spacing
+        return deriv
+
+    deriv[..., :, 1:-1] = (tensor[..., :, 2:] - tensor[..., :, :-2]) / (
+        2.0 * spacing
+    )
+    deriv[..., :, 0] = (tensor[..., :, 1] - tensor[..., :, 0]) / spacing
+    deriv[..., :, -1] = (tensor[..., :, -1] - tensor[..., :, -2]) / spacing
+    return deriv
+
+
+def finite_difference_gradient_2d(
+    field: torch.Tensor,
+    *,
+    dy: float,
+    dx: float,
+) -> torch.Tensor:
+    if field.ndim != 4 or field.shape[1] != 1:
+        raise ValueError(
+            "Expected a scalar field with shape (batch, 1, height, width), "
+            f"got {tuple(field.shape)!r}"
+        )
+    grad_y = finite_difference_derivative_2d(field, spacing=dy, axis=-2)
+    grad_x = finite_difference_derivative_2d(field, spacing=dx, axis=-1)
+    return torch.cat([grad_x, grad_y], dim=1)
+
+
+def finite_difference_divergence_2d(
+    field: torch.Tensor,
+    *,
+    dy: float,
+    dx: float,
+) -> torch.Tensor:
+    if field.ndim != 4 or field.shape[1] != 2:
+        raise ValueError(
+            "Expected a 2D vector field with shape (batch, 2, height, width), "
+            f"got {tuple(field.shape)!r}"
+        )
+    div_x = finite_difference_derivative_2d(field[:, 0:1], spacing=dx, axis=-1)
+    div_y = finite_difference_derivative_2d(field[:, 1:2], spacing=dy, axis=-2)
+    return div_x + div_y
+
+
+def finite_difference_curl_2d(
+    field: torch.Tensor,
+    *,
+    dy: float,
+    dx: float,
+) -> torch.Tensor:
+    if field.ndim != 4 or field.shape[1] != 2:
+        raise ValueError(
+            "Expected a 2D vector field with shape (batch, 2, height, width), "
+            f"got {tuple(field.shape)!r}"
+        )
+    dvy_dx = finite_difference_derivative_2d(field[:, 1:2], spacing=dx, axis=-1)
+    dvx_dy = finite_difference_derivative_2d(field[:, 0:1], spacing=dy, axis=-2)
+    return dvy_dx - dvx_dy
+
+
+def finite_difference_laplacian_2d(
+    field: torch.Tensor,
+    *,
+    dy: float,
+    dx: float,
+) -> torch.Tensor:
+    if field.ndim != 4 or field.shape[1] != 1:
+        raise ValueError(
+            "Expected a scalar field with shape (batch, 1, height, width), "
+            f"got {tuple(field.shape)!r}"
+        )
+    laplacian = torch.zeros_like(field)
+    laplacian[..., 1:-1, 1:-1] = (
+        (field[..., 2:, 1:-1] - 2.0 * field[..., 1:-1, 1:-1] + field[..., :-2, 1:-1])
+        / (dy * dy)
+        + (
+            field[..., 1:-1, 2:]
+            - 2.0 * field[..., 1:-1, 1:-1]
+            + field[..., 1:-1, :-2]
+        )
+        / (dx * dx)
+    )
+    return laplacian
+
+
+def _orthonormal_sine_basis(
+    size: int,
+    *,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    if size <= 0:
+        raise ValueError(f"Expected a positive interior size, got {size}")
+    indices = torch.arange(1, size + 1, device=device, dtype=dtype)
+    basis = torch.sin(torch.pi * torch.outer(indices, indices) / float(size + 1))
+    return basis * (2.0 / float(size + 1)) ** 0.5
+
+
+def sine_transform_2d(field: torch.Tensor) -> torch.Tensor:
+    if field.ndim != 4:
+        raise ValueError(
+            "Expected a tensor with shape (batch, channels, height, width), "
+            f"got {tuple(field.shape)!r}"
+        )
+    height, width = field.shape[-2], field.shape[-1]
+    basis_y = _orthonormal_sine_basis(
+        height,
+        device=field.device,
+        dtype=field.dtype,
+    )
+    basis_x = _orthonormal_sine_basis(
+        width,
+        device=field.device,
+        dtype=field.dtype,
+    )
+    coeff = torch.einsum("ij,bcjk->bcik", basis_y, field)
+    coeff = torch.einsum("bcik,kl->bcil", coeff, basis_x)
+    return coeff
+
+
+def inverse_sine_transform_2d(coeff: torch.Tensor) -> torch.Tensor:
+    if coeff.ndim != 4:
+        raise ValueError(
+            "Expected a tensor with shape (batch, channels, height, width), "
+            f"got {tuple(coeff.shape)!r}"
+        )
+    height, width = coeff.shape[-2], coeff.shape[-1]
+    basis_y = _orthonormal_sine_basis(
+        height,
+        device=coeff.device,
+        dtype=coeff.dtype,
+    )
+    basis_x = _orthonormal_sine_basis(
+        width,
+        device=coeff.device,
+        dtype=coeff.dtype,
+    )
+    field = torch.einsum("ij,bcjk->bcik", basis_y.transpose(0, 1), coeff)
+    field = torch.einsum("bcik,kl->bcil", field, basis_x.transpose(0, 1))
+    return field
+
+
+def sine_poisson_solve_dirichlet_2d(
+    rhs: torch.Tensor,
+    *,
+    dy: float,
+    dx: float,
+) -> torch.Tensor:
+    if rhs.ndim != 4 or rhs.shape[1] != 1:
+        raise ValueError(
+            "Expected a scalar field with shape (batch, 1, height, width), "
+            f"got {tuple(rhs.shape)!r}"
+        )
+    height, width = rhs.shape[-2], rhs.shape[-1]
+    if height < 3 or width < 3:
+        raise ValueError(
+            "Dirichlet sine Poisson solve requires at least a 3x3 grid to have interior points"
+        )
+
+    interior_rhs = rhs[..., 1:-1, 1:-1]
+    interior_height, interior_width = interior_rhs.shape[-2], interior_rhs.shape[-1]
+    rhs_hat = sine_transform_2d(interior_rhs)
+
+    ky = torch.arange(
+        1,
+        interior_height + 1,
+        device=rhs.device,
+        dtype=rhs.dtype,
+    ).view(1, 1, interior_height, 1)
+    kx = torch.arange(
+        1,
+        interior_width + 1,
+        device=rhs.device,
+        dtype=rhs.dtype,
+    ).view(1, 1, 1, interior_width)
+    lambda_y = 2.0 * (
+        torch.cos(torch.pi * ky / float(interior_height + 1)) - 1.0
+    ) / (dy * dy)
+    lambda_x = 2.0 * (
+        torch.cos(torch.pi * kx / float(interior_width + 1)) - 1.0
+    ) / (dx * dx)
+    eigenvalues = lambda_y + lambda_x
+    interior_solution_hat = rhs_hat / eigenvalues
+    interior_solution = inverse_sine_transform_2d(interior_solution_hat)
+
+    solution = torch.zeros_like(rhs)
+    solution[..., 1:-1, 1:-1] = interior_solution
+    return solution
