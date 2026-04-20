@@ -13,20 +13,20 @@ model:
     out_dim: 1
 
 paths:
-  output_dir: "outputs/darcy/fno_small_flux_fft_pad"
+  output_dir: "outputs/darcy/fno_small_flux_helmholtz"
 
 wandb_logging:
   wandb: true
   project: "omni_hc"
-  run_name: "darcy_fno_small_flux_fft_pad"
+  run_name: "darcy_fno_small_flux_helmholtz"
   log_every: 100
   image_log_every: 1
 
 optuna:
   num_trials: 2
   direction: "minimize"
-  save_dir: "outputs/darcy/fno_small_flux_fft_pad_optuna"
-  run_name: "darcy_fno_small_flux_fft_pad"
+  save_dir: "outputs/darcy/fno_small_flux_helmholtz_optuna"
+  run_name: "darcy_fno_small_flux_helmholtz"
   search_space:
     training.learning_rate:
       type: "float"
