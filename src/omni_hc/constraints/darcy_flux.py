@@ -8,14 +8,15 @@ from .base import ConstraintDiagnostic, ConstraintModule
 from .boundary import boundary_stats
 from .spectral import (
     crop_spatial_2d,
+    finite_difference_curl_2d,
+    finite_difference_divergence_2d,
+    finite_difference_gradient_2d,
     fft_leray_project_2d,
     normalize_padding_2d,
     pad_spatial_2d,
     reshape_channels_last_to_grid,
     reshape_grid_to_channels_last,
-    spectral_curl_2d,
     spectral_divergence_2d,
-    spectral_gradient_2d,
     spectral_poisson_solve_2d,
 )
 
@@ -217,25 +218,40 @@ class DarcyFluxConstraint(ConstraintModule):
             constrained_flux_flat = reshape_grid_to_channels_last(constrained_flux_physical)
             flux_correction_flat = constrained_flux_flat - pred
             physical_gradient = crop_spatial_2d(pressure_gradient, self.padding)
-            flux_divergence = spectral_divergence_2d(
+            flux_divergence = finite_difference_divergence_2d(
                 constrained_flux_physical,
                 dy=dy,
                 dx=dx,
             )
             flux_divergence_residual = flux_divergence - self.force_value
-            gradient_curl = spectral_curl_2d(
+            gradient_curl = finite_difference_curl_2d(
                 physical_gradient,
                 dy=dy,
                 dx=dx,
             )
-            pressure_gradient_from_u = spectral_gradient_2d(
+            pressure_gradient_from_u = finite_difference_gradient_2d(
                 pressure,
                 dy=dy,
                 dx=dx,
             )
             darcy_flux_from_pressure = -permeability * pressure_gradient_from_u
-            darcy_residual = spectral_divergence_2d(
+            darcy_residual = finite_difference_divergence_2d(
                 darcy_flux_from_pressure,
+                dy=dy,
+                dx=dx,
+            ) - self.force_value
+            particular_divergence_padded = spectral_divergence_2d(
+                particular_flux,
+                dy=dy,
+                dx=dx,
+            ) - self.force_value
+            correction_divergence_padded = spectral_divergence_2d(
+                projected_correction,
+                dy=dy,
+                dx=dx,
+            )
+            constrained_divergence_padded = spectral_divergence_2d(
+                constrained_flux,
                 dy=dy,
                 dx=dx,
             ) - self.force_value
@@ -273,6 +289,30 @@ class DarcyFluxConstraint(ConstraintModule):
                     )
                     .mean(),
                     reduce="mean",
+                ),
+                "constraint/debug/fft_particular_div_padded_abs_mean": ConstraintDiagnostic(
+                    value=particular_divergence_padded.abs().mean(),
+                    reduce="mean",
+                ),
+                "constraint/debug/fft_particular_div_padded_abs_max": ConstraintDiagnostic(
+                    value=particular_divergence_padded.abs().max(),
+                    reduce="max",
+                ),
+                "constraint/debug/fft_correction_div_padded_abs_mean": ConstraintDiagnostic(
+                    value=correction_divergence_padded.abs().mean(),
+                    reduce="mean",
+                ),
+                "constraint/debug/fft_correction_div_padded_abs_max": ConstraintDiagnostic(
+                    value=correction_divergence_padded.abs().max(),
+                    reduce="max",
+                ),
+                "constraint/debug/fft_constrained_div_padded_abs_mean": ConstraintDiagnostic(
+                    value=constrained_divergence_padded.abs().mean(),
+                    reduce="mean",
+                ),
+                "constraint/debug/fft_constrained_div_padded_abs_max": ConstraintDiagnostic(
+                    value=constrained_divergence_padded.abs().max(),
+                    reduce="max",
                 ),
             }
             if coords is not None:

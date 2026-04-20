@@ -108,3 +108,6 @@ def test_darcy_flux_constraint_emits_physics_diagnostics():
     assert "constraint/flux_div_abs_mean" in out.diagnostics
     assert "constraint/darcy_res_abs_mean" in out.diagnostics
     assert "constraint/grad_curl_abs_mean" in out.diagnostics
+    assert "constraint/debug/fft_particular_div_padded_abs_mean" in out.diagnostics
+    assert "constraint/debug/fft_correction_div_padded_abs_mean" in out.diagnostics
+    assert "constraint/debug/fft_constrained_div_padded_abs_mean" in out.diagnostics
