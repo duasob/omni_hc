@@ -19,9 +19,9 @@ from omni_hc.constraints.spectral import (
     finite_difference_laplacian_2d,
     normalize_padding_2d,
     pad_spatial_2d,
+    sine_poisson_solve_dirichlet_2d,
     spectral_divergence_2d,
     spectral_poisson_solve_2d,
-    sine_poisson_solve_dirichlet_2d,
 )
 
 torch.set_printoptions(precision=4, sci_mode=False)
@@ -226,6 +226,20 @@ def recover_pressure_from_gradient_sine(
     return pressure, rhs
 
 
+def hodge_project_flux_sine(
+    flux: torch.Tensor,
+    *,
+    dy: float,
+    dx: float,
+    force_value: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    divergence_defect = finite_difference_divergence_2d(flux, dy=dy, dx=dx) - force_value
+    phi = sine_poisson_solve_dirichlet_2d(divergence_defect, dy=dy, dx=dx)
+    grad_phi = finite_difference_gradient_2d(phi, dy=dy, dx=dx)
+    corrected_flux = flux - grad_phi
+    return corrected_flux, phi, grad_phi, divergence_defect
+
+
 def _plot_ready(tensor: torch.Tensor) -> torch.Tensor:
     value = tensor.detach().cpu()
     if value.ndim == 4:
@@ -400,7 +414,6 @@ plot_scalar_panels(
 
 
 # %%
-
 # Step 1: inspect candidate particular fields directly.
 physical_height = CFG.height
 physical_width = CFG.width
@@ -547,6 +560,65 @@ plot_vector_panels("Constrained flux on physical domain", constrained_flux_physi
 
 
 # %%
+# Step 2b: test a physical-domain Hodge-style projection using the sine Poisson solve.
+hodge_flux_physical, hodge_phi, hodge_grad_phi, hodge_divergence_defect = (
+    hodge_project_flux_sine(
+        random_flux_physical,
+        dy=CFG.dy,
+        dx=CFG.dx,
+        force_value=CFG.force_value,
+    )
+)
+hodge_divergence = finite_difference_divergence_2d(
+    hodge_flux_physical,
+    dy=CFG.dy,
+    dx=CFG.dx,
+)
+hodge_divergence_residual = hodge_divergence - CFG.force_value
+hodge_poisson_residual = (
+    finite_difference_laplacian_2d(hodge_phi, dy=CFG.dy, dx=CFG.dx)
+    - hodge_divergence_defect
+)
+
+print("Physical-domain Hodge projection with sine Poisson solve")
+print_divergence_report(
+    "Original random flux on physical domain",
+    random_flux_physical,
+    dy=CFG.dy,
+    dx=CFG.dx,
+    target=CFG.force_value,
+)
+print_divergence_report(
+    "Hodge-corrected flux on physical domain",
+    hodge_flux_physical,
+    dy=CFG.dy,
+    dx=CFG.dx,
+    target=CFG.force_value,
+)
+print_scalar_stats(
+    "Hodge divergence defect before solve",
+    hodge_divergence_defect,
+    target=0.0,
+)
+print_scalar_stats(
+    "Hodge Poisson residual",
+    hodge_poisson_residual,
+    target=0.0,
+)
+plot_scalar_panels(
+    "Hodge projection diagnostics",
+    [
+        ("div(v_pred) - 1", hodge_divergence_defect),
+        ("phi", hodge_phi),
+        ("laplace(phi) - defect", hodge_poisson_residual),
+        ("div(v_hodge) - 1", hodge_divergence_residual),
+    ],
+    center_zero=True,
+)
+plot_vector_panels("Hodge-corrected flux on physical domain", hodge_flux_physical)
+
+
+# %%
 
 # Step 3: recover w = grad(u) from the constrained flux and inspect curl.
 permeability_physical = make_constant_permeability(CFG)
@@ -557,11 +629,19 @@ permeability_padded = pad_spatial_2d(
 )
 w_padded = -constrained_flux_padded / permeability_padded
 w_physical = crop_spatial_2d(w_padded, PADDING)
+hodge_w_physical = -hodge_flux_physical / permeability_physical
 
 print("Flux -> gradient recovery")
 print_vector_stats("w_physical", w_physical)
 print_curl_report(
     "Recovered w on the physical domain", w_physical, dy=CFG.dy, dx=CFG.dx
+)
+print_vector_stats("hodge_w_physical", hodge_w_physical)
+print_curl_report(
+    "Recovered hodge_w on the physical domain",
+    hodge_w_physical,
+    dy=CFG.dy,
+    dx=CFG.dx,
 )
 plot_vector_panels("Recovered gradient field w on physical domain", w_physical)
 plot_scalar_panels(
@@ -571,6 +651,10 @@ plot_scalar_panels(
             "curl(w_physical)",
             finite_difference_curl_2d(w_physical, dy=CFG.dy, dx=CFG.dx),
         ),
+        (
+            "curl(hodge_w_physical)",
+            finite_difference_curl_2d(hodge_w_physical, dy=CFG.dy, dx=CFG.dx),
+        ),
     ],
     center_zero=True,
 )
@@ -578,7 +662,7 @@ plot_scalar_panels(
 
 # %%
 
-# Step 4: solve Poisson for u and check whether the reconstructed pressure is self-consistent.
+# Step 4: recover pressure from flux and compare the FFT and Hodge branches.
 laplace_u_padded = spectral_divergence_2d(w_padded, dy=CFG.dy, dx=CFG.dx)
 u_padded = spectral_poisson_solve_2d(laplace_u_padded, dy=CFG.dy, dx=CFG.dx)
 u_physical = crop_spatial_2d(u_padded, PADDING)
@@ -611,8 +695,30 @@ darcy_residual_sine = (
     )
     - CFG.force_value
 )
+hodge_u_physical_sine, hodge_rhs_physical_sine = recover_pressure_from_gradient_sine(
+    hodge_w_physical,
+    dy=CFG.dy,
+    dx=CFG.dx,
+)
+hodge_grad_u_physical_sine = finite_difference_gradient_2d(
+    hodge_u_physical_sine,
+    dy=CFG.dy,
+    dx=CFG.dx,
+)
+hodge_w_physical_sine_error = (
+    hodge_grad_u_physical_sine - hodge_w_physical
+).square().sum(dim=1, keepdim=True).sqrt()
+hodge_darcy_flux_physical_sine = -permeability_physical * hodge_grad_u_physical_sine
+hodge_darcy_residual_sine = (
+    finite_difference_divergence_2d(
+        hodge_darcy_flux_physical_sine,
+        dy=CFG.dy,
+        dx=CFG.dx,
+    )
+    - CFG.force_value
+)
 
-print("Poisson recovery")
+print("Pressure recovery from constrained flux")
 print_scalar_stats("u_physical", u_physical)
 print_scalar_stats("Darcy residual from recovered pressure", darcy_residual, target=0.0)
 print_curl_report("curl(grad(u_recovered))", grad_u_physical, dy=CFG.dy, dx=CFG.dx)
@@ -625,6 +731,23 @@ print_scalar_stats(
 print_curl_report(
     "curl(grad(u_recovered_sine))",
     grad_u_physical_sine,
+    dy=CFG.dy,
+    dx=CFG.dx,
+)
+print_scalar_stats("hodge_u_physical_sine", hodge_u_physical_sine)
+print_scalar_stats(
+    "hodge_w_physical_sine_error",
+    hodge_w_physical_sine_error,
+    target=0.0,
+)
+print_scalar_stats(
+    "Hodge Darcy residual from sine recovered pressure",
+    hodge_darcy_residual_sine,
+    target=0.0,
+)
+print_curl_report(
+    "curl(grad(hodge_u_recovered_sine))",
+    hodge_grad_u_physical_sine,
     dy=CFG.dy,
     dx=CFG.dx,
 )
@@ -641,7 +764,7 @@ plot_scalar_panels(
     center_zero=True,
 )
 plot_scalar_panels(
-    "Sine Poisson recovery outputs",
+    "Sine pressure recovery outputs from FFT-constrained flux",
     [
         ("u_physical_sine", u_physical_sine),
         ("Darcy residual (sine)", darcy_residual_sine),
@@ -653,11 +776,27 @@ plot_scalar_panels(
     center_zero=True,
 )
 plot_scalar_panels(
-    "FFT vs sine pressure comparison",
+    "Sine pressure recovery outputs from Hodge-constrained flux",
+    [
+        ("hodge_u_physical_sine", hodge_u_physical_sine),
+        ("Hodge Darcy residual (sine)", hodge_darcy_residual_sine),
+        ("|grad(u_hodge_sine) - hodge_w|", hodge_w_physical_sine_error),
+        (
+            "curl(grad(hodge_u_sine))",
+            finite_difference_curl_2d(
+                hodge_grad_u_physical_sine, dy=CFG.dy, dx=CFG.dx
+            ),
+        ),
+    ],
+    center_zero=True,
+)
+plot_scalar_panels(
+    "FFT-vs-sine and FFT-vs-Hodge comparison",
     [
         ("u_fft - u_sine", u_physical - u_physical_sine),
         ("rhs from w_physical", rhs_physical_sine),
         ("darcy residual diff", darcy_residual - darcy_residual_sine),
+        ("u_sine(fft flux) - u_sine(hodge flux)", u_physical_sine - hodge_u_physical_sine),
     ],
     center_zero=True,
 )
@@ -722,7 +861,6 @@ plot_scalar_panels(
 
 
 # %%
-
 print(
     "\nInterpretation guide:\n"
     "1. If the padded-domain spectral divergence of the particular field is already bad,\n"
