@@ -6,6 +6,25 @@ This project shifts from soft encouragement of physics to hard guarantees. By in
 
 A demo benchmark on 2D incompressible Navier-Stokes flow can be found here: [duasob/physics_preserving_ns_flow](https://github.com/duasob/physics_preserving_ns_flow)
 
+The idea is that any standard backbone architecture can be wrapped with a hard constraint module to yield physically consistent predictions. 
+
+```python
+from omni_hc.constraints import ConstrainedModel, DirichletBoundaryAnsatz
+
+# any standard architecture
+backbone = TransformerBackbone() 
+
+# any constraint module implementing the desired physical invariants
+constraint = DirichletBoundaryAnsatz() 
+
+# Model will is guaranteed to satisfy the constraint by construction, regardless of backbone weights
+model = ConstrainedModel(
+    backbone=backbone,
+    constraint=constraint,
+)
+```
+
+
 | Benchmark              | Physical Domain                                  | Dataset Source                                                                      | Hard Constraint Implemented                                              | Implementation Method                                | Status             |
 | :--------------------- | :----------------------------------------------- | :---------------------------------------------------------------------------------- | :----------------------------------------------------------------------- | :--------------------------------------------------- | :----------------- |
 | **Navier-Stokes (2D)** | Incompressible Viscous Fluid Dynamics (Periodic) | [fno](https://drive.google.com/drive/folders/1UnbQh2WWc6knEHbLn-ZaXrKUZhp7pjt-)     | Divergence-Free Field ($\nabla \cdot \mathbf{u} = 0$) and global vorticity | Leray Projection (FFT) / zero-mode correction        | Implemented |
