@@ -19,7 +19,9 @@ class Exp_Steady(Exp_Basic):
         rel_err = 0.0
         with torch.no_grad():
             for pos, fx, y in self.test_loader:
-                x, fx, y = pos.cuda(), fx.cuda(), y.cuda()
+                x = pos.to(self.device)
+                fx = fx.to(self.device)
+                y = y.to(self.device)
                 if self.args.fun_dim == 0:
                     fx = None
                 out = self.model(x, fx)
@@ -58,7 +60,9 @@ class Exp_Steady(Exp_Basic):
             train_loss = 0
 
             for pos, fx, y in self.train_loader:
-                x, fx, y = pos.cuda(), fx.cuda(), y.cuda()
+                x = pos.to(self.device)
+                fx = fx.to(self.device)
+                y = y.to(self.device)
                 if self.args.fun_dim == 0:
                     fx = None
                 out = self.model(x, fx)
@@ -102,7 +106,9 @@ class Exp_Steady(Exp_Basic):
         torch.save(self.model.state_dict(), os.path.join('./checkpoints', self.args.save_name + '.pt'))
 
     def test(self):
-        self.model.load_state_dict(torch.load("./checkpoints/" + self.args.save_name + ".pt"))
+        self.model.load_state_dict(
+            torch.load("./checkpoints/" + self.args.save_name + ".pt", map_location=self.device)
+        )
         self.model.eval()
         if not os.path.exists('./results/' + self.args.save_name + '/'):
             os.makedirs('./results/' + self.args.save_name + '/')
@@ -113,7 +119,9 @@ class Exp_Steady(Exp_Basic):
         with torch.no_grad():
             for pos, fx, y in self.test_loader:
                 id += 1
-                x, fx, y = pos.cuda(), fx.cuda(), y.cuda()
+                x = pos.to(self.device)
+                fx = fx.to(self.device)
+                y = y.to(self.device)
                 if self.args.fun_dim == 0:
                     fx = None
                 out = self.model(x, fx)

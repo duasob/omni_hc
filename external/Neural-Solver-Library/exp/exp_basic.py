@@ -16,8 +16,10 @@ def count_parameters(model):
 
 class Exp_Basic(object):
     def __init__(self, args):
+        self.device = torch.device(getattr(args, "device", "cuda" if torch.cuda.is_available() else "cpu"))
+        args.device = str(self.device)
         self.dataset, self.train_loader, self.test_loader, args.shapelist = get_data(args)
-        self.model = get_model(args).cuda()
+        self.model = get_model(args).to(self.device)
         self.args = args
         print(self.args)
         print(self.model)

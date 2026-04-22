@@ -2,6 +2,7 @@ import os
 import argparse
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 from tqdm import *
 
 parser = argparse.ArgumentParser('Training Neural PDE Solvers')
@@ -78,6 +79,7 @@ args = parser.parse_args()
 eval = args.eval
 save_name = args.save_name
 os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+args.device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 def main():
