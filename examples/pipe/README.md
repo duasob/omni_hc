@@ -55,6 +55,20 @@ python scripts/test.py \
   --device cpu
 ```
 
+Combined inlet-and-wall `ux` boundary baseline:
+
+```bash
+python scripts/train.py \
+  --config configs/experiments/pipe/fno_small_ux_boundary.yaml \
+  --device cpu
+```
+
+```bash
+python scripts/test.py \
+  --config configs/experiments/pipe/fno_small_ux_boundary.yaml \
+  --device cpu
+```
+
 ## Boundary Checks
 
 The pipe data is a structured curvilinear mesh. The physical boundary is best
@@ -148,10 +162,43 @@ profile. Away from the inlet, `alpha` decays and the backbone output takes over.
 The coordinate `t` is computed from decoded physical inlet `Y`, so it remains
 valid when `Pipe_Y` changes across samples and when model inputs are normalized.
 
+## Combined Ux Boundary Constraint
+
+The combined `ux` boundary experiment uses `PipeUxBoundaryAnsatz` through
+[pipe_ux_boundary.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/constraints/pipe_ux_boundary.yaml):
+
+```yaml
+constraint:
+  name: "pipe_ux_boundary"
+  amplitude: 0.25
+  inlet_axis: 0
+  transverse_axis: 1
+  coordinate_channel: 1
+  inlet_decay_power: 4.0
+  wall_distance_power: 1.0
+  normalize_wall_distance: true
+```
+
+It uses the same parabolic inlet extension for `g`, but makes the multiplicative
+distance zero on both the inlet and the walls:
+
+```text
+u = g + lN
+g(i,j) = alpha(i) * 0.25 * 4t(j)(1-t(j))
+l(i,j) = (1 - alpha(i)) * wall_distance(j)
+alpha(i) = (1 - xi(i))^p
+```
+
+Therefore the scalar `ux` output satisfies:
+
+- `i=0`: parabolic inlet profile exactly
+- `j=0` and `j=N`: no-slip wall value exactly
+
 ## Notes
 
 - `fno_small.yaml` is the plain FNO baseline under the common OmniHC harness.
 - `fno_small_wall.yaml` adds the hard wall no-slip constraint for scalar velocity targets.
 - `fno_small_inlet.yaml` adds the standalone hard parabolic inlet constraint for scalar `ux`.
+- `fno_small_ux_boundary.yaml` adds the combined hard inlet and wall constraint for scalar `ux`.
 - The upstream NSL pipe baseline feeds the normalized `Pipe_X` and `Pipe_Y` tensors as both position input and feature input. This loader keeps that behavior for compatibility.
 - `data.target_channel` selects which `Pipe_Q` channel becomes the scalar target field. The default is `0`, matching the upstream pipe loader.

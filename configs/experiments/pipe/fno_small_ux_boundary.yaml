@@ -1,0 +1,9 @@
+extends:
+  - fno_small.yaml
+  - ../../constraints/pipe_ux_boundary.yaml
+
+paths:
+  output_dir: "outputs/pipe/fno_small_ux_boundary"
+
+wandb_logging:
+  run_name: "pipe_fno_small_ux_boundary"

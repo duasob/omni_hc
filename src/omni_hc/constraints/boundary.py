@@ -803,3 +803,195 @@ class PipeInletParabolicAnsatz(ConstraintModule):
                 diagnostics=diagnostics,
             )
         return out
+
+
+class PipeUxBoundaryAnsatz(PipeInletParabolicAnsatz):
+    """
+    Enforces the pipe ux inlet profile and no-slip walls in one smooth ansatz.
+
+    g is the same parabolic inlet extension as PipeInletParabolicAnsatz, while
+    l combines the streamwise inlet distance with the transverse wall distance.
+    """
+
+    name = "pipe_ux_boundary_ansatz"
+
+    def __init__(
+        self,
+        *,
+        out_dim: int,
+        grid_shape: Sequence[int] | None = None,
+        amplitude: float = 0.25,
+        inlet_axis: int = 0,
+        transverse_axis: int = 1,
+        inlet_decay_power: float = 4.0,
+        wall_distance_power: float = 1.0,
+        normalize_wall_distance: bool = True,
+        channel_indices: Sequence[int] | None = None,
+        coordinate_channel: int = 1,
+        eps: float = 1e-12,
+    ) -> None:
+        super().__init__(
+            out_dim=out_dim,
+            grid_shape=grid_shape,
+            amplitude=amplitude,
+            inlet_axis=inlet_axis,
+            transverse_axis=transverse_axis,
+            decay_power=inlet_decay_power,
+            channel_indices=channel_indices,
+            coordinate_channel=coordinate_channel,
+            eps=eps,
+        )
+        self.wall_distance_power = float(wall_distance_power)
+        self.normalize_wall_distance = bool(normalize_wall_distance)
+
+    def _wall_distance(self, grid_shape: Sequence[int], pred: torch.Tensor) -> torch.Tensor:
+        return structured_wall_distance(
+            grid_shape,
+            transverse_axis=self.transverse_axis,
+            dtype=pred.dtype,
+            device=pred.device,
+            power=self.wall_distance_power,
+            normalize=self.normalize_wall_distance,
+        )
+
+    def forward(self, *, pred, coords=None, return_aux=False, **_unused):
+        if pred.ndim != 3:
+            raise ValueError(f"pred must have shape (B, N, C), got {tuple(pred.shape)}")
+        if pred.shape[-1] != self.out_dim:
+            raise ValueError(
+                f"Expected pred with out_dim={self.out_dim}, got {pred.shape[-1]}"
+            )
+
+        grid_shape = self._resolve_grid_shape(pred)
+        if int(grid_shape[0]) * int(grid_shape[1]) != int(pred.shape[1]):
+            raise ValueError(
+                f"grid_shape={grid_shape} does not match pred point count {pred.shape[1]}"
+            )
+
+        profile_physical = self._inlet_profile(coords, grid_shape, pred)
+        alpha = self._alpha(grid_shape, pred)
+        g_physical = alpha * profile_physical
+        g = self._encode_target(g_physical)
+        inlet_distance = 1.0 - alpha
+        wall_distance = self._wall_distance(grid_shape, pred)
+        distance = inlet_distance * wall_distance
+        constrained = g + distance * pred
+        channel_mask = self._channel_mask(pred)
+        out = torch.where(channel_mask, constrained, pred)
+
+        if return_aux:
+            field = (
+                out
+                if self.target_normalizer is None
+                else self.target_normalizer.decode(out)
+            )
+            base_field = (
+                pred
+                if self.target_normalizer is None
+                else self.target_normalizer.decode(pred)
+            )
+            inlet_values = self._inlet_edge_values(field, grid_shape)
+            base_inlet_values = self._inlet_edge_values(base_field, grid_shape)
+            target_values = self._inlet_edge_values(profile_physical, grid_shape)
+            inlet_residual = (inlet_values - target_values).abs()
+            base_inlet_residual = (base_inlet_values - target_values).abs()
+            wall_stats = structured_wall_stats(
+                field,
+                grid_shape,
+                target_value=0.0,
+                transverse_axis=self.transverse_axis,
+                channel_indices=self.channel_indices,
+            )
+            wall_base_stats = structured_wall_stats(
+                base_field,
+                grid_shape,
+                target_value=0.0,
+                transverse_axis=self.transverse_axis,
+                channel_indices=self.channel_indices,
+            )
+            diagnostics = {
+                "constraint/inlet_abs_mean": ConstraintDiagnostic(
+                    value=inlet_residual.mean(),
+                    reduce="mean",
+                ),
+                "constraint/inlet_abs_max": ConstraintDiagnostic(
+                    value=inlet_residual.max(),
+                    reduce="max",
+                ),
+                "constraint/inlet_base_abs_mean": ConstraintDiagnostic(
+                    value=base_inlet_residual.mean(),
+                    reduce="mean",
+                ),
+                "constraint/inlet_base_abs_max": ConstraintDiagnostic(
+                    value=base_inlet_residual.max(),
+                    reduce="max",
+                ),
+                "constraint/wall_abs_mean": ConstraintDiagnostic(
+                    value=wall_stats["wall_abs_mean"],
+                    reduce="mean",
+                ),
+                "constraint/wall_abs_max": ConstraintDiagnostic(
+                    value=wall_stats["wall_abs_max"],
+                    reduce="max",
+                ),
+                "constraint/wall_base_abs_mean": ConstraintDiagnostic(
+                    value=wall_base_stats["wall_abs_mean"],
+                    reduce="mean",
+                ),
+                "constraint/wall_base_abs_max": ConstraintDiagnostic(
+                    value=wall_base_stats["wall_abs_max"],
+                    reduce="max",
+                ),
+                "constraint/boundary_distance_mean": ConstraintDiagnostic(
+                    value=distance.mean(),
+                    reduce="mean",
+                ),
+                "constraint/boundary_distance_min": ConstraintDiagnostic(
+                    value=distance.min(),
+                    reduce="min",
+                ),
+                "constraint/boundary_distance_max": ConstraintDiagnostic(
+                    value=distance.max(),
+                    reduce="max",
+                ),
+                "constraint/inlet_alpha_mean": ConstraintDiagnostic(
+                    value=alpha.mean(),
+                    reduce="mean",
+                ),
+                "constraint/inlet_alpha_min": ConstraintDiagnostic(
+                    value=alpha.min(),
+                    reduce="min",
+                ),
+                "constraint/inlet_alpha_max": ConstraintDiagnostic(
+                    value=alpha.max(),
+                    reduce="max",
+                ),
+                "constraint/inlet_decay_power": ConstraintDiagnostic(
+                    value=pred.new_tensor(self.decay_power),
+                    reduce="mean",
+                ),
+                "constraint/wall_distance_mean": ConstraintDiagnostic(
+                    value=wall_distance.mean(),
+                    reduce="mean",
+                ),
+                "constraint/wall_distance_min": ConstraintDiagnostic(
+                    value=wall_distance.min(),
+                    reduce="min",
+                ),
+                "constraint/wall_distance_max": ConstraintDiagnostic(
+                    value=wall_distance.max(),
+                    reduce="max",
+                ),
+            }
+            return self.as_output(
+                out,
+                aux={
+                    "pred_base": pred,
+                    "inlet_profile": profile_physical,
+                    "alpha": alpha,
+                    "distance": distance,
+                    "wall_distance": wall_distance,
+                },
+                diagnostics=diagnostics,
+            )
+        return out

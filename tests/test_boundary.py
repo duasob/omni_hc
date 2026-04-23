@@ -4,6 +4,7 @@ from omni_hc.constraints import (
     ConstraintOutput,
     DirichletBoundaryAnsatz,
     PipeInletParabolicAnsatz,
+    PipeUxBoundaryAnsatz,
     StructuredWallDirichletAnsatz,
     boundary_stats,
     is_boundary_point,
@@ -314,3 +315,78 @@ def test_pipe_inlet_parabolic_ansatz_emits_inlet_diagnostics():
     assert "constraint/inlet_alpha_mean" in out.diagnostics
     assert "constraint/inlet_decay_power" in out.diagnostics
     assert torch.allclose(out.diagnostics["constraint/inlet_abs_max"].value, torch.tensor(0.0))
+
+
+def test_pipe_ux_boundary_ansatz_enforces_inlet_and_walls():
+    height, width = 4, 5
+    pred = torch.randn(2, height * width, 1)
+    coords = _structured_coords(height, width).expand(2, -1, -1)
+    constraint = PipeUxBoundaryAnsatz(
+        out_dim=1,
+        grid_shape=(height, width),
+        amplitude=0.25,
+        inlet_decay_power=4.0,
+    )
+
+    out = constraint(pred=pred, coords=coords)
+    out_grid = out.reshape(2, height, width, 1)
+    t = torch.linspace(0.0, 1.0, width)
+    expected_inlet = 0.25 * 4.0 * t * (1.0 - t)
+
+    assert torch.allclose(
+        out_grid[:, 0, :, 0],
+        expected_inlet.expand(2, -1),
+        atol=1e-8,
+    )
+    assert torch.allclose(out_grid[:, :, 0, 0], torch.zeros(2, height), atol=1e-8)
+    assert torch.allclose(out_grid[:, :, -1, 0], torch.zeros(2, height), atol=1e-8)
+
+
+def test_pipe_ux_boundary_ansatz_uses_normalized_inputs_and_targets():
+    height, width = 4, 5
+    pred = torch.randn(2, height * width, 1)
+    coords = _structured_coords(height, width).expand(2, -1, -1)
+    input_normalizer = ChannelAffineNormalizer(mean=[5.0, -1.0], std=[2.0, 3.0])
+    target_normalizer = AffineNormalizer(mean=2.0, std=4.0)
+    encoded_coords = input_normalizer.encode(coords)
+    constraint = PipeUxBoundaryAnsatz(
+        out_dim=1,
+        grid_shape=(height, width),
+        amplitude=0.25,
+    )
+    constraint.set_input_normalizer(input_normalizer)
+    constraint.set_target_normalizer(target_normalizer)
+
+    out_encoded = constraint(pred=pred, coords=encoded_coords)
+    out_physical = target_normalizer.decode(out_encoded).reshape(2, height, width, 1)
+    t = torch.linspace(0.0, 1.0, width)
+    expected_inlet = 0.25 * 4.0 * t * (1.0 - t)
+
+    assert torch.allclose(
+        out_physical[:, 0, :, 0],
+        expected_inlet.expand(2, -1),
+        atol=1e-8,
+    )
+    assert torch.allclose(out_physical[:, :, 0, 0], torch.zeros(2, height), atol=1e-8)
+    assert torch.allclose(out_physical[:, :, -1, 0], torch.zeros(2, height), atol=1e-8)
+
+
+def test_pipe_ux_boundary_ansatz_emits_combined_diagnostics():
+    height, width = 4, 5
+    pred = torch.randn(2, height * width, 1)
+    coords = _structured_coords(height, width).expand(2, -1, -1)
+    constraint = PipeUxBoundaryAnsatz(
+        out_dim=1,
+        grid_shape=(height, width),
+        amplitude=0.25,
+    )
+
+    out = constraint(pred=pred, coords=coords, return_aux=True)
+
+    assert isinstance(out, ConstraintOutput)
+    assert "constraint/inlet_abs_max" in out.diagnostics
+    assert "constraint/wall_abs_max" in out.diagnostics
+    assert "constraint/boundary_distance_min" in out.diagnostics
+    assert "constraint/boundary_distance_max" in out.diagnostics
+    assert torch.allclose(out.diagnostics["constraint/inlet_abs_max"].value, torch.tensor(0.0))
+    assert out.diagnostics["constraint/wall_abs_max"].value == 0.0
