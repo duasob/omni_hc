@@ -1,0 +1,9 @@
+constraint:
+  name: "pipe_ux_boundary"
+  amplitude: 0.25
+  inlet_axis: 0
+  transverse_axis: 1
+  coordinate_channel: 1
+  inlet_decay_power: 4.0
+  wall_distance_power: 1.0
+  normalize_wall_distance: true

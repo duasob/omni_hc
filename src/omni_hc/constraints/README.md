@@ -44,6 +44,7 @@ Contains Dirichlet architectural-ansatz utilities:
 - `constant_boundary_value(...)`
 - `DirichletBoundaryAnsatz`
 - `PipeInletParabolicAnsatz`
+- `PipeUxBoundaryAnsatz`
 - `structured_wall_distance(...)`
 - `structured_wall_mask(...)`
 - `structured_wall_stats(...)`
@@ -264,6 +265,53 @@ This is a standalone inlet constraint. It does not enforce the wall no-slip
 condition except at the inlet corners, where the parabolic profile is already
 zero.
 
+## Pipe Ux Boundary Ansatz
+
+`PipeUxBoundaryAnsatz` combines the parabolic inlet profile and the no-slip
+walls into one scalar `ux` trial function:
+
+```text
+u = g + lN
+g(i,j) = alpha(i) * Umax * 4t(j)(1-t(j))
+l(i,j) = (1 - alpha(i)) * wall_distance(j)
+alpha(i) = (1 - xi(i))^p
+```
+
+This gives the exact boundary behavior:
+
+- at `i=0`, `alpha=1` and `l=0`, so `u` is the parabolic inlet profile
+- at `j=0` and `j=N`, `wall_distance=0`, and the parabolic profile is also zero at the wall corners, so `u=0`
+
+The class inherits the inlet-coordinate handling from `PipeInletParabolicAnsatz`,
+including decoded physical `Y` coordinates for computing `t`. The wall distance
+uses the same structured-grid index-space distance as `StructuredWallDirichletAnsatz`.
+
+Supported config fields:
+
+- `name`: accepts `pipe_ux_boundary`, `pipe_ux_boundary_ansatz`, `pipe_inlet_wall`, or `pipe_inlet_wall_ansatz`
+- `amplitude`: inlet peak velocity `Umax`
+- `inlet_axis`: structured-grid inlet-to-outlet axis; for pipe this is `0`
+- `transverse_axis`: structured-grid wall-to-wall axis; for pipe this is `1`
+- `coordinate_channel`: coordinate channel used to compute `t`; for pipe this is `1`
+- `inlet_decay_power`: exponent `p` in `alpha=(1-xi)^p`
+- `wall_distance_power`: optional exponent on the wall distance
+- `normalize_wall_distance`: whether to scale wall distance to have maximum one
+- `channel_indices`: optional list of constrained output channels
+
+Current diagnostics include both inlet and wall satisfaction metrics:
+
+- `constraint/inlet_abs_mean`
+- `constraint/inlet_abs_max`
+- `constraint/inlet_base_abs_mean`
+- `constraint/inlet_base_abs_max`
+- `constraint/wall_abs_mean`
+- `constraint/wall_abs_max`
+- `constraint/wall_base_abs_mean`
+- `constraint/wall_base_abs_max`
+- `constraint/boundary_distance_min`
+- `constraint/boundary_distance_max`
+- `constraint/boundary_distance_mean`
+
 ## Darcy Flux Projection
 
 For Darcy flow, the PDE is
@@ -416,6 +464,24 @@ constraint:
 ```
 
 This is used by [fno_small_inlet.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/pipe/fno_small_inlet.yaml) for a standalone pipe `ux` inlet-profile baseline.
+
+### Pipe Ux Boundary Example
+
+See [pipe_ux_boundary.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/constraints/pipe_ux_boundary.yaml):
+
+```yaml
+constraint:
+  name: "pipe_ux_boundary"
+  amplitude: 0.25
+  inlet_axis: 0
+  transverse_axis: 1
+  coordinate_channel: 1
+  inlet_decay_power: 4.0
+  wall_distance_power: 1.0
+  normalize_wall_distance: true
+```
+
+This is used by [fno_small_ux_boundary.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/pipe/fno_small_ux_boundary.yaml) for a scalar pipe `ux` baseline that enforces both the parabolic inlet and no-slip walls.
 
 ## Normalization Caveat
 

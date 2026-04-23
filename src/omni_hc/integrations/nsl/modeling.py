@@ -12,6 +12,7 @@ from omni_hc.constraints import (
     ForwardHookLatentExtractor,
     MeanConstraint,
     PipeInletParabolicAnsatz,
+    PipeUxBoundaryAnsatz,
     StructuredWallDirichletAnsatz,
 )
 from omni_hc.core import load_yaml_file
@@ -155,6 +156,33 @@ def _build_constraint(backbone: torch.nn.Module, args, cfg: dict):
         return wrapped
 
     if name in {
+        "pipe_ux_boundary",
+        "pipe_ux_boundary_ansatz",
+        "pipe_inlet_wall",
+        "pipe_inlet_wall_ansatz",
+    }:
+        constraint = PipeUxBoundaryAnsatz(
+            out_dim=int(args.out_dim),
+            grid_shape=getattr(args, "shapelist", None),
+            amplitude=float(constraint_cfg.get("amplitude", 0.25)),
+            inlet_axis=int(constraint_cfg.get("inlet_axis", 0)),
+            transverse_axis=int(constraint_cfg.get("transverse_axis", 1)),
+            inlet_decay_power=float(constraint_cfg.get("inlet_decay_power", 4.0)),
+            wall_distance_power=float(constraint_cfg.get("wall_distance_power", 1.0)),
+            normalize_wall_distance=bool(
+                constraint_cfg.get("normalize_wall_distance", True)
+            ),
+            channel_indices=constraint_cfg.get("channel_indices"),
+            coordinate_channel=int(constraint_cfg.get("coordinate_channel", 1)),
+            eps=float(constraint_cfg.get("eps", 1e-12)),
+        )
+        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
+        if bool(constraint_cfg.get("freeze_base", False)):
+            for param in wrapped.backbone.parameters():
+                param.requires_grad = False
+        return wrapped
+
+    if name in {
         "darcy_flux_projection",
         "darcy_flux_fft_pad",
         "darcy_helmholtz",
@@ -191,7 +219,8 @@ def _build_constraint(backbone: torch.nn.Module, args, cfg: dict):
         raise ValueError(
             "Unsupported constraint "
             f"'{name}'. Currently supported: mean_correction, dirichlet_ansatz, "
-            "structured_wall_dirichlet, pipe_inlet_parabolic, darcy_flux_projection"
+            "structured_wall_dirichlet, pipe_inlet_parabolic, pipe_ux_boundary, "
+            "darcy_flux_projection"
         )
 
     mode = str(constraint_cfg.get("mode", "post_output")).lower()
