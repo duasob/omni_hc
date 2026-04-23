@@ -1,6 +1,7 @@
 from .base import ConstraintDiagnostic, ConstraintModule, ConstraintOutput
 from .boundary import (
     DirichletBoundaryAnsatz,
+    PipeInletParabolicAnsatz,
     StructuredWallDirichletAnsatz,
     boundary_residual,
     boundary_stats,
@@ -26,6 +27,7 @@ __all__ = [
     "ForwardHookLatentExtractor",
     "MeanConstraint",
     "MeanCorrection",
+    "PipeInletParabolicAnsatz",
     "StructuredWallDirichletAnsatz",
     "boundary_residual",
     "boundary_stats",

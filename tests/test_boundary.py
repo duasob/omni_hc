@@ -3,6 +3,7 @@ import torch
 from omni_hc.constraints import (
     ConstraintOutput,
     DirichletBoundaryAnsatz,
+    PipeInletParabolicAnsatz,
     StructuredWallDirichletAnsatz,
     boundary_stats,
     is_boundary_point,
@@ -23,6 +24,18 @@ class AffineNormalizer:
 
     def decode(self, x):
         return x * self.std + self.mean
+
+
+class ChannelAffineNormalizer:
+    def __init__(self, mean, std):
+        self.mean = torch.tensor(mean, dtype=torch.float32).reshape(1, 1, -1)
+        self.std = torch.tensor(std, dtype=torch.float32).reshape(1, 1, -1)
+
+    def encode(self, x):
+        return (x - self.mean.to(x.device)) / self.std.to(x.device)
+
+    def decode(self, x):
+        return x * self.std.to(x.device) + self.mean.to(x.device)
 
 
 def test_unit_box_distance_is_zero_on_boundary():
@@ -205,3 +218,99 @@ def test_structured_wall_ansatz_emits_wall_diagnostics():
     assert "constraint/wall_base_lower_abs_mean" in out.diagnostics
     assert "constraint/wall_base_upper_abs_mean" in out.diagnostics
     assert "constraint/interior_abs_delta_mean" in out.diagnostics
+
+
+def _structured_coords(height: int, width: int):
+    x = torch.linspace(0.0, 10.0, height)
+    y = torch.linspace(-2.0, 2.0, width)
+    xx, yy = torch.meshgrid(x, y, indexing="ij")
+    return torch.stack([xx, yy], dim=-1).reshape(1, height * width, 2)
+
+
+def test_pipe_inlet_parabolic_ansatz_enforces_inlet_profile():
+    height, width = 4, 5
+    pred = torch.randn(2, height * width, 1)
+    coords = _structured_coords(height, width).expand(2, -1, -1)
+    constraint = PipeInletParabolicAnsatz(
+        out_dim=1,
+        grid_shape=(height, width),
+        amplitude=0.25,
+        decay_power=4.0,
+    )
+
+    out = constraint(pred=pred, coords=coords)
+    out_grid = out.reshape(2, height, width, 1)
+    t = torch.linspace(0.0, 1.0, width)
+    expected = 0.25 * 4.0 * t * (1.0 - t)
+
+    assert torch.allclose(out_grid[:, 0, :, 0], expected.expand(2, -1), atol=1e-8)
+
+
+def test_pipe_inlet_parabolic_ansatz_uses_normalized_inputs_and_targets():
+    height, width = 4, 5
+    pred = torch.randn(2, height * width, 1)
+    coords = _structured_coords(height, width).expand(2, -1, -1)
+    input_normalizer = ChannelAffineNormalizer(mean=[5.0, -1.0], std=[2.0, 3.0])
+    target_normalizer = AffineNormalizer(mean=2.0, std=4.0)
+    encoded_coords = input_normalizer.encode(coords)
+    constraint = PipeInletParabolicAnsatz(
+        out_dim=1,
+        grid_shape=(height, width),
+        amplitude=0.25,
+        decay_power=4.0,
+    )
+    constraint.set_input_normalizer(input_normalizer)
+    constraint.set_target_normalizer(target_normalizer)
+
+    out_encoded = constraint(pred=pred, coords=encoded_coords)
+    out_physical = target_normalizer.decode(out_encoded).reshape(2, height, width, 1)
+    t = torch.linspace(0.0, 1.0, width)
+    expected = 0.25 * 4.0 * t * (1.0 - t)
+
+    assert torch.allclose(
+        out_physical[:, 0, :, 0],
+        expected.expand(2, -1),
+        atol=1e-8,
+    )
+
+
+def test_pipe_inlet_parabolic_ansatz_can_target_selected_channels():
+    height, width = 4, 5
+    pred = torch.randn(2, height * width, 3)
+    coords = _structured_coords(height, width).expand(2, -1, -1)
+    constraint = PipeInletParabolicAnsatz(
+        out_dim=3,
+        grid_shape=(height, width),
+        amplitude=0.25,
+        channel_indices=[0],
+    )
+
+    out = constraint(pred=pred, coords=coords)
+    out_grid = out.reshape(2, height, width, 3)
+    pred_grid = pred.reshape(2, height, width, 3)
+    t = torch.linspace(0.0, 1.0, width)
+    expected = 0.25 * 4.0 * t * (1.0 - t)
+
+    assert torch.allclose(out_grid[:, 0, :, 0], expected.expand(2, -1), atol=1e-8)
+    assert torch.allclose(out_grid[..., 1:], pred_grid[..., 1:])
+
+
+def test_pipe_inlet_parabolic_ansatz_emits_inlet_diagnostics():
+    height, width = 4, 5
+    pred = torch.randn(2, height * width, 1)
+    coords = _structured_coords(height, width).expand(2, -1, -1)
+    constraint = PipeInletParabolicAnsatz(
+        out_dim=1,
+        grid_shape=(height, width),
+        amplitude=0.25,
+    )
+
+    out = constraint(pred=pred, coords=coords, return_aux=True)
+
+    assert isinstance(out, ConstraintOutput)
+    assert "constraint/inlet_abs_mean" in out.diagnostics
+    assert "constraint/inlet_abs_max" in out.diagnostics
+    assert "constraint/inlet_base_abs_mean" in out.diagnostics
+    assert "constraint/inlet_alpha_mean" in out.diagnostics
+    assert "constraint/inlet_decay_power" in out.diagnostics
+    assert torch.allclose(out.diagnostics["constraint/inlet_abs_max"].value, torch.tensor(0.0))
