@@ -17,4 +17,8 @@ paths:
   output_dir: "outputs/pipe/fno_small"
 
 wandb_logging:
-  wandb: false
+  wandb: true
+  project: "omni_hc"
+  run_name: "pipe_fno_small"
+  log_every: 100
+  image_log_every: 10

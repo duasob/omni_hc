@@ -11,6 +11,7 @@ from omni_hc.constraints import (
     DirichletBoundaryAnsatz,
     ForwardHookLatentExtractor,
     MeanConstraint,
+    StructuredWallDirichletAnsatz,
 )
 from omni_hc.core import load_yaml_file
 from omni_hc.integrations.nsl.defaults import get_nsl_default_args
@@ -110,6 +111,27 @@ def _build_constraint(backbone: torch.nn.Module, args, cfg: dict):
         return wrapped
 
     if name in {
+        "structured_wall_dirichlet",
+        "structured_wall_dirichlet_ansatz",
+        "pipe_wall_no_slip",
+        "pipe_wall_no_slip_ansatz",
+    }:
+        constraint = StructuredWallDirichletAnsatz(
+            out_dim=int(args.out_dim),
+            grid_shape=getattr(args, "shapelist", None),
+            boundary_value=float(constraint_cfg.get("boundary_value", 0.0)),
+            transverse_axis=int(constraint_cfg.get("transverse_axis", 1)),
+            distance_power=float(constraint_cfg.get("distance_power", 1.0)),
+            normalize_distance=bool(constraint_cfg.get("normalize_distance", True)),
+            channel_indices=constraint_cfg.get("channel_indices"),
+        )
+        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
+        if bool(constraint_cfg.get("freeze_base", False)):
+            for param in wrapped.backbone.parameters():
+                param.requires_grad = False
+        return wrapped
+
+    if name in {
         "darcy_flux_projection",
         "darcy_flux_fft_pad",
         "darcy_helmholtz",
@@ -145,7 +167,8 @@ def _build_constraint(backbone: torch.nn.Module, args, cfg: dict):
     if name not in {"mean_correction", "mean_constraint"}:
         raise ValueError(
             "Unsupported constraint "
-            f"'{name}'. Currently supported: mean_correction, dirichlet_ansatz, darcy_flux_projection"
+            f"'{name}'. Currently supported: mean_correction, dirichlet_ansatz, "
+            "structured_wall_dirichlet, darcy_flux_projection"
         )
 
     mode = str(constraint_cfg.get("mode", "post_output")).lower()
