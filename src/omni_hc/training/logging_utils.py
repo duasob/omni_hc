@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/omni_hc_matplotlib")
+
 import numpy as np
 import torch
 
@@ -7,6 +11,11 @@ try:
     import wandb
 except Exception:  # pragma: no cover - optional dependency
     wandb = None
+
+try:
+    import matplotlib.pyplot as plt
+except Exception:  # pragma: no cover - optional dependency
+    plt = None
 
 
 def init_wandb_if_enabled(cfg: dict):
@@ -20,9 +29,14 @@ def init_wandb_if_enabled(cfg: dict):
     try:
         if getattr(wandb, "run", None) is not None:
             wandb.finish()
+        project = wandb_cfg.get("project", "omni_hc")
+        run_name = wandb_cfg.get("run_name")
+        if run_name is None:
+            output_dir = cfg.get("paths", {}).get("output_dir", "")
+            run_name = str(output_dir).strip("/").replace("/", "_") or None
         wandb.init(
-            project=wandb_cfg["project"],
-            name=wandb_cfg["run_name"],
+            project=project,
+            name=run_name,
             config=cfg,
             reinit=True,
         )
@@ -103,6 +117,10 @@ def log_steady_field_images(coeff, pred, target, h, w, *, prefix, epoch):
     if wandb is None or getattr(wandb, "run", None) is None:
         return
 
+    if coeff.shape[-1] >= 2 and plt is not None:
+        log_pipe_flow_images(coeff, pred, target, h, w, prefix=prefix, epoch=epoch)
+        return
+
     coeff_img = coeff[0, :, 0].view(h, w)
     pred_img = pred[0, :, 0].view(h, w)
     target_img = target[0, :, 0].view(h, w)
@@ -131,6 +149,76 @@ def log_steady_field_images(coeff, pred, target, h, w, *, prefix, epoch):
             "epoch": epoch + 1,
         }
     )
+
+
+def _plot_pipe_field(ax, x, y, field, *, title, vmin=None, vmax=None, cmap="viridis"):
+    mesh = ax.pcolormesh(x, y, field, shading="gouraud", cmap=cmap, vmin=vmin, vmax=vmax)
+    ax.plot(x[:, 0], y[:, 0], color="white", linewidth=1.2)
+    ax.plot(x[:, -1], y[:, -1], color="white", linewidth=1.2)
+    ax.set_title(title)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    return mesh
+
+
+def log_pipe_flow_images(coords, pred, target, h, w, *, prefix, epoch):
+    if wandb is None or getattr(wandb, "run", None) is None or plt is None:
+        return
+
+    x = coords[0, :, 0].detach().cpu().reshape(h, w).numpy()
+    y = coords[0, :, 1].detach().cpu().reshape(h, w).numpy()
+    pred_img = pred[0, :, 0].detach().cpu().reshape(h, w).numpy()
+    target_img = target[0, :, 0].detach().cpu().reshape(h, w).numpy()
+    error_img = pred_img - target_img
+
+    pred_vmin = float(min(pred_img.min(), target_img.min()))
+    pred_vmax = float(max(pred_img.max(), target_img.max()))
+    err_abs = float(np.abs(error_img).max())
+    if err_abs <= 0.0:
+        err_abs = 1e-12
+
+    fig, axes = plt.subplots(1, 3, figsize=(13, 3.5), dpi=140)
+    im0 = _plot_pipe_field(
+        axes[0],
+        x,
+        y,
+        pred_img,
+        title="pred ux",
+        vmin=pred_vmin,
+        vmax=pred_vmax,
+    )
+    im1 = _plot_pipe_field(
+        axes[1],
+        x,
+        y,
+        target_img,
+        title="target ux",
+        vmin=pred_vmin,
+        vmax=pred_vmax,
+    )
+    im2 = _plot_pipe_field(
+        axes[2],
+        x,
+        y,
+        error_img,
+        title="pred - target",
+        vmin=-err_abs,
+        vmax=err_abs,
+        cmap="coolwarm",
+    )
+    fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+    fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+    fig.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+    fig.tight_layout()
+
+    wandb.log(
+        {
+            f"{prefix}/pipe_ux": wandb.Image(fig),
+            "epoch": epoch + 1,
+        }
+    )
+    plt.close(fig)
 
 
 def finish_wandb_if_active():

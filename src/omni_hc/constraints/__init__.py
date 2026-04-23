@@ -1,10 +1,14 @@
 from .base import ConstraintDiagnostic, ConstraintModule, ConstraintOutput
 from .boundary import (
     DirichletBoundaryAnsatz,
+    StructuredWallDirichletAnsatz,
     boundary_residual,
     boundary_stats,
     constant_boundary_value,
     is_boundary_point,
+    structured_wall_distance,
+    structured_wall_mask,
+    structured_wall_stats,
     unit_box_distance,
 )
 from .darcy_flux import DarcyFluxConstraint
@@ -22,6 +26,7 @@ __all__ = [
     "ForwardHookLatentExtractor",
     "MeanConstraint",
     "MeanCorrection",
+    "StructuredWallDirichletAnsatz",
     "boundary_residual",
     "boundary_stats",
     "build_mlp",
@@ -30,5 +35,8 @@ __all__ = [
     "is_boundary_point",
     "match_mean",
     "spectral_divergence_2d",
+    "structured_wall_distance",
+    "structured_wall_mask",
+    "structured_wall_stats",
     "unit_box_distance",
 ]

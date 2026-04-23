@@ -227,8 +227,9 @@ def train_steady_task(
                             and epoch % image_log_every == 0
                             and val_step == sampled_idx
                         ):
+                            image_coords = _decode_if_needed(x_normalizer, fx)
                             log_steady_field_images(
-                                fx,
+                                image_coords,
                                 pred_decoded,
                                 target_decoded,
                                 h,

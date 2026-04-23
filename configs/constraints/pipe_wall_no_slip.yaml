@@ -1,0 +1,6 @@
+constraint:
+  name: "pipe_wall_no_slip"
+  boundary_value: 0.0
+  transverse_axis: 1
+  distance_power: 1.0
+  normalize_distance: true
