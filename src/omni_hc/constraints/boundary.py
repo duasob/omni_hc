@@ -541,3 +541,265 @@ class StructuredWallDirichletAnsatz(ConstraintModule):
                 diagnostics=diagnostics,
             )
         return out
+
+
+class PipeInletParabolicAnsatz(ConstraintModule):
+    """
+    Enforces the pipe inlet ux profile with a smooth extension into the domain.
+
+    The profile is applied through
+    u = g + l * N
+    where g = alpha(xi) * Umax * 4t(1-t),
+    l = 1 - alpha(xi), and alpha(xi) = (1 - xi)^p.
+    """
+
+    name = "pipe_inlet_parabolic_ansatz"
+
+    def __init__(
+        self,
+        *,
+        out_dim: int,
+        grid_shape: Sequence[int] | None = None,
+        amplitude: float = 0.25,
+        inlet_axis: int = 0,
+        transverse_axis: int = 1,
+        decay_power: float = 4.0,
+        channel_indices: Sequence[int] | None = None,
+        coordinate_channel: int = 1,
+        eps: float = 1e-12,
+    ) -> None:
+        super().__init__()
+        self.out_dim = int(out_dim)
+        self.grid_shape = None if grid_shape is None else tuple(int(v) for v in grid_shape)
+        self.amplitude = float(amplitude)
+        self.inlet_axis = int(inlet_axis)
+        self.transverse_axis = int(transverse_axis)
+        self.decay_power = float(decay_power)
+        self.channel_indices = (
+            None if channel_indices is None else tuple(int(idx) for idx in channel_indices)
+        )
+        self.coordinate_channel = int(coordinate_channel)
+        self.eps = float(eps)
+        self.input_normalizer = None
+        self.target_normalizer = None
+
+    def set_input_normalizer(self, normalizer) -> None:
+        self.input_normalizer = normalizer
+
+    def set_target_normalizer(self, normalizer) -> None:
+        self.target_normalizer = normalizer
+
+    def set_grid_shape(self, grid_shape: Sequence[int]) -> None:
+        self.grid_shape = tuple(int(v) for v in grid_shape)
+
+    def _resolve_grid_shape(self, pred: torch.Tensor) -> tuple[int, int]:
+        if self.grid_shape is not None:
+            return self.grid_shape
+        n_points = int(pred.shape[1])
+        side = int(n_points**0.5)
+        if side * side != n_points:
+            raise ValueError(
+                "grid_shape is required for non-square pipe inlet constraints; "
+                f"got {n_points} points"
+            )
+        return (side, side)
+
+    def _axis(self, axis: int) -> int:
+        resolved = axis if axis >= 0 else 2 + axis
+        if resolved not in {0, 1}:
+            raise ValueError(f"axis must select one grid axis, got {axis}")
+        return resolved
+
+    def _channel_mask(self, pred: torch.Tensor) -> torch.Tensor:
+        if self.channel_indices is None:
+            return torch.ones((1, 1, pred.shape[-1]), dtype=torch.bool, device=pred.device)
+        mask = torch.zeros((1, 1, pred.shape[-1]), dtype=torch.bool, device=pred.device)
+        for channel_idx in self.channel_indices:
+            if channel_idx < 0 or channel_idx >= pred.shape[-1]:
+                raise ValueError(
+                    f"channel index {channel_idx} is out of range for output with "
+                    f"{pred.shape[-1]} channel(s)"
+                )
+            mask[..., channel_idx] = True
+        return mask
+
+    def _selected_channels(self, field: torch.Tensor) -> torch.Tensor:
+        if self.channel_indices is None:
+            return field
+        return field[..., list(self.channel_indices)]
+
+    def _decode_coords(self, coords: torch.Tensor) -> torch.Tensor:
+        if self.input_normalizer is None:
+            return coords
+        return self.input_normalizer.decode(coords)
+
+    def _xi(self, grid_shape: Sequence[int], pred: torch.Tensor) -> torch.Tensor:
+        height, width = int(grid_shape[0]), int(grid_shape[1])
+        inlet_axis = self._axis(self.inlet_axis)
+        size = height if inlet_axis == 0 else width
+        xi_1d = torch.linspace(0.0, 1.0, size, dtype=pred.dtype, device=pred.device)
+        if inlet_axis == 0:
+            xi = xi_1d[:, None].expand(height, width)
+        else:
+            xi = xi_1d[None, :].expand(height, width)
+        return xi.reshape(1, height * width, 1)
+
+    def _alpha(self, grid_shape: Sequence[int], pred: torch.Tensor) -> torch.Tensor:
+        xi = self._xi(grid_shape, pred)
+        return (1.0 - xi).clamp_min(0.0).pow(self.decay_power)
+
+    def _inlet_profile(
+        self,
+        coords: torch.Tensor,
+        grid_shape: Sequence[int],
+        pred: torch.Tensor,
+    ) -> torch.Tensor:
+        if coords is None:
+            raise ValueError("coords are required for PipeInletParabolicAnsatz")
+        if coords.ndim != 3 or coords.shape[-1] <= self.coordinate_channel:
+            raise ValueError(
+                "coords must have shape (B, N, C) with the configured coordinate channel"
+            )
+        if coords.shape[1] != pred.shape[1]:
+            raise ValueError(
+                f"coords point count {coords.shape[1]} does not match pred {pred.shape[1]}"
+            )
+
+        height, width = int(grid_shape[0]), int(grid_shape[1])
+        inlet_axis = self._axis(self.inlet_axis)
+        physical_coords = self._decode_coords(coords)
+        coord_grid = physical_coords[..., self.coordinate_channel].reshape(
+            coords.shape[0], height, width
+        )
+        if inlet_axis == 0:
+            inlet_coord = coord_grid[:, 0, :]
+            coord_min = inlet_coord.min(dim=1, keepdim=True).values
+            coord_max = inlet_coord.max(dim=1, keepdim=True).values
+            t_edge = (inlet_coord - coord_min) / (coord_max - coord_min).clamp_min(self.eps)
+            profile_edge = self.amplitude * 4.0 * t_edge * (1.0 - t_edge)
+            profile = profile_edge[:, None, :].expand(-1, height, -1)
+        else:
+            inlet_coord = coord_grid[:, :, 0]
+            coord_min = inlet_coord.min(dim=1, keepdim=True).values
+            coord_max = inlet_coord.max(dim=1, keepdim=True).values
+            t_edge = (inlet_coord - coord_min) / (coord_max - coord_min).clamp_min(self.eps)
+            profile_edge = self.amplitude * 4.0 * t_edge * (1.0 - t_edge)
+            profile = profile_edge[:, :, None].expand(-1, -1, width)
+        return profile.reshape(coords.shape[0], height * width, 1).to(
+            dtype=pred.dtype,
+            device=pred.device,
+        )
+
+    def _encode_target(self, target: torch.Tensor) -> torch.Tensor:
+        if self.target_normalizer is None:
+            return target
+        return self.target_normalizer.encode(target)
+
+    def _inlet_edge_values(
+        self,
+        field: torch.Tensor,
+        grid_shape: Sequence[int],
+    ) -> torch.Tensor:
+        height, width = int(grid_shape[0]), int(grid_shape[1])
+        grid = self._selected_channels(field).reshape(
+            field.shape[0], height, width, -1
+        )
+        inlet_axis = self._axis(self.inlet_axis)
+        if inlet_axis == 0:
+            return grid[:, 0, :, :]
+        return grid[:, :, 0, :]
+
+    def forward(self, *, pred, coords=None, return_aux=False, **_unused):
+        if pred.ndim != 3:
+            raise ValueError(f"pred must have shape (B, N, C), got {tuple(pred.shape)}")
+        if pred.shape[-1] != self.out_dim:
+            raise ValueError(
+                f"Expected pred with out_dim={self.out_dim}, got {pred.shape[-1]}"
+            )
+
+        grid_shape = self._resolve_grid_shape(pred)
+        if int(grid_shape[0]) * int(grid_shape[1]) != int(pred.shape[1]):
+            raise ValueError(
+                f"grid_shape={grid_shape} does not match pred point count {pred.shape[1]}"
+            )
+
+        profile_physical = self._inlet_profile(coords, grid_shape, pred)
+        alpha = self._alpha(grid_shape, pred)
+        g_physical = alpha * profile_physical
+        g = self._encode_target(g_physical)
+        constrained = g + (1.0 - alpha) * pred
+        channel_mask = self._channel_mask(pred)
+        out = torch.where(channel_mask, constrained, pred)
+
+        if return_aux:
+            field = (
+                out
+                if self.target_normalizer is None
+                else self.target_normalizer.decode(out)
+            )
+            base_field = (
+                pred
+                if self.target_normalizer is None
+                else self.target_normalizer.decode(pred)
+            )
+            inlet_values = self._inlet_edge_values(field, grid_shape)
+            base_inlet_values = self._inlet_edge_values(base_field, grid_shape)
+            target_values = self._inlet_edge_values(profile_physical, grid_shape)
+            inlet_residual = (inlet_values - target_values).abs()
+            base_inlet_residual = (base_inlet_values - target_values).abs()
+            diagnostics = {
+                "constraint/inlet_abs_mean": ConstraintDiagnostic(
+                    value=inlet_residual.mean(),
+                    reduce="mean",
+                ),
+                "constraint/inlet_abs_max": ConstraintDiagnostic(
+                    value=inlet_residual.max(),
+                    reduce="max",
+                ),
+                "constraint/inlet_base_abs_mean": ConstraintDiagnostic(
+                    value=base_inlet_residual.mean(),
+                    reduce="mean",
+                ),
+                "constraint/inlet_base_abs_max": ConstraintDiagnostic(
+                    value=base_inlet_residual.max(),
+                    reduce="max",
+                ),
+                "constraint/inlet_profile_amplitude": ConstraintDiagnostic(
+                    value=pred.new_tensor(self.amplitude),
+                    reduce="mean",
+                ),
+                "constraint/inlet_profile_mean": ConstraintDiagnostic(
+                    value=target_values.mean(),
+                    reduce="mean",
+                ),
+                "constraint/inlet_profile_max": ConstraintDiagnostic(
+                    value=target_values.max(),
+                    reduce="max",
+                ),
+                "constraint/inlet_alpha_mean": ConstraintDiagnostic(
+                    value=alpha.mean(),
+                    reduce="mean",
+                ),
+                "constraint/inlet_alpha_min": ConstraintDiagnostic(
+                    value=alpha.min(),
+                    reduce="min",
+                ),
+                "constraint/inlet_alpha_max": ConstraintDiagnostic(
+                    value=alpha.max(),
+                    reduce="max",
+                ),
+                "constraint/inlet_decay_power": ConstraintDiagnostic(
+                    value=pred.new_tensor(self.decay_power),
+                    reduce="mean",
+                ),
+            }
+            return self.as_output(
+                out,
+                aux={
+                    "pred_base": pred,
+                    "inlet_profile": profile_physical,
+                    "alpha": alpha,
+                },
+                diagnostics=diagnostics,
+            )
+        return out

@@ -1,0 +1,9 @@
+extends:
+  - fno_small.yaml
+  - ../../constraints/pipe_inlet_parabolic.yaml
+
+paths:
+  output_dir: "outputs/pipe/fno_small_inlet"
+
+wandb_logging:
+  run_name: "pipe_fno_small_inlet"

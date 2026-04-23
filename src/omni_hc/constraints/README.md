@@ -43,6 +43,11 @@ Contains Dirichlet architectural-ansatz utilities:
 - `unit_box_distance(coords)`
 - `constant_boundary_value(...)`
 - `DirichletBoundaryAnsatz`
+- `PipeInletParabolicAnsatz`
+- `structured_wall_distance(...)`
+- `structured_wall_mask(...)`
+- `structured_wall_stats(...)`
+- `StructuredWallDirichletAnsatz`
 - `is_boundary_point(...)`
 - `boundary_residual(...)`
 - `boundary_stats(...)`
@@ -129,6 +134,135 @@ l(x, y) = x (1 - x) y (1 - y)
 because the benchmark adapter provides `domain_bounds = (0.0, 1.0)` and the loader builds coordinates on the unit square.
 
 `axis-aligned` means the domain boundaries line up with the coordinate axes. In 2D, that means a rectangle whose sides are parallel to the `x` and `y` axes. The current ansatz is written for box domains of that form; it is not yet a general signed-distance function for curved or rotated domains.
+
+## Structured Wall Dirichlet Ansatz
+
+`StructuredWallDirichletAnsatz` enforces a constant value on two opposite
+index-space walls of a structured 2D mesh:
+
+```text
+u = g + l(j) * N
+```
+
+where:
+
+- `N` is the unconstrained model output
+- `g` is the constant wall value, encoded through the target normalizer when one exists
+- `l(j)` is an index-space distance profile that is zero on the selected wall edges
+
+This is different from `DirichletBoundaryAnsatz`:
+
+- it does not detect boundaries from physical coordinates
+- it does not assume a Cartesian unit box in physical space
+- it uses the structured grid shape `(H, W)` and a selected mesh axis
+
+For a 2D grid with shape `(H, W)` and `transverse_axis: 1`, the distance profile is:
+
+```text
+eta_j = j / (W - 1)
+l(j) = 4 eta_j (1 - eta_j)
+```
+
+when `normalize_distance: true`. Therefore `l(0) = l(W - 1) = 0`, and the
+network output is exactly replaced by the encoded wall value on those edges.
+
+This is the current hard no-slip path for the pipe benchmark. The pipe mesh is
+curvilinear, and `Pipe_Y` changes across samples, but the no-slip wall is tied
+to the structured mesh edges `j=0` and `j=N`, not to a fixed Cartesian `y`
+coordinate. Using index-space distance keeps the constraint valid under
+coordinate normalization and sample-varying geometry.
+
+Supported config fields:
+
+- `name`: accepts `structured_wall_dirichlet`, `structured_wall_dirichlet_ansatz`, `pipe_wall_no_slip`, or `pipe_wall_no_slip_ansatz`
+- `boundary_value`: constant physical wall value
+- `transverse_axis`: the structured-grid axis whose first and last indices are constrained; for pipe this is `1`
+- `distance_power`: optional exponent applied to the wall distance
+- `normalize_distance`: whether to scale the maximum distance to one
+- `channel_indices`: optional list of output channels to constrain when the model predicts multiple channels
+
+Implementation details:
+
+- `integrations/nsl/modeling.py` passes `args.shapelist` into the constraint as `grid_shape`
+- the steady task runner calls `set_grid_shape(...)` from benchmark metadata when available
+- the steady task runner calls `set_target_normalizer(...)`, so the physical wall value remains correct after target decoding
+- diagnostics are emitted through `return_aux=True` and flow into W&B through the existing metric path
+
+Current diagnostics include:
+
+- `constraint/wall_abs_mean`
+- `constraint/wall_abs_max`
+- `constraint/wall_base_abs_mean`
+- `constraint/wall_base_abs_max`
+- `constraint/wall_base_lower_abs_mean`
+- `constraint/wall_base_upper_abs_mean`
+- `constraint/interior_abs_delta_mean`
+- `constraint/wall_distance_min`
+- `constraint/wall_distance_max`
+- `constraint/wall_distance_mean`
+
+For the current scalar pipe loader, this constraint is appropriate for
+`data.target_channel: 0` (`ux`) and `data.target_channel: 1` (`uy`). It is not
+appropriate unchanged for `data.target_channel: 2` (`p`), because pressure is
+not zero on the walls.
+
+## Pipe Inlet Parabolic Ansatz
+
+`PipeInletParabolicAnsatz` enforces the discovered pipe inlet `ux` profile with
+a smooth extension into the domain:
+
+```text
+u = g + lN
+g(i,j) = alpha(i) * Umax * 4t(j)(1-t(j))
+l(i,j) = 1 - alpha(i)
+alpha(i) = (1 - xi(i))^p
+```
+
+At the inlet edge, `xi=0`, so `alpha=1`, `l=0`, and the output is exactly:
+
+```text
+u(0,j) = Umax * 4t(j)(1-t(j))
+```
+
+Away from the inlet, `alpha` decays smoothly and the backbone output takes over.
+For pipe, `t` is computed per sample from the decoded physical inlet `Y`
+coordinate:
+
+```text
+t = (y - y_min) / (y_max - y_min)
+```
+
+This matters because `Pipe_Y` changes across samples and the training loader can
+normalize coordinates before the model sees them. The constraint implements
+`set_input_normalizer(...)` so it can decode coordinates before computing `t`.
+
+Supported config fields:
+
+- `name`: accepts `pipe_inlet_parabolic`, `pipe_inlet_parabolic_ansatz`, or `structured_inlet_parabolic`
+- `amplitude`: inlet peak velocity `Umax`; the benchmark inspection found `0.25`
+- `inlet_axis`: structured-grid axis for inlet-to-outlet direction; for pipe this is `0`
+- `transverse_axis`: structured-grid transverse axis; for pipe this is `1`
+- `coordinate_channel`: coordinate channel used to compute `t`; for pipe `Y` is channel `1`
+- `decay_power`: exponent `p` in `alpha=(1-xi)^p`
+- `channel_indices`: optional list of output channels to constrain when the model predicts multiple channels
+
+Current diagnostics include:
+
+- `constraint/inlet_abs_mean`
+- `constraint/inlet_abs_max`
+- `constraint/inlet_base_abs_mean`
+- `constraint/inlet_base_abs_max`
+- `constraint/inlet_profile_amplitude`
+- `constraint/inlet_profile_mean`
+- `constraint/inlet_profile_max`
+- `constraint/inlet_alpha_mean`
+- `constraint/inlet_alpha_min`
+- `constraint/inlet_alpha_max`
+- `constraint/inlet_decay_power`
+
+This is a standalone inlet constraint. It does not enforce the wall no-slip
+condition except at the inlet corners, where the parabolic profile is already
+zero.
 
 ## Darcy Flux Projection
 
@@ -234,13 +368,65 @@ If a future benchmark lives on a different box, the preferred pattern is:
 - the constraint uses those bounds automatically
 - the config only sets `constraint.lower` / `constraint.upper` when you want to override the benchmark default
 
+### Structured Wall Dirichlet Example
+
+See [pipe_wall_no_slip.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/constraints/pipe_wall_no_slip.yaml):
+
+```yaml
+constraint:
+  name: "pipe_wall_no_slip"
+  boundary_value: 0.0
+  transverse_axis: 1
+  distance_power: 1.0
+  normalize_distance: true
+```
+
+This is used by [fno_small_wall.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/pipe/fno_small_wall.yaml) for the pipe `ux` baseline.
+
+The corresponding benchmark-level inspection scripts are:
+
+```bash
+python scripts/inspect_pipe_boundary.py --samples 0 10 100 --summary-samples 1000
+python scripts/inspect_pipe_inlet_gaussian.py --samples 0 10 100 --summary-samples 1000
+```
+
+The inlet script compares Gaussian-like candidates against wall-zero parabolic
+profiles. For the first 1000 pipe samples, the inlet `ux` profile is exactly:
+
+```text
+ux(t) = 0.25 * 4 * t * (1 - t)
+```
+
+with `t = (y - y_min) / (y_max - y_min)` on the inlet edge. This inlet condition
+is not currently hard-enforced by `StructuredWallDirichletAnsatz`; it is a
+separate standalone constraint via `PipeInletParabolicAnsatz`.
+
+### Pipe Inlet Parabolic Example
+
+See [pipe_inlet_parabolic.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/constraints/pipe_inlet_parabolic.yaml):
+
+```yaml
+constraint:
+  name: "pipe_inlet_parabolic"
+  amplitude: 0.25
+  inlet_axis: 0
+  transverse_axis: 1
+  coordinate_channel: 1
+  decay_power: 4.0
+```
+
+This is used by [fno_small_inlet.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/pipe/fno_small_inlet.yaml) for a standalone pipe `ux` inlet-profile baseline.
+
 ## Normalization Caveat
 
 For boundary-value constraints, the physically correct boundary condition must be enforced in physical space, not just in normalized target space.
 
-That is why `DirichletBoundaryAnsatz` supports `set_target_normalizer(...)`.
+That is why `DirichletBoundaryAnsatz` and `StructuredWallDirichletAnsatz`
+support `set_target_normalizer(...)`.
 
-In the steady-task runner, when a target normalizer exists, the ansatz encodes `g(x)` before combining it with the latent prediction. This ensures the decoded field still satisfies the intended physical boundary condition.
+In the steady-task runner, when a target normalizer exists, the ansatz encodes
+the boundary value before combining it with the latent prediction. This ensures
+the decoded field still satisfies the intended physical boundary condition.
 
 Without that step, a zero boundary value in physical space would incorrectly become a nonzero boundary value after decoding.
 
