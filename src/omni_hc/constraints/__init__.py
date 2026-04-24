@@ -2,6 +2,7 @@ from .base import ConstraintDiagnostic, ConstraintModule, ConstraintOutput
 from .boundary import (
     DirichletBoundaryAnsatz,
     PipeInletParabolicAnsatz,
+    PipeStreamFunctionBoundaryAnsatz,
     PipeUxBoundaryAnsatz,
     StructuredWallDirichletAnsatz,
     boundary_residual,
@@ -30,6 +31,7 @@ __all__ = [
     "MeanConstraint",
     "MeanCorrection",
     "PipeInletParabolicAnsatz",
+    "PipeStreamFunctionBoundaryAnsatz",
     "PipeStreamFunctionUxConstraint",
     "PipeUxBoundaryAnsatz",
     "StructuredWallDirichletAnsatz",

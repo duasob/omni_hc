@@ -241,10 +241,24 @@ def log_pipe_flow_images(coords, pred, target, h, w, *, prefix, epoch, aux_tenso
             psi=aux_tensors["stream_psi"],
             uy=aux_tensors["stream_uy"],
             divergence=aux_tensors["stream_div"],
+            psi_bc=aux_tensors.get("stream_psi_bc"),
+            mask=aux_tensors.get("stream_mask"),
         )
 
 
-def log_pipe_stream_images(coords, h, w, *, prefix, epoch, psi, uy, divergence):
+def log_pipe_stream_images(
+    coords,
+    h,
+    w,
+    *,
+    prefix,
+    epoch,
+    psi,
+    uy,
+    divergence,
+    psi_bc=None,
+    mask=None,
+):
     if wandb is None or getattr(wandb, "run", None) is None or plt is None:
         return
 
@@ -254,11 +268,16 @@ def log_pipe_stream_images(coords, h, w, *, prefix, epoch, psi, uy, divergence):
     uy_img = uy[0, :, 0].detach().cpu().reshape(h, w).numpy()
     div_img = divergence[0, :, 0].detach().cpu().reshape(h - 1, w - 1).numpy()
 
-    fig, axes = plt.subplots(1, 3, figsize=(13, 3.5), dpi=140)
+    ncols = 5 if psi_bc is not None and mask is not None else 3
+    fig, axes = plt.subplots(1, ncols, figsize=(4.2 * ncols, 3.5), dpi=140)
+    if ncols == 3:
+        axes_main = axes
+    else:
+        axes_main = axes[:3]
     im0 = _plot_pipe_field(axes[0], x, y, psi_img, title="stream psi")
     uy_scale = max(float(np.abs(uy_img).max()), 1e-12)
     im1 = _plot_pipe_field(
-        axes[1],
+        axes_main[1],
         x,
         y,
         uy_img,
@@ -268,7 +287,7 @@ def log_pipe_stream_images(coords, h, w, *, prefix, epoch, psi, uy, divergence):
         cmap="coolwarm",
     )
     div_scale = max(float(np.abs(div_img).max()), 1e-12)
-    im2 = axes[2].pcolormesh(
+    im2 = axes_main[2].pcolormesh(
         x[:-1, :-1],
         y[:-1, :-1],
         div_img,
@@ -277,13 +296,20 @@ def log_pipe_stream_images(coords, h, w, *, prefix, epoch, psi, uy, divergence):
         vmin=-div_scale,
         vmax=div_scale,
     )
-    axes[2].set_title("stream div")
-    axes[2].set_aspect("equal", adjustable="box")
-    axes[2].set_xlabel("x")
-    axes[2].set_ylabel("y")
-    fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
-    fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
-    fig.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+    axes_main[2].set_title("stream div")
+    axes_main[2].set_aspect("equal", adjustable="box")
+    axes_main[2].set_xlabel("x")
+    axes_main[2].set_ylabel("y")
+    fig.colorbar(im0, ax=axes_main[0], fraction=0.046, pad=0.04)
+    fig.colorbar(im1, ax=axes_main[1], fraction=0.046, pad=0.04)
+    fig.colorbar(im2, ax=axes_main[2], fraction=0.046, pad=0.04)
+    if psi_bc is not None and mask is not None:
+        psi_bc_img = psi_bc[0, :, 0].detach().cpu().reshape(h, w).numpy()
+        mask_img = mask[0, :, 0].detach().cpu().reshape(h, w).numpy()
+        im3 = _plot_pipe_field(axes[3], x, y, psi_bc_img, title="psi bc")
+        im4 = _plot_pipe_field(axes[4], x, y, mask_img, title="stream mask")
+        fig.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)
+        fig.colorbar(im4, ax=axes[4], fraction=0.046, pad=0.04)
     fig.tight_layout()
 
     wandb.log(
