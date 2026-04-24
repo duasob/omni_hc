@@ -113,12 +113,21 @@ def log_prediction_images(pred, target, fx, h, w, *, prefix, epoch):
     )
 
 
-def log_steady_field_images(coeff, pred, target, h, w, *, prefix, epoch):
+def log_steady_field_images(coeff, pred, target, h, w, *, prefix, epoch, aux_tensors=None):
     if wandb is None or getattr(wandb, "run", None) is None:
         return
 
     if coeff.shape[-1] >= 2 and plt is not None:
-        log_pipe_flow_images(coeff, pred, target, h, w, prefix=prefix, epoch=epoch)
+        log_pipe_flow_images(
+            coeff,
+            pred,
+            target,
+            h,
+            w,
+            prefix=prefix,
+            epoch=epoch,
+            aux_tensors=aux_tensors,
+        )
         return
 
     coeff_img = coeff[0, :, 0].view(h, w)
@@ -162,7 +171,7 @@ def _plot_pipe_field(ax, x, y, field, *, title, vmin=None, vmax=None, cmap="viri
     return mesh
 
 
-def log_pipe_flow_images(coords, pred, target, h, w, *, prefix, epoch):
+def log_pipe_flow_images(coords, pred, target, h, w, *, prefix, epoch, aux_tensors=None):
     if wandb is None or getattr(wandb, "run", None) is None or plt is None:
         return
 
@@ -215,6 +224,71 @@ def log_pipe_flow_images(coords, pred, target, h, w, *, prefix, epoch):
     wandb.log(
         {
             f"{prefix}/pipe_ux": wandb.Image(fig),
+            "epoch": epoch + 1,
+        }
+    )
+    plt.close(fig)
+
+    if aux_tensors is not None and all(
+        key in aux_tensors for key in ("stream_psi", "stream_uy", "stream_div")
+    ):
+        log_pipe_stream_images(
+            coords,
+            h,
+            w,
+            prefix=prefix,
+            epoch=epoch,
+            psi=aux_tensors["stream_psi"],
+            uy=aux_tensors["stream_uy"],
+            divergence=aux_tensors["stream_div"],
+        )
+
+
+def log_pipe_stream_images(coords, h, w, *, prefix, epoch, psi, uy, divergence):
+    if wandb is None or getattr(wandb, "run", None) is None or plt is None:
+        return
+
+    x = coords[0, :, 0].detach().cpu().reshape(h, w).numpy()
+    y = coords[0, :, 1].detach().cpu().reshape(h, w).numpy()
+    psi_img = psi[0, :, 0].detach().cpu().reshape(h, w).numpy()
+    uy_img = uy[0, :, 0].detach().cpu().reshape(h, w).numpy()
+    div_img = divergence[0, :, 0].detach().cpu().reshape(h - 1, w - 1).numpy()
+
+    fig, axes = plt.subplots(1, 3, figsize=(13, 3.5), dpi=140)
+    im0 = _plot_pipe_field(axes[0], x, y, psi_img, title="stream psi")
+    uy_scale = max(float(np.abs(uy_img).max()), 1e-12)
+    im1 = _plot_pipe_field(
+        axes[1],
+        x,
+        y,
+        uy_img,
+        title="recovered uy",
+        vmin=-uy_scale,
+        vmax=uy_scale,
+        cmap="coolwarm",
+    )
+    div_scale = max(float(np.abs(div_img).max()), 1e-12)
+    im2 = axes[2].pcolormesh(
+        x[:-1, :-1],
+        y[:-1, :-1],
+        div_img,
+        shading="nearest",
+        cmap="coolwarm",
+        vmin=-div_scale,
+        vmax=div_scale,
+    )
+    axes[2].set_title("stream div")
+    axes[2].set_aspect("equal", adjustable="box")
+    axes[2].set_xlabel("x")
+    axes[2].set_ylabel("y")
+    fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+    fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+    fig.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+    fig.tight_layout()
+
+    wandb.log(
+        {
+            f"{prefix}/pipe_stream": wandb.Image(fig),
             "epoch": epoch + 1,
         }
     )

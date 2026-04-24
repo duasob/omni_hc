@@ -16,6 +16,7 @@ from .boundary import (
 from .darcy_flux import DarcyFluxConstraint
 from .mean import MeanCorrection, build_mlp, match_mean
 from .spectral import fft_leray_project_2d, spectral_divergence_2d
+from .stream import PipeStreamFunctionUxConstraint
 from .wrappers import ConstrainedModel, ForwardHookLatentExtractor, MeanConstraint
 
 __all__ = [
@@ -29,6 +30,7 @@ __all__ = [
     "MeanConstraint",
     "MeanCorrection",
     "PipeInletParabolicAnsatz",
+    "PipeStreamFunctionUxConstraint",
     "PipeUxBoundaryAnsatz",
     "StructuredWallDirichletAnsatz",
     "boundary_residual",

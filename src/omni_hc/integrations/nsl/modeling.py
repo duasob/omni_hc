@@ -12,6 +12,7 @@ from omni_hc.constraints import (
     ForwardHookLatentExtractor,
     MeanConstraint,
     PipeInletParabolicAnsatz,
+    PipeStreamFunctionUxConstraint,
     PipeUxBoundaryAnsatz,
     StructuredWallDirichletAnsatz,
 )
@@ -183,6 +184,21 @@ def _build_constraint(backbone: torch.nn.Module, args, cfg: dict):
         return wrapped
 
     if name in {
+        "pipe_stream_function_ux",
+        "pipe_stream_function",
+        "stream_function_ux",
+    }:
+        constraint = PipeStreamFunctionUxConstraint(
+            shapelist=getattr(args, "shapelist", None),
+            eps=float(constraint_cfg.get("eps", 1e-12)),
+        )
+        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
+        if bool(constraint_cfg.get("freeze_base", False)):
+            for param in wrapped.backbone.parameters():
+                param.requires_grad = False
+        return wrapped
+
+    if name in {
         "darcy_flux_projection",
         "darcy_flux_fft_pad",
         "darcy_helmholtz",
@@ -220,7 +236,7 @@ def _build_constraint(backbone: torch.nn.Module, args, cfg: dict):
             "Unsupported constraint "
             f"'{name}'. Currently supported: mean_correction, dirichlet_ansatz, "
             "structured_wall_dirichlet, pipe_inlet_parabolic, pipe_ux_boundary, "
-            "darcy_flux_projection"
+            "pipe_stream_function_ux, darcy_flux_projection"
         )
 
     mode = str(constraint_cfg.get("mode", "post_output")).lower()
