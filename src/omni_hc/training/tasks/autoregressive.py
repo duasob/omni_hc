@@ -215,6 +215,7 @@ def train_autoregressive_task(
                 "pred_mean": train_pred_mean_sum / max(samples, 1),
             }
             train_metrics.update(train_diag_metrics.compute())
+            epoch_step = (epoch + 1) * len(train_loader)
 
             if (
                 (image_log_every is not None and image_log_every > 0)
@@ -251,6 +252,7 @@ def train_autoregressive_task(
                                 w,
                                 prefix="validation",
                                 epoch=epoch,
+                                step=epoch_step,
                             )
                         if (
                             log_every is not None
@@ -267,7 +269,7 @@ def train_autoregressive_task(
                                     "val",
                                 )
                             )
-                            log_metrics(payload)
+                            log_metrics(payload, step=epoch_step)
                 model.train()
 
             val_metrics = evaluate_autoregressive(
@@ -292,7 +294,7 @@ def train_autoregressive_task(
                     | prefix_metric_names(train_metrics, "train")
                     | prefix_metric_names(val_metrics, "val")
                 ),
-                step=epoch + 1,
+                step=epoch_step,
             )
 
             checkpoint_payload = {

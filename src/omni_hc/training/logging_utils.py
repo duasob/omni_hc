@@ -91,7 +91,7 @@ def _to_red_blue_rgb(image):
     return (rgb * 255).astype("uint8")
 
 
-def log_prediction_images(pred, target, fx, h, w, *, prefix, epoch):
+def log_prediction_images(pred, target, fx, h, w, *, prefix, epoch, step=None):
     if wandb is None or getattr(wandb, "run", None) is None:
         return
 
@@ -109,11 +109,23 @@ def log_prediction_images(pred, target, fx, h, w, *, prefix, epoch):
             f"{prefix}/target": wandb.Image(_to_grayscale_rgb(target_merge)),
             f"{prefix}/error": wandb.Image(_to_red_blue_rgb(diff_img)),
             "epoch": epoch + 1,
-        }
+        },
+        step=step,
     )
 
 
-def log_steady_field_images(coeff, pred, target, h, w, *, prefix, epoch, aux_tensors=None):
+def log_steady_field_images(
+    coeff,
+    pred,
+    target,
+    h,
+    w,
+    *,
+    prefix,
+    epoch,
+    aux_tensors=None,
+    step=None,
+):
     if wandb is None or getattr(wandb, "run", None) is None:
         return
 
@@ -127,6 +139,7 @@ def log_steady_field_images(coeff, pred, target, h, w, *, prefix, epoch, aux_ten
             prefix=prefix,
             epoch=epoch,
             aux_tensors=aux_tensors,
+            step=step,
         )
         return
 
@@ -156,7 +169,8 @@ def log_steady_field_images(coeff, pred, target, h, w, *, prefix, epoch, aux_ten
                 _to_grayscale_rgb(error_abs, vmin=0.0, vmax=abs_vmax)
             ),
             "epoch": epoch + 1,
-        }
+        },
+        step=step,
     )
 
 
@@ -171,7 +185,18 @@ def _plot_pipe_field(ax, x, y, field, *, title, vmin=None, vmax=None, cmap="viri
     return mesh
 
 
-def log_pipe_flow_images(coords, pred, target, h, w, *, prefix, epoch, aux_tensors=None):
+def log_pipe_flow_images(
+    coords,
+    pred,
+    target,
+    h,
+    w,
+    *,
+    prefix,
+    epoch,
+    aux_tensors=None,
+    step=None,
+):
     if wandb is None or getattr(wandb, "run", None) is None or plt is None:
         return
 
@@ -225,7 +250,8 @@ def log_pipe_flow_images(coords, pred, target, h, w, *, prefix, epoch, aux_tenso
         {
             f"{prefix}/pipe_ux": wandb.Image(fig),
             "epoch": epoch + 1,
-        }
+        },
+        step=step,
     )
     plt.close(fig)
 
@@ -243,6 +269,7 @@ def log_pipe_flow_images(coords, pred, target, h, w, *, prefix, epoch, aux_tenso
             divergence=aux_tensors["stream_div"],
             psi_bc=aux_tensors.get("stream_psi_bc"),
             mask=aux_tensors.get("stream_mask"),
+            step=step,
         )
 
 
@@ -253,6 +280,7 @@ def log_pipe_stream_images(
     *,
     prefix,
     epoch,
+    step=None,
     psi,
     uy,
     divergence,
@@ -316,7 +344,8 @@ def log_pipe_stream_images(
         {
             f"{prefix}/pipe_stream": wandb.Image(fig),
             "epoch": epoch + 1,
-        }
+        },
+        step=step,
     )
     plt.close(fig)
 
