@@ -236,6 +236,7 @@ def train_steady_task(
                                 w,
                                 prefix="validation",
                                 epoch=epoch,
+                                aux_tensors=out["aux_tensors"],
                             )
                         if (
                             log_every is not None

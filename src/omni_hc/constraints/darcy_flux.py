@@ -16,8 +16,8 @@ from .spectral import (
     reshape_grid_to_channels_last,
     sine_poisson_solve_dirichlet_2d,
     spectral_divergence_2d,
-    spectral_gradient_2d,
 )
+from .stream import stream_velocity_from_psi_cartesian_spectral
 
 
 class DarcyFluxConstraint(ConstraintModule):
@@ -158,10 +158,7 @@ class DarcyFluxConstraint(ConstraintModule):
         dy: float,
         dx: float,
     ) -> torch.Tensor:
-        gradient = spectral_gradient_2d(psi, dy=dy, dx=dx)
-        dpsi_dx = gradient[:, 0:1]
-        dpsi_dy = gradient[:, 1:2]
-        return torch.cat([dpsi_dy, -dpsi_dx], dim=1)
+        return stream_velocity_from_psi_cartesian_spectral(psi, dy=dy, dx=dx)
 
     def _recover_pressure_from_gradient_sine(
         self,
