@@ -21,4 +21,4 @@ wandb_logging:
   project: "omni_hc"
   run_name: "pipe_fno_small"
   log_every: 100
-  image_log_every: 10
+  image_log_every: 1

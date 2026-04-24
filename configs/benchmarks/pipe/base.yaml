@@ -10,7 +10,7 @@ paths:
 data:
   ntrain: 1000
   ntest: 200
-  target_channel: 0
+  target_channel: 0 # [0: ux, 1: uy, 2: p]
   downsamplex: 4
   downsampley: 4
   normalize: true
