@@ -42,6 +42,9 @@ families:
 
 - `utils/hooks.py`: `ForwardHookLatentExtractor`
 - `utils/spectral.py`: spectral and finite-difference operators
+- `utils/boundary_ops.py`: common `f = g + l * N` ansatz helpers
+- `utils/structured_grid.py`: structured-grid axis, edge, and shape helpers
+- `utils/stream_ops.py`: stream-function velocity and curvilinear divergence helpers
 
 ### `boundary.py`
 
@@ -61,6 +64,26 @@ Contains Dirichlet architectural-ansatz utilities:
 - `boundary_stats(...)`
 
 This is the current path for enforcing boundary conditions by construction.
+The direct output-space classes share a common implementation pattern:
+
+```text
+f = g + l * N
+```
+
+where each class is responsible for constructing its own particular field `g`
+and boundary-distance field `l`, then delegates the composition to
+`utils/boundary_ops.py`.
+
+### `stream.py`
+
+Contains stream-function constraints:
+
+- `PipeStreamFunctionUxConstraint`
+- `PipeStreamFunctionBoundaryAnsatz`
+
+These classes interpret the backbone output as a latent stream function before
+recovering a physical output field. Pure stream-function operators live in
+`utils/stream_ops.py`.
 
 ### `darcy_flux.py`
 

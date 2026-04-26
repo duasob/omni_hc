@@ -17,7 +17,7 @@ from .utils.spectral import (
     sine_poisson_solve_dirichlet_2d,
     spectral_divergence_2d,
 )
-from .stream import stream_velocity_from_psi_cartesian_spectral
+from .utils.stream_ops import stream_velocity_from_psi_cartesian_spectral
 
 
 class DarcyFluxConstraint(ConstraintModule):

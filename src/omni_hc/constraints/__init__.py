@@ -7,7 +7,6 @@ from .base import (
 from .boundary import (
     DirichletBoundaryAnsatz,
     PipeInletParabolicAnsatz,
-    PipeStreamFunctionBoundaryAnsatz,
     PipeUxBoundaryAnsatz,
     StructuredWallDirichletAnsatz,
     boundary_residual,
@@ -21,7 +20,7 @@ from .boundary import (
 )
 from .darcy_flux import DarcyFluxConstraint
 from .mean import MeanConstraint, MeanCorrection, build_mlp, match_mean
-from .stream import PipeStreamFunctionUxConstraint
+from .stream import PipeStreamFunctionBoundaryAnsatz, PipeStreamFunctionUxConstraint
 from .utils.hooks import ForwardHookLatentExtractor
 from .utils.spectral import fft_leray_project_2d, spectral_divergence_2d
 
