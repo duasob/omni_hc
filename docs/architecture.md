@@ -1,3 +1,7 @@
+# Architecture
+
+The repository structure should keep the constraint code reusable while making
+benchmark assumptions explicit. The main design rules are:
 
 - reusable code should not live next to benchmark artifacts
 - benchmark logic should not be hidden inside generic training scripts
@@ -19,9 +23,10 @@ omni_hc/
 │   ├── constraints/
 │   └── experiments/
 ├── docs/
-├── examples/
-│   └── navier_stokes/
+│   ├── benchmarks/
+│   └── constraints/
 ├── scripts/
+│   └── diagnostics/
 ├── src/
 │   └── omni_hc/
 │       ├── benchmarks/
@@ -99,16 +104,22 @@ For actual runs, the important layer is `configs/experiments/`.
 
 The framework should compose these files into one resolved runtime config.
 
-### `examples/`
+### `docs/benchmarks/`
 
-Each example should explain:
+Benchmark-facing documentation should explain:
 
 - the physical invariant
 - the constraint mechanism
 - how it maps to the framework
 - which config files reproduce the experiment
 
-Examples are the user-facing entrypoint. The framework exists to support them.
+These pages replace the former standalone examples entrypoint and keep narrative
+examples next to the rest of the project writeup.
+
+### `scripts/diagnostics/`
+
+Diagnostic scripts should generate the figures and benchmark checks referenced
+from the docs. They are executable support material, not prose modules.
 
 ### `external/`
 
