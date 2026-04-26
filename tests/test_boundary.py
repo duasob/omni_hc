@@ -390,3 +390,23 @@ def test_pipe_ux_boundary_ansatz_emits_combined_diagnostics():
     assert "constraint/boundary_distance_max" in out.diagnostics
     assert torch.allclose(out.diagnostics["constraint/inlet_abs_max"].value, torch.tensor(0.0))
     assert out.diagnostics["constraint/wall_abs_max"].value == 0.0
+
+
+def test_pipe_ux_boundary_ansatz_matches_explicit_g_plus_l_n():
+    height, width = 4, 5
+    pred = torch.randn(2, height * width, 1)
+    coords = _structured_coords(height, width).expand(2, -1, -1)
+    constraint = PipeUxBoundaryAnsatz(
+        out_dim=1,
+        grid_shape=(height, width),
+        amplitude=0.25,
+        inlet_decay_power=4.0,
+    )
+
+    out = constraint(pred=pred, coords=coords, return_aux=True)
+    alpha = out.aux["alpha"]
+    profile = out.aux["inlet_profile"]
+    distance = out.aux["distance"]
+    expected = alpha * profile + distance * pred
+
+    assert torch.allclose(out.pred, expected, atol=1e-8)
