@@ -35,21 +35,22 @@ model = ConstrainedModel(
 | **Plasticity**         | Time-dependent Deformation                       | [geo-fno](https://drive.google.com/drive/folders/1YBuaoTdOSr_qzaow-G-iwvbUI7fiUzu8) | Thermodynamic irreversibility                                            | Monotonic cumulative integration                     | Drafting           |
 
 
-Some example configs for navier-stokes flow are:
+Project documentation is organized under [docs](docs/README.md). Some example
+configs for Navier-Stokes flow are:
 
 - [fno_small_mean.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/navier_stokes/fno_small_mean.yaml)
 - [gt_small_mean.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/navier_stokes/gt_small_mean.yaml)
 
 ```bash
-python scripts/train.py \
+conda run -n omni-hc python scripts/train.py \
   --config configs/experiments/navier_stokes/fno_small_mean.yaml \
   --device cpu
 
-python scripts/test.py \
+conda run -n omni-hc python scripts/test.py \
   --config configs/experiments/navier_stokes/fno_small_mean.yaml \
   --device cpu
 
-python scripts/tune.py \
+conda run -n omni-hc python scripts/tune.py \
   --config configs/experiments/navier_stokes/fno_small_mean.yaml \
   --device cpu
 ```

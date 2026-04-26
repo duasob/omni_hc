@@ -464,8 +464,8 @@ This is used by [fno_small_wall.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/conf
 The corresponding benchmark-level inspection scripts are:
 
 ```bash
-python scripts/inspect_pipe_boundary.py --samples 0 10 100 --summary-samples 1000
-python scripts/inspect_pipe_inlet_gaussian.py --samples 0 10 100 --summary-samples 1000
+conda run -n omni-hc python scripts/diagnostics/pipe_boundary.py --samples 0 10 100 --summary-samples 1000
+conda run -n omni-hc python scripts/diagnostics/pipe_inlet_profile.py --samples 0 10 100 --summary-samples 1000
 ```
 
 The inlet script compares Gaussian-like candidates against wall-zero parabolic
@@ -530,7 +530,7 @@ Without that step, a zero boundary value in physical space would incorrectly bec
 
 Constraint correctness checks should live here, not inside benchmark training code, when they validate the constraint mechanism itself.
 
-Current examples:
+Current checks:
 
 - `boundary_residual(...)`
 - `boundary_stats(...)`

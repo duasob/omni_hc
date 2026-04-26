@@ -9,6 +9,7 @@ __pycache__/
 venv/
 .env
 INTERNAL.md
+.obsidian
 
 build/
 dist/
