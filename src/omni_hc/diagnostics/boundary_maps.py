@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 import torch
+import numpy as np
 
 from omni_hc.constraints import ConstraintOutput, PipeStreamFunctionBoundaryAnsatz
 
@@ -168,19 +169,16 @@ def _plot_map(ax, values, *, xy, title: str, cmap: str) -> None:
         image = ax.imshow(values, origin="lower", cmap=cmap)
     else:
         x, y = xy
-        if _is_rectilinear_grid(x, y):
-            image = ax.pcolormesh(x, y, values, shading="auto", cmap=cmap)
-        else:
-            n_points = max(values.size, 1)
-            marker_size = max(1.0, min(12.0, 12000.0 / n_points))
-            image = ax.scatter(
-                x.reshape(-1),
-                y.reshape(-1),
-                c=values.reshape(-1),
-                s=marker_size,
-                cmap=cmap,
-                linewidths=0.0,
-            )
+        x_edges, y_edges = _curvilinear_cell_edges(x, y)
+        image = ax.pcolormesh(
+            x_edges,
+            y_edges,
+            values,
+            shading="flat",
+            cmap=cmap,
+            linewidth=0.0,
+            antialiased=False,
+        )
         ax.plot(x[:, 0], y[:, 0], color="black", linewidth=0.8)
         ax.plot(x[:, -1], y[:, -1], color="black", linewidth=0.8)
         ax.plot(x[0, :], y[0, :], color="black", linewidth=0.8)
@@ -194,3 +192,41 @@ def _is_rectilinear_grid(x, y) -> bool:
         ((x - x[:, :1]) == 0.0).all()
         and ((y - y[:1, :]) == 0.0).all()
     )
+
+
+def _curvilinear_cell_edges(x, y):
+    if x.shape != y.shape or x.ndim != 2:
+        raise ValueError(f"Expected 2D coordinate arrays with matching shapes, got {x.shape} and {y.shape}")
+
+    height, width = x.shape
+    if _is_rectilinear_grid(x, y):
+        return _rectilinear_edges(x[:, 0], y[0, :])
+
+    stacked = np.stack([x, y], axis=-1)
+    padded = np.pad(stacked, ((1, 1), (1, 1), (0, 0)), mode="edge")
+    edges = 0.25 * (
+        padded[:-1, :-1]
+        + padded[1:, :-1]
+        + padded[:-1, 1:]
+        + padded[1:, 1:]
+    )
+
+    return edges[..., 0], edges[..., 1]
+
+
+def _rectilinear_edges(x_centers, y_centers):
+    return np.meshgrid(
+        _axis_edges(np.asarray(x_centers)),
+        _axis_edges(np.asarray(y_centers)),
+        indexing="ij",
+    )
+
+
+def _axis_edges(centers):
+    if centers.ndim != 1 or centers.size < 2:
+        raise ValueError("At least two centers are required to infer cell edges")
+    edges = np.empty(centers.size + 1, dtype=centers.dtype)
+    edges[1:-1] = 0.5 * (centers[:-1] + centers[1:])
+    edges[0] = centers[0] - 0.5 * (centers[1] - centers[0])
+    edges[-1] = centers[-1] + 0.5 * (centers[-1] - centers[-2])
+    return edges
