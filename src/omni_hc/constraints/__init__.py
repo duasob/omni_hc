@@ -1,4 +1,9 @@
-from .base import ConstraintDiagnostic, ConstraintModule, ConstraintOutput
+from .base import (
+    ConstrainedModel,
+    ConstraintDiagnostic,
+    ConstraintModule,
+    ConstraintOutput,
+)
 from .boundary import (
     DirichletBoundaryAnsatz,
     PipeInletParabolicAnsatz,
@@ -15,10 +20,10 @@ from .boundary import (
     unit_box_distance,
 )
 from .darcy_flux import DarcyFluxConstraint
-from .mean import MeanCorrection, build_mlp, match_mean
-from .spectral import fft_leray_project_2d, spectral_divergence_2d
+from .mean import MeanConstraint, MeanCorrection, build_mlp, match_mean
 from .stream import PipeStreamFunctionUxConstraint
-from .wrappers import ConstrainedModel, ForwardHookLatentExtractor, MeanConstraint
+from .utils.hooks import ForwardHookLatentExtractor
+from .utils.spectral import fft_leray_project_2d, spectral_divergence_2d
 
 __all__ = [
     "ConstrainedModel",

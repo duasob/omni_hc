@@ -3,8 +3,12 @@ from __future__ import annotations
 import torch
 
 from .base import ConstraintDiagnostic, ConstraintModule
-from .spectral import reshape_channels_last_to_grid, reshape_grid_to_channels_last
-from .spectral import finite_difference_derivative_2d, spectral_gradient_2d
+from .utils.spectral import (
+    finite_difference_derivative_2d,
+    reshape_channels_last_to_grid,
+    reshape_grid_to_channels_last,
+    spectral_gradient_2d,
+)
 
 
 def stream_velocity_from_psi_cartesian_spectral(

@@ -9,7 +9,7 @@ from omni_hc.constraints.stream import (
     stream_velocity_from_psi_cartesian_spectral,
     stream_velocity_from_psi_curvilinear,
 )
-from omni_hc.constraints.spectral import reshape_channels_last_to_grid
+from omni_hc.constraints.utils.spectral import reshape_channels_last_to_grid
 
 
 class AffineNormalizer:
