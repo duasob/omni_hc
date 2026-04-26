@@ -12,29 +12,36 @@ The current design goal is:
 
 ### `base.py`
 
-Defines `ConstraintModule`, the base class for all constraint operators.
+Defines the constraint framework primitives:
 
-### `wrappers.py`
-
-Defines the wrapper machinery used to attach constraints to arbitrary backbones:
-
+- `ConstraintDiagnostic`
+- `ConstraintOutput`
+- `ConstraintModule`
 - `ConstrainedModel`
-- `ForwardHookLatentExtractor`
-- `MeanConstraint`
 
-`ConstrainedModel` wraps a backbone, runs the backbone normally, then applies the selected constraint to the backbone prediction. If a latent tensor is needed, `ForwardHookLatentExtractor` captures it from an internal module.
+`ConstrainedModel` wraps a backbone, runs the backbone normally, then applies
+the selected constraint to the backbone prediction.
 
 This is the main integration point used by `integrations/nsl/modeling.py`.
 
 ### `mean.py`
 
-Contains utilities for mean-preserving constraints:
+Contains mean-preserving constraints and their helper functions:
 
 - `build_mlp`
 - `match_mean`
+- `MeanConstraint`
 - `MeanCorrection`
 
 These support the original Navier-Stokes-style global mean correction idea.
+
+### `utils/`
+
+Contains implementation helpers that are not themselves public constraint
+families:
+
+- `utils/hooks.py`: `ForwardHookLatentExtractor`
+- `utils/spectral.py`: spectral and finite-difference operators
 
 ### `boundary.py`
 

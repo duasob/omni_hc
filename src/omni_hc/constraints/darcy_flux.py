@@ -5,7 +5,7 @@ from typing import Sequence
 import torch
 
 from .base import ConstraintDiagnostic, ConstraintModule
-from .spectral import (
+from .utils.spectral import (
     crop_spatial_2d,
     finite_difference_curl_2d,
     finite_difference_divergence_2d,

@@ -14,7 +14,7 @@ def parse_args():
         type=str,
         default="configs/experiments/navier_stokes/fno_small_mean.yaml",
     )
-    parser.add_argument(
+    parser.add_argument(  # TODO: Remove this argument and assume NSL installed in external/
         "--nsl-root",
         type=str,
         default=None,
@@ -26,6 +26,7 @@ def parse_args():
         default="auto",
         help="auto | cpu | cuda",
     )
+
     return parser.parse_args()
 
 

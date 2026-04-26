@@ -5,11 +5,11 @@ from typing import Sequence
 import torch
 
 from .base import ConstraintDiagnostic, ConstraintModule
-from .spectral import reshape_channels_last_to_grid, reshape_grid_to_channels_last
 from .stream import (
     finite_volume_divergence_curvilinear,
     stream_velocity_from_psi_curvilinear,
 )
+from .utils.spectral import reshape_channels_last_to_grid, reshape_grid_to_channels_last
 
 
 def unit_box_distance(
@@ -78,7 +78,9 @@ class DirichletBoundaryAnsatz(ConstraintModule):
         self.lower = float(lower)
         self.upper = float(upper)
 
-    def _boundary_value_tensor(self, coords: torch.Tensor, pred: torch.Tensor) -> torch.Tensor:
+    def _boundary_value_tensor(
+        self, coords: torch.Tensor, pred: torch.Tensor
+    ) -> torch.Tensor:
         g = constant_boundary_value(
             coords,
             value=self.boundary_value,
@@ -310,13 +312,17 @@ class StructuredWallDirichletAnsatz(ConstraintModule):
     ) -> None:
         super().__init__()
         self.out_dim = int(out_dim)
-        self.grid_shape = None if grid_shape is None else tuple(int(v) for v in grid_shape)
+        self.grid_shape = (
+            None if grid_shape is None else tuple(int(v) for v in grid_shape)
+        )
         self.boundary_value = float(boundary_value)
         self.transverse_axis = int(transverse_axis)
         self.distance_power = float(distance_power)
         self.normalize_distance = bool(normalize_distance)
         self.channel_indices = (
-            None if channel_indices is None else tuple(int(idx) for idx in channel_indices)
+            None
+            if channel_indices is None
+            else tuple(int(idx) for idx in channel_indices)
         )
         self.target_normalizer = None
 
@@ -371,10 +377,12 @@ class StructuredWallDirichletAnsatz(ConstraintModule):
         edge: str,
     ) -> torch.Tensor:
         height, width = int(grid_shape[0]), int(grid_shape[1])
-        grid = self._selected_channels(field).reshape(
-            field.shape[0], height, width, -1
+        grid = self._selected_channels(field).reshape(field.shape[0], height, width, -1)
+        axis = (
+            self.transverse_axis
+            if self.transverse_axis >= 0
+            else 2 + self.transverse_axis
         )
-        axis = self.transverse_axis if self.transverse_axis >= 0 else 2 + self.transverse_axis
         if axis == 0 and edge == "lower":
             return grid[:, 0, :, :]
         if axis == 0 and edge == "upper":
@@ -383,7 +391,9 @@ class StructuredWallDirichletAnsatz(ConstraintModule):
             return grid[:, :, 0, :]
         if axis == 1 and edge == "upper":
             return grid[:, :, -1, :]
-        raise ValueError(f"Unsupported wall edge '{edge}' for axis {self.transverse_axis}")
+        raise ValueError(
+            f"Unsupported wall edge '{edge}' for axis {self.transverse_axis}"
+        )
 
     def _wall_values(
         self,
@@ -400,10 +410,12 @@ class StructuredWallDirichletAnsatz(ConstraintModule):
         grid_shape: Sequence[int],
     ) -> torch.Tensor:
         height, width = int(grid_shape[0]), int(grid_shape[1])
-        grid = self._selected_channels(field).reshape(
-            field.shape[0], height, width, -1
+        grid = self._selected_channels(field).reshape(field.shape[0], height, width, -1)
+        axis = (
+            self.transverse_axis
+            if self.transverse_axis >= 0
+            else 2 + self.transverse_axis
         )
-        axis = self.transverse_axis if self.transverse_axis >= 0 else 2 + self.transverse_axis
         if axis == 0:
             return grid[:, 1:-1, :, :].reshape(-1)
         if axis == 1:
@@ -575,13 +587,17 @@ class PipeInletParabolicAnsatz(ConstraintModule):
     ) -> None:
         super().__init__()
         self.out_dim = int(out_dim)
-        self.grid_shape = None if grid_shape is None else tuple(int(v) for v in grid_shape)
+        self.grid_shape = (
+            None if grid_shape is None else tuple(int(v) for v in grid_shape)
+        )
         self.amplitude = float(amplitude)
         self.inlet_axis = int(inlet_axis)
         self.transverse_axis = int(transverse_axis)
         self.decay_power = float(decay_power)
         self.channel_indices = (
-            None if channel_indices is None else tuple(int(idx) for idx in channel_indices)
+            None
+            if channel_indices is None
+            else tuple(int(idx) for idx in channel_indices)
         )
         self.coordinate_channel = int(coordinate_channel)
         self.eps = float(eps)
@@ -617,7 +633,9 @@ class PipeInletParabolicAnsatz(ConstraintModule):
 
     def _channel_mask(self, pred: torch.Tensor) -> torch.Tensor:
         if self.channel_indices is None:
-            return torch.ones((1, 1, pred.shape[-1]), dtype=torch.bool, device=pred.device)
+            return torch.ones(
+                (1, 1, pred.shape[-1]), dtype=torch.bool, device=pred.device
+            )
         mask = torch.zeros((1, 1, pred.shape[-1]), dtype=torch.bool, device=pred.device)
         for channel_idx in self.channel_indices:
             if channel_idx < 0 or channel_idx >= pred.shape[-1]:
@@ -680,14 +698,18 @@ class PipeInletParabolicAnsatz(ConstraintModule):
             inlet_coord = coord_grid[:, 0, :]
             coord_min = inlet_coord.min(dim=1, keepdim=True).values
             coord_max = inlet_coord.max(dim=1, keepdim=True).values
-            t_edge = (inlet_coord - coord_min) / (coord_max - coord_min).clamp_min(self.eps)
+            t_edge = (inlet_coord - coord_min) / (coord_max - coord_min).clamp_min(
+                self.eps
+            )
             profile_edge = self.amplitude * 4.0 * t_edge * (1.0 - t_edge)
             profile = profile_edge[:, None, :].expand(-1, height, -1)
         else:
             inlet_coord = coord_grid[:, :, 0]
             coord_min = inlet_coord.min(dim=1, keepdim=True).values
             coord_max = inlet_coord.max(dim=1, keepdim=True).values
-            t_edge = (inlet_coord - coord_min) / (coord_max - coord_min).clamp_min(self.eps)
+            t_edge = (inlet_coord - coord_min) / (coord_max - coord_min).clamp_min(
+                self.eps
+            )
             profile_edge = self.amplitude * 4.0 * t_edge * (1.0 - t_edge)
             profile = profile_edge[:, :, None].expand(-1, -1, width)
         return profile.reshape(coords.shape[0], height * width, 1).to(
@@ -706,9 +728,7 @@ class PipeInletParabolicAnsatz(ConstraintModule):
         grid_shape: Sequence[int],
     ) -> torch.Tensor:
         height, width = int(grid_shape[0]), int(grid_shape[1])
-        grid = self._selected_channels(field).reshape(
-            field.shape[0], height, width, -1
-        )
+        grid = self._selected_channels(field).reshape(field.shape[0], height, width, -1)
         inlet_axis = self._axis(self.inlet_axis)
         if inlet_axis == 0:
             return grid[:, 0, :, :]
@@ -849,7 +869,9 @@ class PipeUxBoundaryAnsatz(PipeInletParabolicAnsatz):
         self.wall_distance_power = float(wall_distance_power)
         self.normalize_wall_distance = bool(normalize_wall_distance)
 
-    def _wall_distance(self, grid_shape: Sequence[int], pred: torch.Tensor) -> torch.Tensor:
+    def _wall_distance(
+        self, grid_shape: Sequence[int], pred: torch.Tensor
+    ) -> torch.Tensor:
         return structured_wall_distance(
             grid_shape,
             transverse_axis=self.transverse_axis,
@@ -1054,7 +1076,9 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
 
     def _grid_shape(self) -> tuple[int, int]:
         if self.shapelist is None:
-            raise ValueError("PipeStreamFunctionBoundaryAnsatz requires a 2D grid shape")
+            raise ValueError(
+                "PipeStreamFunctionBoundaryAnsatz requires a 2D grid shape"
+            )
         if len(self.shapelist) != 2:
             raise ValueError(
                 "PipeStreamFunctionBoundaryAnsatz expects a 2D grid shape, "
@@ -1089,9 +1113,9 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
         reduce_dim = -1 if self.transverse_axis == 1 else -2
         coord_min = transverse_coord.amin(dim=reduce_dim, keepdim=True)
         coord_max = transverse_coord.amax(dim=reduce_dim, keepdim=True)
-        return (transverse_coord - coord_min) / (
-            coord_max - coord_min
-        ).clamp_min(self.eps)
+        return (transverse_coord - coord_min) / (coord_max - coord_min).clamp_min(
+            self.eps
+        )
 
     def _inlet_extent(self, transverse_coord: torch.Tensor) -> torch.Tensor:
         if self.inlet_axis == 0:
