@@ -4,7 +4,7 @@ from omni_hc.constraints import (
     PipeStreamFunctionBoundaryAnsatz,
     PipeStreamFunctionUxConstraint,
 )
-from omni_hc.constraints.stream import (
+from omni_hc.constraints.utils.stream_ops import (
     finite_volume_divergence_curvilinear,
     stream_velocity_from_psi_cartesian_spectral,
     stream_velocity_from_psi_curvilinear,

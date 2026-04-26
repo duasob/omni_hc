@@ -8,6 +8,7 @@ __pycache__/
 .venv/
 venv/
 .env
+INTERNAL.md
 
 build/
 dist/
@@ -19,4 +20,3 @@ outputs
 wandb/
 checkpoints/
 logs/
-
