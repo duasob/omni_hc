@@ -1,12 +1,7 @@
 # OmniHC
+Omni-model Hard Constraints: A Modular Framework for Physics-Preserving Transformers Across Standard Benchmarks
 
-OmniHC is the framework repo for hard-constrained scientific machine learning experiments. The design goal is simple: keep reusable constraint machinery, benchmark metadata, and config composition in one place, while keeping each benchmark implementation isolated enough that the project can grow beyond a single Navier-Stokes demo.
-
-This project shifts from soft encouragement of physics to hard guarantees. By introducing modular, plug-and-play hard constraints, OmniHC restricts model outputs to physically valid manifolds, enforcing target invariants up to machine precision regardless of learned weights.
-
-A demo benchmark on 2D incompressible Navier-Stokes flow can be found here: [duasob/physics_preserving_ns_flow](https://github.com/duasob/physics_preserving_ns_flow)
-
-The idea is that any standard backbone architecture can be wrapped with a hard constraint module to yield physically consistent predictions. 
+This project shifts from "encouraging" physics (soft constraints) to guaranteeing them. The idea is that any standard backbone architecture can be wrapped with a hard constraint module to yield physically consistent predictions. 
 
 ```python
 from omni_hc.constraints import ConstrainedModel, DirichletBoundaryAnsatz
