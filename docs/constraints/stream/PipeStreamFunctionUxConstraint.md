@@ -18,6 +18,7 @@ $$u_x = \frac{\partial \psi}{\partial y}, \qquad u_y = -\frac{\partial \psi}{\pa
 
 This construction makes the recovered velocity divergence-free in the continuous
 setting:
+
 $$\nabla \cdot \mathbf{u} = \frac{\partial u_x}{\partial x} + \frac{\partial u_y}{\partial y} = \frac{\partial^2 \psi}{\partial x \partial y} - \frac{\partial^2 \psi}{\partial y \partial x} = 0$$
 
 The implementation computes the derivatives on the curvilinear pipe mesh using

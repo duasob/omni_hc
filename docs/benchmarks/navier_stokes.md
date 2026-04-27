@@ -9,7 +9,7 @@ live in
 ## Physics
 
 The model predicts vorticity `w(x, y)`. Because the domain is periodic, the global vorticity mean should stay fixed over time. 
-An unconstrained model can fit the rollout well while still drifting in the global vorticity. See the corresponding [Mean Constraint](../constraints/mean/MeanConstraint.md).
+An unconstrained model can fit the rollout well while still drifting in the global vorticity. See the corresponding [Mean Constraint](../constraints/stream/MeanConstraint.md).
 
 ![predicted_global_v](../figures/ns/predicted_global_v.png)
 

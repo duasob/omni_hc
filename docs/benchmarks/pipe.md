@@ -32,7 +32,7 @@ That distinction matters because some constraints should be expressed in index
 space, while others should use decoded physical coordinates from the curvilinear
 mesh.
 
-## Constraint Variants
+## Hard Constraints
 
 The pipe benchmark currently has five documented hard-constraint variants:
 
