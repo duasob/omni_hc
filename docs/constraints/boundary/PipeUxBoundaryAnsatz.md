@@ -8,19 +8,11 @@ condition ([StructuredWallDirichletAnsatz](StructuredWallDirichletAnsatz.md)) in
 
 The ansatz keeps the same inlet extension as `PipeInletParabolicAnsatz`, but multiplies the free component by both the inlet distance and the wall distance:
 
-$$
-u = g + l N
-$$
+$$u = g + lN$$
 where
-$$
-g(i,j) = \alpha(i) U_{\max} 4t(j)(1-t(j))
-$$
+$$g(i,j) = \alpha(i) U_{\max}4t(j)(1-t(j))$$
 and
-$$
-l(i,j) = (1-\alpha(i)) l_{\text{wall}}(j),
-\qquad
-\alpha(i) = (1-\xi(i))^p
-$$
+$$l(i,j) = (1-\alpha(i))l_{\text{wall}}(j), \qquad \alpha(i) = (1-\xi(i))^p$$
 
 The wall distance $l_{\text{wall}}$ is zero on the lower and upper pipe walls,
 while $1-\alpha$ is zero on the inlet. The constrained scalar output therefore

@@ -10,9 +10,7 @@ those walls are the transverse-index edges $j=0$ and $j=W-1$.
 
 The constraint uses the standard hard-boundary ansatz:
 
-$$
-u = g + lN
-$$
+$$u = g + lN$$
 
 Here $N$ is the unconstrained model output, $g$ is the desired boundary value,
 and $l$ is a distance-like field that is zero on the constrained boundary. On
@@ -21,9 +19,7 @@ the wall, $l=0$, so the prediction becomes exactly $u=g$ regardless of $N$.
 For the pipe setup, the distance is built in structured index space rather than
 from Cartesian coordinates:
 
-$$
-l(\eta) = \eta(1-\eta)
-$$
+$$l(\eta) = \eta(1-\eta)$$
 
 where $\eta \in [0,1]$ is the normalized coordinate along the transverse grid
 axis. With `normalize_distance: true`, the implementation uses

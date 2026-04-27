@@ -26,13 +26,9 @@ By default it writes figures to `artifacts/boundary_ansatz_maps/` for:
 
 For direct output-space constraints, the script infers:
 
-$$
-g = \operatorname{constraint}(N=0)
-$$
+$$g = \operatorname{constraint}(N=0)$$
 
-$$
-l = \operatorname{constraint}(N=1) - \operatorname{constraint}(N=0)
-$$
+$$l = \operatorname{constraint}(N=1) - \operatorname{constraint}(N=0)$$
 
 For `PipeStreamFunctionBoundaryAnsatz`, the affine ansatz is on the latent
 stream function, so the script plots the emitted `stream_psi_bc` and
@@ -50,6 +46,8 @@ Curated pipe figures currently used by the benchmark and constraint docs:
   ansatz maps for `StructuredWallDirichletAnsatz`.
 - [`pipe_inlet_parabolic_g_l.png`](pipe/pipe_inlet_parabolic_g_l.png):
   inlet-only ansatz maps for `PipeInletParabolicAnsatz`.
+- [`pipe_dataset_inlet_profiles.png`](pipe/pipe_dataset_inlet_profiles.png):
+  observed inlet profile diagnostics used by `PipeInletParabolicAnsatz`.
 - [`pipe_ux_boundary_g_l.png`](pipe/pipe_ux_boundary_g_l.png): combined inlet
   and wall ansatz maps for `PipeUxBoundaryAnsatz`.
 - [`pipe_stream_function_boundary_g_l.png`](pipe/pipe_stream_function_boundary_g_l.png):
