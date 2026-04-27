@@ -9,9 +9,9 @@ physically restricted output space.
   the form `f = g + lN`.
 - [Stream-function constraints](stream/README.md): latent stream-function
   representations that are converted into physical velocity outputs.
-- [Darcy flux projection](darcy/DarcyFluxConstraint.md): stream-function flux
+- [Darcy flux projection](DarcyFluxConstraint.md): stream-function flux
   construction followed by pressure recovery.
-- [Mean constraints](mean/MeanConstraint.md): global mean-preserving correction.
+- [Mean constraints](MeanConstraint.md): global mean-preserving correction.
 
 ## Implementation Map
 
