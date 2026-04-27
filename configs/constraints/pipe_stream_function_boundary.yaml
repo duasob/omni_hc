@@ -3,7 +3,7 @@ constraint:
   amplitude: 0.25
   inlet_axis: 0
   transverse_axis: 1
-  coordinate_channel: 1
   boundary_constant: 0.0
-  decay_power: 4.0
+  coordinate_channel: 1
+  decay_power: 1.0
   eps: 1.0e-12

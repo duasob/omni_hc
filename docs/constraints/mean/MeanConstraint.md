@@ -46,32 +46,8 @@ Those compose:
 - a backbone config from `configs/backbones/`
 - the shared mean-constraint config from `configs/constraints/mean_correction.yaml`
 
-## Launch Commands
-
-
-Train FNO with the mean constraint:
-```bash
-python scripts/train.py \
-  --config configs/experiments/navier_stokes/fno_small_mean.yaml \
-  --device cpu
-```
-
-Evaluate the saved checkpoint:
-
-```bash
-python scripts/test.py \
-  --config configs/experiments/navier_stokes/fno_small_mean.yaml \
-  --checkpoint outputs/navier_stokes/fno_small_mean/best.pt \
-  --device cpu
-```
-
-Run Optuna tuning for the same setup:
-
-```bash
-python scripts/tune.py \
-  --config configs/experiments/navier_stokes/fno_small_mean.yaml \
-  --device cpu
-```
+Use the shared run commands from [../../README.md](../../README.md) with either
+Navier-Stokes experiment config above.
 
 ## Results
 

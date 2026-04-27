@@ -20,31 +20,5 @@ Available Navier-Stokes experiment configs:
 - [`configs/experiments/navier_stokes/fno_small_mean.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/navier_stokes/fno_small_mean.yaml)
 - [`configs/experiments/navier_stokes/gt_small_mean.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/navier_stokes/gt_small_mean.yaml)
 
-Train:
-
-```bash
-python scripts/train.py \
-  --config configs/experiments/navier_stokes/fno_small_mean.yaml \
-  --device cpu
-```
-
-Test:
-
-```bash
-python scripts/test.py \
-  --config configs/experiments/navier_stokes/fno_small_mean.yaml \
-  --checkpoint outputs/navier_stokes/fno_small_mean/best.pt \
-  --device cpu
-```
-
-Tune:
-
-```bash
-python scripts/tune.py \
-  --config configs/experiments/navier_stokes/fno_small_mean.yaml \
-  --device cpu
-```
-
-If `Neural-Solver-Library` is not installed at
-`external/Neural-Solver-Library`, pass `--nsl-root /path/to/Neural-Solver-Library`
-or set `OMNI_HC_NSL_ROOT`.
+Use the shared run commands from [../README.md](../README.md) with either of
+these configs.
