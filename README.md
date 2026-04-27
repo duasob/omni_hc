@@ -1,7 +1,7 @@
 # OmniHC
 Omni-model Hard Constraints: A Modular Framework for Physics-Preserving Transformers Across Standard Benchmarks
 
-This project shifts from "encouraging" physics (soft constraints) to guaranteeing them. The idea is that any standard backbone architecture can be wrapped with a hard constraint module to yield physically consistent predictions. 
+This project shifts from "encouraging" physics (soft constraints) to guaranteeing them. The idea is that any standard backbone architecture can be wrapped with a hard constraint module to return physically consistent predictions. 
 
 ```python
 from omni_hc.constraints import ConstrainedModel, DirichletBoundaryAnsatz
@@ -39,13 +39,13 @@ Some example configs for Navier-Stokes flow are:
 All benchmarks share the same entrypoints for training, testing, and tuning. To change the benchmark or hard constraint, simply switch the config. For example, to run the Navier-Stokes FNO example with mean correction, use:
 
 ```bash
-conda run -n omni-hc python scripts/train.py \
+python scripts/train.py \
   --config configs/experiments/navier_stokes/fno_small_mean.yaml \
 
-conda run -n omni-hc python scripts/test.py \
+python scripts/test.py \
   --config configs/experiments/navier_stokes/fno_small_mean.yaml \
 
-conda run -n omni-hc python scripts/tune.py \
+python scripts/tune.py \
   --config configs/experiments/navier_stokes/fno_small_mean.yaml \
 ```
 
