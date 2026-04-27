@@ -11,27 +11,13 @@ This is the first steady-state benchmark slice added after Navier-Stokes.
 - benchmark defaults in `configs/benchmarks/darcy`
 - experiment config in `configs/experiments/darcy`
 
-## Current Command
+## Experiment Configs
 
-```bash
-conda run -n omni-hc python scripts/train.py \
-  --config configs/experiments/darcy/fno_small.yaml \
-  --device cpu
-```
+- [`configs/experiments/darcy/fno_small.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/darcy/fno_small.yaml)
+- [`configs/experiments/darcy/fno_small_dirichlet.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/darcy/fno_small_dirichlet.yaml)
 
-```bash
-conda run -n omni-hc python scripts/test.py \
-  --config configs/experiments/darcy/fno_small.yaml \
-  --device cpu
-```
-
-Dirichlet ansatz variant:
-
-```bash
-conda run -n omni-hc python scripts/train.py \
-  --config configs/experiments/darcy/fno_small_dirichlet.yaml \
-  --device cpu
-```
+Use the shared run commands from [../README.md](../README.md) with either of
+these configs.
 
 The first pass is unconstrained. That verifies the shared `train.py` path for a second benchmark before adding a Darcy-specific hard constraint.
 
