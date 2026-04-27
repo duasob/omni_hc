@@ -267,14 +267,34 @@ def plot_dataset_summary(metrics: dict[str, np.ndarray], *, out_dir: Path, show:
     fig, axes = plt.subplots(2, 2, figsize=(13, 9), dpi=150)
     fig.suptitle(f"Pipe dataset divergence summary over first {len(sample)} sample(s)")
 
-    axes[0, 0].plot(sample, metrics["cell_div_abs_mean"], color="tab:blue", linewidth=1.1)
-    axes[0, 0].plot(sample, metrics["cell_div_abs_p95"], color="tab:orange", linewidth=1.1)
-    axes[0, 0].plot(sample, metrics["cell_div_abs_max"], color="tab:red", linewidth=1.0)
-    axes[0, 0].set_title("samplewise absolute divergence")
-    axes[0, 0].set_xlabel("sample index")
-    axes[0, 0].set_ylabel("divergence magnitude")
-    axes[0, 0].legend(["mean", "p95", "max"], loc="best", fontsize=8)
-    axes[0, 0].grid(True, alpha=0.25)
+    abs_ax = axes[0, 0]
+    abs_ax.plot(sample, metrics["cell_div_abs_mean"], color="tab:blue", linewidth=1.1, label="mean |div|")
+    abs_ax.plot(sample, metrics["cell_div_abs_p95"], color="tab:orange", linewidth=1.1, label="p95 |div|")
+    abs_ax.set_title("samplewise absolute divergence")
+    abs_ax.set_xlabel("sample index")
+    abs_ax.set_ylabel("mean / p95 |div|")
+    abs_ax.grid(True, alpha=0.25)
+
+    abs_max_ax = abs_ax.twinx()
+    abs_max_ax.plot(
+        sample,
+        metrics["cell_div_abs_max"],
+        color="tab:red",
+        linewidth=1.0,
+        alpha=0.85,
+        label="max |div|",
+    )
+    abs_max_ax.set_ylabel("max |div|")
+    abs_max_ax.set_yscale("log")
+
+    abs_handles, abs_labels = abs_ax.get_legend_handles_labels()
+    abs_max_handles, abs_max_labels = abs_max_ax.get_legend_handles_labels()
+    abs_ax.legend(
+        abs_handles + abs_max_handles,
+        abs_labels + abs_max_labels,
+        loc="best",
+        fontsize=8,
+    )
 
     axes[0, 1].hist(metrics["cell_div_abs_mean"], bins=40, color="tab:blue", alpha=0.8)
     axes[0, 1].set_title("distribution of per-sample mean |div|")
@@ -288,14 +308,40 @@ def plot_dataset_summary(metrics: dict[str, np.ndarray], *, out_dir: Path, show:
     axes[1, 0].set_ylabel("count")
     axes[1, 0].grid(True, alpha=0.25)
 
-    axes[1, 1].plot(sample, metrics["cell_div_signed_mean"], color="black", linewidth=1.0)
-    axes[1, 1].plot(sample, metrics["cell_div_signed_std"], color="tab:green", linewidth=1.0)
-    axes[1, 1].axhline(0.0, color="0.3", linewidth=0.8)
-    axes[1, 1].set_title("signed divergence diagnostics")
-    axes[1, 1].set_xlabel("sample index")
-    axes[1, 1].set_ylabel("divergence")
-    axes[1, 1].legend(["signed mean", "signed std"], loc="best", fontsize=8)
-    axes[1, 1].grid(True, alpha=0.25)
+    signed_ax = axes[1, 1]
+    signed_ax.plot(
+        sample,
+        metrics["cell_div_signed_mean"],
+        color="black",
+        linewidth=1.0,
+        label="signed mean",
+    )
+    signed_ax.axhline(0.0, color="0.3", linewidth=0.8)
+    signed_ax.set_title("signed divergence diagnostics")
+    signed_ax.set_xlabel("sample index")
+    signed_ax.set_ylabel("signed mean(div)")
+    signed_ax.grid(True, alpha=0.25)
+
+    signed_std_ax = signed_ax.twinx()
+    signed_std_ax.plot(
+        sample,
+        metrics["cell_div_signed_std"],
+        color="tab:green",
+        linewidth=1.0,
+        alpha=0.85,
+        label="signed std",
+    )
+    signed_std_ax.set_ylabel("std(div)")
+    signed_std_ax.set_yscale("log")
+
+    signed_handles, signed_labels = signed_ax.get_legend_handles_labels()
+    signed_std_handles, signed_std_labels = signed_std_ax.get_legend_handles_labels()
+    signed_ax.legend(
+        signed_handles + signed_std_handles,
+        signed_labels + signed_std_labels,
+        loc="best",
+        fontsize=8,
+    )
 
     fig.tight_layout()
     out_path = out_dir / "pipe_divergence_dataset_summary.png"
