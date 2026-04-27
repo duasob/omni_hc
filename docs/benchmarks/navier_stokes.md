@@ -1,36 +1,29 @@
 # Navier-Stokes Benchmark
 
-This is the first benchmark slice to migrate from `hc_fluid`.
+![ns_rollout](../figures/ns/ns_rollout.gif)
 
-## Scope
-
-The initial goal is not to port the entire old repo in one shot. The goal is to establish the pattern for all future benchmarks:
-
-- benchmark metadata in `src/omni_hc/benchmarks`
-- benchmark adapter in `src/omni_hc/benchmarks/navier_stokes/adapter.py`
-- autoregressive task runner in `src/omni_hc/training/tasks/autoregressive.py`
-- reusable constraints in `src/omni_hc/constraints`
-- backend glue in `src/omni_hc/integrations/nsl`
-- benchmark-specific run config in `configs/experiments/navier_stokes`
+This benchmark is an autoregressive vorticity prediction task on a periodic 2D incompressible Navier-Stokes dataset. The runtime adapter is selected by `benchmark.name: navier_stokes_2d`, and the default dataset/config metadata
+live in
+[`configs/benchmarks/navier_stokes/base.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/benchmarks/navier_stokes/base.yaml).
 
 ## Physics
 
-For the periodic 2D Navier-Stokes setup, the first hard constraint is preservation of global vorticity. The old `hc_fluid` demo used a modular correction head attached to a backbone by a forward hook. That mechanism is the first reusable component already moved into the new core.
+The model predicts vorticity `w(x, y)`. Because the domain is periodic, the global vorticity mean should stay fixed over time. 
+An unconstrained model can fit the rollout well while still drifting in the global vorticity. See the corresponding [Mean Constraint](../constraints/mean/MeanConstraint.md).
 
-## Migration plan
+![predicted_global_v](../figures/ns/predicted_global_v.png)
 
-1. Keep Neural-Solver-Library external and let OmniHC resolve it from config, env, or `external/Neural-Solver-Library`.
-2. Use OmniHC scripts as the experiment harness, while NSL provides the backbone implementations.
-3. Compare at least two backbones under the same Navier-Stokes harness.
+## Runnable Configs
 
-The runtime is selected from `benchmark.name` in the config, so these same scripts should remain stable as other datasets are added.
+Available Navier-Stokes experiment configs:
 
-## Current Commands
+- [`configs/experiments/navier_stokes/fno_small_mean.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/navier_stokes/fno_small_mean.yaml)
+- [`configs/experiments/navier_stokes/gt_small_mean.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/navier_stokes/gt_small_mean.yaml)
 
 Train:
 
 ```bash
-conda run -n omni-hc python scripts/train.py \
+python scripts/train.py \
   --config configs/experiments/navier_stokes/fno_small_mean.yaml \
   --device cpu
 ```
@@ -38,24 +31,20 @@ conda run -n omni-hc python scripts/train.py \
 Test:
 
 ```bash
-conda run -n omni-hc python scripts/test.py \
+python scripts/test.py \
   --config configs/experiments/navier_stokes/fno_small_mean.yaml \
+  --checkpoint outputs/navier_stokes/fno_small_mean/best.pt \
   --device cpu
 ```
 
-Optuna:
+Tune:
 
 ```bash
-conda run -n omni-hc python scripts/tune.py \
+python scripts/tune.py \
   --config configs/experiments/navier_stokes/fno_small_mean.yaml \
   --device cpu
 ```
 
-Comparison configs:
-
-- [fno_small_mean.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/navier_stokes/fno_small_mean.yaml)
-- [gt_small_mean.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/navier_stokes/gt_small_mean.yaml)
-
-Note:
-
-- the current `gt_small_mean` smoke config forces `unified_pos: 0` because the upstream NSL positional embedding helper is not CPU-safe in its current form.
+If `Neural-Solver-Library` is not installed at
+`external/Neural-Solver-Library`, pass `--nsl-root /path/to/Neural-Solver-Library`
+or set `OMNI_HC_NSL_ROOT`.
