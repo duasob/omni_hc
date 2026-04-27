@@ -3,9 +3,7 @@
 Boundary constraints in this family directly transform a backbone prediction
 using an architectural ansatz:
 
-$$
-f = g + l \times N
-$$
+$$f = g + lN$$
 
 where $N$ is the unconstrained prediction, $g$ is a particular field satisfying
 the boundary condition, and $l$ is zero on the constrained boundary.
@@ -29,4 +27,3 @@ More examples:
 - [StructuredWallDirichletAnsatz](StructuredWallDirichletAnsatz.md)
 - [PipeInletParabolicAnsatz](PipeInletParabolicAnsatz.md)
 - [PipeUxBoundaryAnsatz](PipeUxBoundaryAnsatz.md)
-

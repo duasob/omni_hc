@@ -9,19 +9,11 @@ $u_x$ while leaving the interior free to be predicted by the backbone.
 
 The constraint uses a smooth inlet ansatz:
 
-$$
-u = g + l \times N
-$$
+$$u = g + lN$$
 where 
-$$
-g(i,j) = \alpha(i) U_{\max} 4t(j)(1-t(j))
-$$
+$$g(i,j) = \alpha(i) U_{\max}4t(j)(1-t(j))$$
 and
-$$
-l(i,j) = 1 - \alpha(i),
-\qquad
-\alpha(i) = (1-\xi(i))^p
-$$
+$$l(i,j) = 1 - \alpha(i), \qquad \alpha(i) = (1-\xi(i))^p$$
 
 Here $N$ is the unconstrained model output, $U_{\max}$ is the configured
 `amplitude`, $\xi$ is the normalized horizontal coordinate, and $t$ is the
@@ -30,9 +22,7 @@ normalized physical vertical coordinate on the inlet edge.
 At the inlet, $\xi=0$ and therefore $\alpha=1$. This gives $l=0$ and forces the
 prediction to the parabolic inlet profile:
 
-$$
-u_x(t) = U_{\max} 4t(1-t)
-$$
+$$u_x(t) = U_{\max}4t(1-t)$$
 
 Away from the inlet, $\alpha$ decays and the free model output progressively
 takes over.
@@ -46,9 +36,7 @@ curvilinear and the physical $Y$ coordinate varies by sample.
 This constraint is intended for the $u_x$ benchmark used by the pipe experiments. It is not the right constraint for $u_y$ or pressure.
 
 The current inferred inlet profile uses $U_{\max}=0.25$:
-$$
-u_x(t) = 0.25 \cdot 4t(1-t)
-$$
+$$u_x(t) = 0.25 \cdot 4t(1-t)$$
 
 where $t=(y-y_{\min})/(y_{\max}-y_{\min})$ along the inlet edge.
 

@@ -8,44 +8,31 @@
 Instead of constraining $u_x$ directly, the method constrains the latent stream
 function $\psi$:
 
-$$
-\psi = \psi_{\text{bc}}(\eta)
-+ m(\xi,\eta) N
-$$
+$$\psi = \psi_{\text{bc}}(\eta) + m(\xi,\eta)N$$
 
 Here $N$ is the unconstrained model output, $\xi$ is the normalized streamwise
 coordinate, and $\eta$ is the normalized transverse coordinate. The boundary
 stream function is:
 
 To enforce the parabola on the $ux$ inlet (read more [here](../boundary/PipeInletParabolicAnsatz.md)) we have to take:
-$$
-\psi_{bc} (\eta) = \int _{0}^{1} ux_{\text{inlet}}(\eta)  d\eta  +C
-$$
-$$
-\psi_{\text{bc}}(\eta)
-=  U_{\max}H\left(2\eta^2 - \frac{4}{3}\eta^3\right) + C
-$$
+$$\psi_{\text{bc}}(\eta) = \int_0^1 u_{x,\text{inlet}}(\eta) \, d\eta + C$$
+
+$$\psi_{\text{bc}}(\eta) = U_{\max}H\left(2\eta^2 - \frac{4}{3}\eta^3\right) + C$$
 
 where $H$ is the physical inlet transverse extent and $U_{\max}$ is the
 configured `amplitude=0.25` of the parabola. The key is that differentiating $\psi_{\text{bc}}$ recovers the parabolic inlet equation:
 
-$$
-u_x(\eta) = U_{\max}4\eta(1-\eta)
-$$
+$$u_x(\eta) = U_{\max}4\eta(1-\eta)$$
 
 We choose $C$ from the total inlet flux to fix the absolute stream-function level on the boundary:
 
-$$
-C = \int_{\text{inlet}} u_x \, dy
-$$
+$$C = \int_{\text{inlet}} u_x \, dy$$
 which is the total area under the inlet $u_x$ parabola. 
 
 
 The correction mask
 
-$$
-m(\xi,\eta) = \xi^p\eta^2(1-\eta)^2
-$$
+$$m(\xi,\eta) = \xi^p\eta^2(1-\eta)^2$$
 
 is zero on the inlet and on both walls, so the learned correction cannot alter
 those boundary values. After building $\psi$, the constraint converts it to
