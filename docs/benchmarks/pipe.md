@@ -15,7 +15,7 @@ pipe experiments in this repo focus on $u_x$.
 
 The benchmark defaults live in [`configs/benchmarks/pipe/base.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/benchmarks/pipe/base.yaml).
 
-## Grid And Boundary Layout
+## Dataset Diagnostics
 
 ![pipe_dataset_boundary_overview](../figures/pipe/pipe_dataset_boundary_overview.png)
 

@@ -1,60 +1,137 @@
 # DarcyFluxConstraint
 
-`DarcyFluxConstraint` is an operator pipeline that bakes the information that we have about the Darcy Equation 
+`DarcyFluxConstraint` is a Darcy-specific hard-constraint pipeline that uses a
+latent stream function to build a flux field satisfying the benchmark source
+term before recovering the final scalar pressure.
 
-$$ - \nabla \cdot(a (x)\nabla u (x)) = f(x) $$ into our model. Taking into account the boundary conditions, and the we have a constant source $f (x)=1$ we know that this benchmark should satisfy
+For the current Darcy benchmark, the intended PDE is
 
-$$ -\nabla \cdot (a\nabla u) = 1
-\quad\text{in } \Omega=[0,1]^2,
+$$
+-\nabla \cdot (a \nabla u) = 1
+\quad \text{in } \Omega = [0,1]^2,
 \qquad
-u|_{\partial \Omega}=0 $$
+u|_{\partial \Omega} = 0
+$$
 
-The intuition is to reformulate this through the flux: 
+where `a` is the permeability input and `u` is the pressure output.
+
+The key reformulation is to work through the Darcy flux
+
 $$
-v(x) = -a(x) \nabla u(x)
+v = -a \nabla u
 $$
-which has to satisfy the divergence constraint
+
+which should satisfy
+
 $$
 \nabla \cdot v = 1
 $$
 
-The pipeline, in general terms becomes:
-- Obtain a hard constrained version of $v$ that satisfies $\nabla \cdot v=1$
-- Move from $v$ back to $u$
+## Mechanism
 
-### Enforcing Flux Divergence 
-The backbone predicts a scalar stream function $\psi$ such that 
+The backbone predicts a scalar stream function `psi`, not pressure directly.
+The constraint then:
 
-$$ v_{corr} = \left( \frac{\partial \psi}{\partial x}, \frac{\partial \psi}{\partial y}\right) $$
+1. pads `psi` on a larger computational box,
+2. computes a divergence-free stream correction
+   $v_{\mathrm{corr}} = \nabla^\perp \psi$ spectrally,
+3. adds a fixed particular flux `v_part` with `div(v_part) = 1`,
+4. crops back to the physical domain,
+5. converts the valid flux into a pressure-gradient candidate,
+6. recovers pressure with a Dirichlet sine Poisson solve.
 
-Computing $v_{corr}$ is done via spectral curl. To avoid the Gibbs phenomenon $\psi$ must be padded (and therefore creating a periodic extension of the domain).
+The constrained flux is
 
-By definition, this ensures that the divergence of $v_{corr}$ is zero. Then, we design an artificial $v_{part}$ such that $\nabla \cdot v_{part}=1$.
-
-The constrained flux is simply 
-$$ v_{valid} = v_{corr} + v_{part}$$
-where the divergence of $v_{valid}$ has to be 1.
-
-## Flux to Pressure
-The next step is to move back from the valid flux $v_{valid}$ back to the pressure field $u$.  From the Darcy Equation we know that 
 $$
-	w (x) = \nabla u(x) = -\frac{a(x)}{v(x)}
+v_{\mathrm{valid}} = v_{\mathrm{part}} + v_{\mathrm{corr}}
 $$
-where $a$ is our permeability field input and $w$ is the pressure gradient. From there, we can recover pressure using a Dirichlet sine Poisson solver, [more info on this]
 
-In summary, given a stream function by the unconstrained backbone:
-1. pads the stream function (for periodicity)
-2. computes a divergence-free stream correction,
-3. adds a fixed particular flux,
-4. converts flux to a pressure-gradient candidate using permeability,
-5. recovers pressure with a Dirichlet sine Poisson solve.
+Because `v_corr` is divergence-free by construction and `v_part` is chosen to
+carry the constant source term, the final flux is built so that
 
-The result is a scalar pressure output with exact Dirichlet boundary values.
+$$
+\nabla \cdot v_{\mathrm{valid}} = 1
+$$
+
+up to the discrete residual of the numerical operators being used.
+
+The current implementation uses the Cartesian spectral stream-function helper in
+[`src/omni_hc/constraints/darcy_flux.py`](/Users/bruno/Documents/Y4/FYP/omni_hc/src/omni_hc/constraints/darcy_flux.py)
+with `padding_mode="reflect"` and the `helmholtz_sine` recovery path.
+
+After building the valid flux, the constraint maps it back to pressure through
+
+$$
+\nabla u = -\frac{v}{a}
+$$
+
+so the recovered gradient candidate is
+
+$$
+w = -\frac{v_{\mathrm{valid}}}{a}
+$$
+
+The final pressure is then obtained by solving a Dirichlet Poisson problem from
+that gradient field with a sine-based solver. This gives a scalar pressure
+output that respects the benchmark's zero boundary value.
 
 ## Config
 
-See `configs/constraints/darcy_flux_fft_pad.yaml`.
+Shared constraint config:
 
-## Tests
+[`configs/constraints/darcy_flux_fft_pad.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/constraints/darcy_flux_fft_pad.yaml)
 
-Covered by `tests/test_darcy_flux.py` and config wiring tests.
+```yaml
+constraint:
+  name: "darcy_flux_projection"
+  spectral_backend: "helmholtz_sine"
+  pressure_out_dim: 1
+  force_value: 1.0
+  permeability_eps: 1.0e-6
+  padding: 8
+  padding_mode: "reflect"
+  particular_field: "y_only"
+  enforce_boundary: true
+  boundary_value: 0.0
+```
+
+Darcy experiments using this constraint:
+
+- [`configs/experiments/darcy/fno_small_flux_fft_pad.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/darcy/fno_small_flux_fft_pad.yaml)
+- [`configs/experiments/darcy/gt_small_flux_fft_pad.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/darcy/gt_small_flux_fft_pad.yaml)
+
+For the current loader, `lower` and `upper` do not need to be set manually
+because the benchmark metadata already supplies `domain_bounds = (0.0, 1.0)`.
+
+## Diagnostics And Tests
+
+When `return_aux=True`, the constraint reports:
+
+- `constraint/stream_div_abs_mean`
+- `constraint/stream_div_abs_max`
+- `constraint/flux_div_abs_mean`
+- `constraint/flux_div_abs_max`
+- `constraint/w_error_abs_mean`
+- `constraint/w_error_abs_max`
+- `constraint/w_curl_abs_mean`
+- `constraint/w_curl_abs_max`
+- `constraint/darcy_res_abs_mean`
+- `constraint/darcy_res_abs_max`
+- `constraint/boundary_abs_mean`
+- `constraint/boundary_abs_max`
+
+and auxiliary tensors including:
+
+- `stream_correction`
+- `constrained_flux`
+
+Regression coverage in
+[`tests/test_darcy_flux.py`](/Users/bruno/Documents/Y4/FYP/omni_hc/tests/test_darcy_flux.py)
+checks that:
+
+- the output is a scalar pressure field with the expected shape
+- zero Dirichlet boundary values are recovered exactly
+- the constraint rejects non-scalar backbone outputs
+- the expected diagnostics and auxiliary tensors are emitted
+- the stream-divergence residual remains small under the implemented spectral
+  construction
