@@ -19,6 +19,7 @@ model = ConstrainedModel(
 )
 ```
 
+I have done my best to document things extensively but this is still a work in progress. The current benchmarks and constraints are summarized below, and the documentation is organized under [docs](docs/README.md).
 
 | Benchmark | Physical Domain | Dataset Source | Hard Constraint Implemented | Status |
 | :-- | :-- | :-- | :-- | :-- |
