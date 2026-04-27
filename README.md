@@ -31,24 +31,22 @@ I have done my best to document things extensively but this is still a work in p
 | **Plasticity** | Time-dependent Deformation | [geo-fno](https://drive.google.com/drive/folders/1YBuaoTdOSr_qzaow-G-iwvbUI7fiUzu8) | Thermodynamic irreversibility | Drafting |
 
 
-Project documentation is organized under [docs](docs/README.md). Some example
-configs for Navier-Stokes flow are:
+Some example configs for Navier-Stokes flow are:
 
 - [fno_small_mean.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/navier_stokes/fno_small_mean.yaml)
 - [gt_small_mean.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/navier_stokes/gt_small_mean.yaml)
 
+All benchmarks share the same entrypoints for training, testing, and tuning. To change the benchmark or hard constraint, simply switch the config. For example, to run the Navier-Stokes FNO example with mean correction, use:
+
 ```bash
 conda run -n omni-hc python scripts/train.py \
   --config configs/experiments/navier_stokes/fno_small_mean.yaml \
-  --device cpu
 
 conda run -n omni-hc python scripts/test.py \
   --config configs/experiments/navier_stokes/fno_small_mean.yaml \
-  --device cpu
 
 conda run -n omni-hc python scripts/tune.py \
   --config configs/experiments/navier_stokes/fno_small_mean.yaml \
-  --device cpu
 ```
 
 Both Optuna and W&B are optional and controlled by the `wandb_logging` and `optuna` sections in each experiment config.
