@@ -75,24 +75,13 @@ incompressibility condition $\det(\mathbf{F})=1$ at the level used by the stress
 law.
 
 ## Stress Law
+The nature of the was directly obtained from the original [Geo-FNO paper](https://arxiv.org/abs/2207.05209)
 
-The scalar invariants are (as detailed in the original [Geo-FNO paper](https://arxiv.org/abs/2207.05209)):
-
+The material is the incompressible Rivlin-Saunders material Pascon (2019) and the constitutive model of the material is given by
 $$
-I_1 = \operatorname{tr}(\mathbf{C}),
-\qquad
-I_2 =
-\frac{1}{2}
-\left(
-\operatorname{tr}(\mathbf{C})^2
--
-\operatorname{tr}(\mathbf{C}^2)
-\right).
+\mathbf{\sigma} = \frac{\partial w (\epsilon)}{\partial\epsilon}, \quad  w(\epsilon) = C_{1} (I_{1}-3) + C_{2} (I_{2}-3)
 $$
-
-With material parameters $C_1 = 1.863 \times 10^5$ and
-$C_2 = 9.79 \times 10^3$, the Second Piola-Kirchhoff stress without the pressure
-term is:
+where $I_{1}=tr(C)$ and $I_{2}=\frac{1}{2}(tr(C)^{2}-tr(C^{2}))$ are scalar invariants of the right Cauchy Green stretch tensor $C = 2ϵ+ I$. And energy density function parameters are $C1 = 1.863 ×10^{5}$ and $C1 = 9.79 ×10^{3}$. The Second Piola-Kirchhoff stress without the pressure term is:
 
 $$
 \boldsymbol{\sigma}
@@ -103,8 +92,7 @@ $$
 $$
 
 For incompressible hyperelasticity, the pressure term contributes only to the
-hydrostatic part. Because the benchmark target is a scalar von Mises stress, the
-constraint uses the 2D deviatoric stress:
+hydrostatic part. Because the benchmark target is a scalar von Mises stress, the constraint uses the 2D deviatoric stress:
 
 $$
 \boldsymbol{\sigma}_{dev}

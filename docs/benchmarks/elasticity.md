@@ -2,7 +2,7 @@
 ![elasticity_sample_0100](../figures/elasticity/elasticity_sample_0100.png)
 
 This benchmark predicts stress on an unstructured 2D
-point cloud. 
+point cloud for an incompressible hyperelastic material (specifically, Rivlin-Saunders) on a 2D unit cell with an arbitrarily shaped void in the center. 
 
 We only use:
 - `Meshes/Random_UnitCell_XY_10.npy`: point coordinates, interpreted as
