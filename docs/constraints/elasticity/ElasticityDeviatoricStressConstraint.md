@@ -115,7 +115,7 @@ hydrostatic part. Because the benchmark target is a scalar von Mises stress, the
 \boldsymbol{\sigma}
 -
 \frac{1}{2}
-\operatorname{tr}(\boldsymbol{\sigma})\mathbf{I}.
+\mathrm{tr}(\boldsymbol{\sigma})\mathbf{I}.
 ```
 
 And the final returned scalar is:
