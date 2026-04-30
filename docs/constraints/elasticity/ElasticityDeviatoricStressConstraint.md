@@ -11,13 +11,13 @@ through a small constraint-owned MLP that predicts:
 - $\log \lambda$: logarithmic principal stretch.
 
 This keeps the backbone interface identical to the scalar elasticity benchmark:
-the backbone still predicts one channel per point. The extra kinematic
-parameterization lives inside the constraint, where its scale and initialization
-can be controlled without changing the external model.
+the backbone still predicts one channel per point. The extra 
+parameterization to go from the right Cauchy-Green tensor $C$ to the output stress lives inside the constraint, where its scale and initialization
+can be controlled without changing the external model. This was key to avoid instability in the gradients of $\log \lambda$.
 
 ## Parameter Head
 
-For the default `backbone_out_dim: 1` mode, the computation is:
+The computation is:
 
 ```text
 backbone(coords) -> z
@@ -25,7 +25,7 @@ head([z, x, y]) -> theta_raw, log_lambda_raw
 log_lambda = max_log_lambda * tanh(log_lambda_raw)
 ```
 
-The head is a pointwise MLP. It does not mix information across points; spatial
+The head is a pointwise MLP. It does not mix information across points: spatial
 context is still the responsibility of the backbone. The coordinate channels
 give the head enough local geometric information to map the scalar latent field
 onto stretch parameters around the hole.
@@ -48,12 +48,16 @@ sigma_VM = 0
 
 That avoids starting the model in a saturated high-stress state.
 
-For debugging and ablations, `backbone_out_dim: 2` is still supported. In that
-mode the backbone output is interpreted directly as `(theta_raw,
-log_lambda_raw)` and the internal head is skipped.
+> For debugging and ablations, `backbone_out_dim: 2` is still supported. In that mode the backbone output is interpreted directly as `(theta_raw, log_lambda_raw)` and the internal head is skipped.
 
-The constraint directly constructs the Right Cauchy-Green tensor:
 
+The MLP predicts the right Cauchy-Green tensor $C$ for each point. We know that $C$ is formed as $C=F^{T}F$, and for the  Incompressible Hyperelasticity case there is no volume change, adn therefore $\det(F)=1$. This means that $C$ is a positive semi-definitie matrix that satisfies:
+$$
+\mathbf{C} = \mathbf{C}^\top,\qquad
+\mathbf{C} \succ 0,\qquad
+\det(\mathbf{C}) = 1.
+$$
+We can obtain that directly from $\theta$ and $\lambda$, which in physical terms are interpreted as the orientation of the principal stretch basis and the principal stretch:
 $$
 \mathbf{C}
 =
@@ -64,14 +68,7 @@ $$
 \end{bmatrix}
 \mathbf{R}(\theta)^\top.
 $$
-
-This guarantees:
-
-$$
-\mathbf{C} = \mathbf{C}^\top,\qquad
-\mathbf{C} \succ 0,\qquad
-\det(\mathbf{C}) = 1.
-$$
+To ensure non-negativity of the eigenvalues, we instead predict $\log(\lambda)$.
 
 Since $\det(\mathbf{C})=\det(\mathbf{F})^2$, this enforces the 2D
 incompressibility condition $\det(\mathbf{F})=1$ at the level used by the stress
@@ -79,7 +76,7 @@ law.
 
 ## Stress Law
 
-The scalar invariants are:
+The scalar invariants are (as detailed in the original [Geo-FNO paper](https://arxiv.org/abs/2207.05209)):
 
 $$
 I_1 = \operatorname{tr}(\mathbf{C}),
@@ -118,7 +115,7 @@ $$
 \operatorname{tr}(\boldsymbol{\sigma})\mathbf{I}.
 $$
 
-The returned scalar is:
+And the final returned scalar is:
 
 $$
 \sigma_{VM}
@@ -154,9 +151,7 @@ default configuration. The backbone emits one scalar latent channel, while the
 constraint-owned head maps `[z, x, y]` to the two kinematic quantities used to
 construct $\mathbf{C}$.
 
-`max_log_lambda` bounds the predicted logarithmic stretch with a smooth `tanh`
-map. The small default value keeps the maximum representable stress close to the
-scale of the elasticity benchmark target.
+`max_log_lambda` bounds the predicted logarithmic stretch with a smooth `tanh` map. The small default value keeps the maximum representable stress close to the scale of the elasticity benchmark target.
 
 Because the stress is proportional to:
 
@@ -166,9 +161,7 @@ $$
 \left|2\sinh(2\log \lambda)\right|,
 $$
 
-large `max_log_lambda` values can make the stress scale explode. The current
-default is intentionally small because the benchmark stresses are on the order
-of $10^3$, not $10^5$.
+large `max_log_lambda` values can make the stress scale explode. 
 
 ## Diagnostics
 

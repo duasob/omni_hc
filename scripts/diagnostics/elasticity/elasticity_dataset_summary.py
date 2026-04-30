@@ -50,7 +50,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--point-size",
         type=float,
-        default=8.0,
+        default=28.0,
         help="Marker size for point-cloud sample plots.",
     )
     parser.add_argument("--show", action="store_true")
