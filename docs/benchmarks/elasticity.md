@@ -1,5 +1,7 @@
 # Elasticity Benchmark
 
+
+
 This benchmark is a steady scalar-stress prediction task on an unstructured 2D
 point cloud. The upstream Neural-Solver-Library setup uses only:
 

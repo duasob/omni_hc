@@ -12,8 +12,8 @@ physically restricted output space.
 - [Darcy flux projection](DarcyFluxConstraint.md): stream-function flux
   construction followed by pressure recovery.
 - [Elasticity deviatoric stress](elasticity/ElasticityDeviatoricStressConstraint.md):
-  2D incompressible hyperelastic von Mises stress from a constrained
-  Right Cauchy-Green tensor.
+  2D incompressible hyperelastic von Mises stress from a scalar backbone latent,
+  coordinates, and a constrained Right Cauchy-Green tensor.
 - [Mean constraints](MeanConstraint.md): global mean-preserving correction.
 
 ## Implementation Map
