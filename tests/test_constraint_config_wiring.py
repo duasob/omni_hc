@@ -4,7 +4,7 @@ import torch
 
 from omni_hc.constraints import ConstrainedModel
 from omni_hc.core import load_yaml_file
-from omni_hc.integrations.nsl.modeling import _build_constraint
+from omni_hc.integrations.nsl.modeling import _build_constraint, build_model_args
 
 
 class DummyBackbone(torch.nn.Module):
@@ -71,6 +71,41 @@ def test_darcy_flux_config_builds_pressure_with_dirichlet_boundary():
         torch.zeros(1, width),
         atol=1e-6,
     )
+
+
+def test_elasticity_deviatoric_stress_config_builds_scalar_constraint():
+    pred = torch.randn(2, 13, 2)
+    coords = torch.rand(2, 13, 2)
+    cfg = load_yaml_file("configs/constraints/elasticity_deviatoric_stress.yaml")
+
+    model = _build_constraint(DummyBackbone(pred), _args(out_dim=2), cfg)
+    out = model(coords, return_aux=True)
+
+    assert isinstance(model, ConstrainedModel)
+    assert out.pred.shape == (2, 13, 1)
+    assert "constraint/det_c_abs_error_max" in out.diagnostics
+
+
+def test_constraint_backbone_out_dim_overrides_backbone_output_only():
+    cfg = {
+        "model": {
+            "backbone": "FNO",
+            "args": {
+                "n_hidden": 8,
+                "modes": 4,
+                "out_dim": 1,
+            },
+        },
+        "constraint": {
+            "name": "elasticity_deviatoric_stress",
+            "backbone_out_dim": 2,
+        },
+    }
+
+    args = build_model_args(cfg)
+
+    assert args.out_dim == 2
+    assert args.constraint_target_out_dim == 1
 
 
 def _structured_coords(height: int, width: int):
