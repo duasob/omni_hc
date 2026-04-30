@@ -104,6 +104,43 @@ The current implementation predicts a scalar stream function `psi`:
 This keeps the backbone generic while moving the Darcy-specific operator logic
 into the constraint layer.
 
+### `elasticity.py`
+
+Contains the 2D incompressible elasticity stress constraint:
+
+- `ElasticityDeviatoricStressConstraint`
+
+The default elasticity path keeps the backbone output scalar and treats it as a
+latent field:
+
+```text
+backbone(coords) -> z
+constraint head([z, x, y]) -> theta_raw, log_lambda_raw
+```
+
+The constraint then constructs the Right Cauchy-Green tensor spectrally:
+
+```text
+C = R(theta) diag(lambda^2, lambda^-2) R(theta)^T
+```
+
+This guarantees:
+
+- `C` is symmetric
+- `C` is positive definite
+- `det(C) = 1`
+
+The logarithmic stretch is bounded smoothly:
+
+```text
+log_lambda = max_log_lambda * tanh(log_lambda_raw)
+```
+
+The internal head exists so the fragile kinematic parameterization has its own
+initialization and scale controls while the backbone remains benchmark-generic.
+For direct ablations, the same class also supports `backbone_out_dim=2`, where
+the backbone output is interpreted directly as `(theta_raw, log_lambda_raw)`.
+
 ## Supported Constraint Families
 
 ## Mean Correction

@@ -10,6 +10,48 @@ through a small constraint-owned MLP that predicts:
 - $\theta$: orientation of the principal stretch basis.
 - $\log \lambda$: logarithmic principal stretch.
 
+This keeps the backbone interface identical to the scalar elasticity benchmark:
+the backbone still predicts one channel per point. The extra kinematic
+parameterization lives inside the constraint, where its scale and initialization
+can be controlled without changing the external model.
+
+## Parameter Head
+
+For the default `backbone_out_dim: 1` mode, the computation is:
+
+```text
+backbone(coords) -> z
+head([z, x, y]) -> theta_raw, log_lambda_raw
+log_lambda = max_log_lambda * tanh(log_lambda_raw)
+```
+
+The head is a pointwise MLP. It does not mix information across points; spatial
+context is still the responsibility of the backbone. The coordinate channels
+give the head enough local geometric information to map the scalar latent field
+onto stretch parameters around the hole.
+
+The final layer of the head is initialized conservatively:
+
+- `head_init_scale` scales the final layer weights.
+- `theta_bias` initializes the raw orientation channel.
+- `log_lambda_bias` initializes the raw stretch channel.
+
+With the default `theta_bias: 0.0` and `log_lambda_bias: 0.0`, the initial
+stretch is close to:
+
+```text
+log_lambda = 0
+lambda = 1
+C = I
+sigma_VM = 0
+```
+
+That avoids starting the model in a saturated high-stress state.
+
+For debugging and ablations, `backbone_out_dim: 2` is still supported. In that
+mode the backbone output is interpreted directly as `(theta_raw,
+log_lambda_raw)` and the internal head is skipped.
+
 The constraint directly constructs the Right Cauchy-Green tensor:
 
 $$
@@ -115,3 +157,44 @@ construct $\mathbf{C}$.
 `max_log_lambda` bounds the predicted logarithmic stretch with a smooth `tanh`
 map. The small default value keeps the maximum representable stress close to the
 scale of the elasticity benchmark target.
+
+Because the stress is proportional to:
+
+$$
+\left|\lambda^2 - \lambda^{-2}\right|
+=
+\left|2\sinh(2\log \lambda)\right|,
+$$
+
+large `max_log_lambda` values can make the stress scale explode. The current
+default is intentionally small because the benchmark stresses are on the order
+of $10^3$, not $10^5$.
+
+## Diagnostics
+
+When `return_aux=True`, the constraint reports the constructed kinematic and
+stress fields, including:
+
+- `theta_raw`, `theta`
+- `log_lambda_raw`, `log_lambda`, `lambda`
+- `right_cauchy_green_c11`, `right_cauchy_green_c12`, `right_cauchy_green_c22`
+- `det_c`
+- `stress_11`, `stress_22`, `stress_12`, `stress_trace`
+- `stress_dev_11`, `stress_dev_22`, `stress_dev_12`, `stress_dev_inner`
+- `sigma_physical`
+
+In the default head mode, the auxiliary output also includes:
+
+- `param_head_input_z`
+- `param_head_input_x`
+- `param_head_input_y`
+
+Useful aggregate diagnostics include:
+
+- `constraint/det_c_abs_error_max`: should stay near numerical zero.
+- `constraint/lambda_min`, `constraint/lambda_mean`, `constraint/lambda_max`:
+  show whether stretch is using the allowed range.
+- `constraint/log_lambda_raw_mean` and `constraint/log_lambda_raw_std`: help
+  detect saturation of the bounded `tanh` map.
+- `constraint/sigma_max`: should be comparable to the physical target scale
+  implied by the chosen `max_log_lambda`.
