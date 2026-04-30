@@ -11,9 +11,11 @@ through a small constraint-owned MLP that predicts:
 - $\log \lambda$: logarithmic principal stretch.
 
 This keeps the backbone interface identical to the scalar elasticity benchmark:
-the backbone still predicts one channel per point. The extra 
-parameterization to go from the right Cauchy-Green tensor $C$ to the output stress lives inside the constraint, where its scale and initialization
-can be controlled without changing the external model. This was key to avoid instability in the gradients of $\log \lambda$.
+the backbone still predicts one channel per point. The extra parameterization
+that maps the right Cauchy-Green tensor $C$ to output stress lives inside the
+constraint, where its scale and initialization can be controlled without
+changing the external model. This was key to avoiding instability in the
+gradients of $\log \lambda$.
 
 ## Parameter Head
 
@@ -48,17 +50,20 @@ sigma_VM = 0
 
 That avoids starting the model in a saturated high-stress state.
 
-The MLP predicts the right Cauchy-Green tensor $C$ for each point. We know that $C$ is formed as $C=F^{T}F$, and for the  Incompressible Hyperelasticity case there is no volume change, adn therefore $\det(F)=1$. This means that $C$ is a positive semi-definitie matrix that satisfies:
+The MLP predicts the right Cauchy-Green tensor $C$ for each point. We know that
+$C$ is formed as $C=F^{T}F$, and for the incompressible hyperelasticity case
+there is no volume change, so $\det(F)=1$. This means that $C$ is a positive
+definite matrix that satisfies:
 
-$$
+```math
 \mathbf{C} = \mathbf{C}^\top,\qquad
 \mathbf{C} \succ 0,\qquad
 \det(\mathbf{C}) = 1.
-$$
+```
 
 We can obtain that directly from $\theta$ and $\lambda$, which in physical terms are interpreted as the orientation of the principal stretch basis and the principal stretch:
 
-$$
+```math
 \mathbf{C}
 =
 \mathbf{R}(\theta)
@@ -67,7 +72,7 @@ $$
 0 & \lambda^{-2}
 \end{bmatrix}
 \mathbf{R}(\theta)^\top.
-$$
+```
 
 To ensure non-negativity of the eigenvalues, we instead predict $\log(\lambda)$.
 
@@ -76,46 +81,53 @@ incompressibility condition $\det(\mathbf{F})=1$ at the level used by the stress
 law.
 
 ## Stress Law
-The nature of the was directly obtained from the original [Geo-FNO paper](https://arxiv.org/abs/2207.05209)
+The stress law was obtained from the original
+[Geo-FNO paper](https://arxiv.org/abs/2207.05209).
 
-The material is the incompressible Rivlin-Saunders material Pascon (2019) and the constitutive model of the material is given by
+The material is the incompressible Rivlin-Saunders material Pascon (2019), and
+the constitutive model of the material is given by:
 
-$$
+```math
 \mathbf{\sigma} = \frac{\partial w (\epsilon)}{\partial\epsilon}, \quad  w(\epsilon) = C_{1} (I_{1}-3) + C_{2} (I_{2}-3)
-$$
+```
 
-where $I_{1}=tr(C)$ and $I_{2}=\frac{1}{2}(tr(C)^{2}-tr(C^{2}))$ are scalar invariants of the right Cauchy Green stretch tensor $C = 2ϵ+ I$. And energy density function parameters are $C1 = 1.863 ×10^{5}$ and $C1 = 9.79 ×10^{3}$. The Second Piola-Kirchhoff stress without the pressure term is:
+where $I_{1}=tr(C)$ and
+$I_{2}=\frac{1}{2}(tr(C)^{2}-tr(C^{2}))$ are scalar invariants of the right
+Cauchy-Green stretch tensor $C = 2\epsilon + I$. The energy density function
+parameters are $C_1 = 1.863 \times 10^{5}$ and
+$C_2 = 9.79 \times 10^{3}$. The Second Piola-Kirchhoff stress without the
+pressure term is:
 
-$$
+```math
 \boldsymbol{\sigma}
 =
 2 C_1 \mathbf{I}
 +
 2 C_2 (I_1 \mathbf{I} - \mathbf{C}).
-$$
+```
 
 For incompressible hyperelasticity, the pressure term contributes only to the
 hydrostatic part. Because the benchmark target is a scalar von Mises stress, the constraint uses the 2D deviatoric stress:
 
-$$
+```math
 \boldsymbol{\sigma}_{dev}
 =
 \boldsymbol{\sigma}
 -
 \frac{1}{2}
 \operatorname{tr}(\boldsymbol{\sigma})\mathbf{I}.
-$$
+```
 
 And the final returned scalar is:
 
-$$
+```math
 \sigma_{VM}
 =
 \sqrt{
 \frac{3}{2}
 \boldsymbol{\sigma}_{dev}:\boldsymbol{\sigma}_{dev}
 }.
-$$
+```
 
 At $\mathbf{C}=\mathbf{I}$, the deviatoric stress is zero and therefore
 $\sigma_{VM}=0$.
@@ -146,11 +158,11 @@ construct $\mathbf{C}$.
 
 Because the stress is proportional to:
 
-$$
+```math
 \left|\lambda^2 - \lambda^{-2}\right|
 =
 \left|2\sinh(2\log \lambda)\right|,
-$$
+```
 
 large `max_log_lambda` values can make the stress scale explode. 
 
