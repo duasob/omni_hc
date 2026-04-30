@@ -267,7 +267,12 @@ def _build_constraint(backbone: torch.nn.Module, args, cfg: dict):
             ),
             c1=float(constraint_cfg.get("c1", 1.863e5)),
             c2=float(constraint_cfg.get("c2", 9.79e3)),
-            max_log_lambda=float(constraint_cfg.get("max_log_lambda", 8.0)),
+            max_log_lambda=float(constraint_cfg.get("max_log_lambda", 0.03)),
+            head_hidden_dim=int(constraint_cfg.get("head_hidden_dim", 32)),
+            head_layers=int(constraint_cfg.get("head_layers", 2)),
+            head_init_scale=float(constraint_cfg.get("head_init_scale", 1e-3)),
+            theta_bias=float(constraint_cfg.get("theta_bias", 0.0)),
+            log_lambda_bias=float(constraint_cfg.get("log_lambda_bias", 0.0)),
         )
         wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
         if bool(constraint_cfg.get("freeze_base", False)):
