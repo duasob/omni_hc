@@ -48,9 +48,6 @@ sigma_VM = 0
 
 That avoids starting the model in a saturated high-stress state.
 
-> For debugging and ablations, `backbone_out_dim: 2` is still supported. In that mode the backbone output is interpreted directly as `(theta_raw, log_lambda_raw)` and the internal head is skipped.
-
-
 The MLP predicts the right Cauchy-Green tensor $C$ for each point. We know that $C$ is formed as $C=F^{T}F$, and for the  Incompressible Hyperelasticity case there is no volume change, adn therefore $\det(F)=1$. This means that $C$ is a positive semi-definitie matrix that satisfies:
 $$
 \mathbf{C} = \mathbf{C}^\top,\qquad
