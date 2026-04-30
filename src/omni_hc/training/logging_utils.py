@@ -174,6 +174,181 @@ def log_steady_field_images(
     )
 
 
+def _plot_point_cloud_field(
+    ax,
+    coords,
+    field,
+    *,
+    title,
+    point_size,
+    vmin=None,
+    vmax=None,
+    cmap="viridis",
+):
+    scatter = ax.scatter(
+        coords[:, 0],
+        coords[:, 1],
+        c=field,
+        s=point_size,
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        linewidths=0,
+        alpha=0.98,
+    )
+    ax.set_title(title)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.grid(True, linewidth=0.4, alpha=0.18)
+    return scatter
+
+
+def log_unstructured_point_cloud_images(
+    coords,
+    pred,
+    target,
+    *,
+    prefix,
+    epoch,
+    aux_tensors=None,
+    point_size=24.0,
+    step=None,
+):
+    if wandb is None or getattr(wandb, "run", None) is None or plt is None:
+        return
+
+    coords_np = coords[0].detach().cpu().numpy()
+    pred_np = pred[0, :, 0].detach().cpu().numpy()
+    target_np = target[0, :, 0].detach().cpu().numpy()
+    error_np = pred_np - target_np
+
+    pred_vmin = float(min(pred_np.min(), target_np.min()))
+    pred_vmax = float(max(pred_np.max(), target_np.max()))
+    err_abs = float(np.abs(error_np).max())
+    if err_abs <= 0.0:
+        err_abs = 1e-12
+
+    fig, axes = plt.subplots(1, 3, figsize=(13.5, 4.2), dpi=150)
+    im0 = _plot_point_cloud_field(
+        axes[0],
+        coords_np,
+        target_np,
+        title="target sigma",
+        point_size=point_size,
+        vmin=pred_vmin,
+        vmax=pred_vmax,
+    )
+    im1 = _plot_point_cloud_field(
+        axes[1],
+        coords_np,
+        pred_np,
+        title="predicted sigma",
+        point_size=point_size,
+        vmin=pred_vmin,
+        vmax=pred_vmax,
+    )
+    im2 = _plot_point_cloud_field(
+        axes[2],
+        coords_np,
+        error_np,
+        title="pred - target",
+        point_size=point_size,
+        vmin=-err_abs,
+        vmax=err_abs,
+        cmap="coolwarm",
+    )
+    fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+    fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+    fig.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+    fig.tight_layout()
+
+    payload = {
+        f"{prefix}/elasticity_sigma": wandb.Image(fig),
+        "epoch": epoch + 1,
+    }
+    plt.close(fig)
+
+    if aux_tensors is not None:
+        latent_keys = [
+            ("theta", "theta", "twilight"),
+            ("theta_raw", "theta raw", "coolwarm"),
+            ("log_lambda", "log lambda", "coolwarm"),
+            ("log_lambda_raw", "log lambda raw", "coolwarm"),
+            ("lambda", "lambda", "magma"),
+            ("det_c", "det C", "coolwarm"),
+            ("right_cauchy_green_c11", "C 11", "viridis"),
+            ("right_cauchy_green_c12", "C 12", "coolwarm"),
+            ("right_cauchy_green_c22", "C 22", "viridis"),
+            ("det_fhat", "det F hat", "coolwarm"),
+            ("i1", "I1", "plasma"),
+            ("i2", "I2", "plasma"),
+            ("stress_11", "stress 11", "viridis"),
+            ("stress_22", "stress 22", "viridis"),
+            ("stress_12", "stress 12", "coolwarm"),
+            ("stress_trace", "stress trace", "viridis"),
+            ("stress_dev_11", "dev stress 11", "coolwarm"),
+            ("stress_dev_22", "dev stress 22", "coolwarm"),
+            ("stress_dev_12", "dev stress 12", "coolwarm"),
+            ("stress_dev_inner", "dev stress inner", "plasma"),
+            ("fhat_11", "F hat 11", "coolwarm"),
+            ("fhat_12", "F hat 12", "coolwarm"),
+            ("fhat_21", "F hat 21", "coolwarm"),
+            ("fhat_22", "F hat 22", "coolwarm"),
+            ("deformation_f11", "F 11", "coolwarm"),
+            ("deformation_f12", "F 12", "coolwarm"),
+            ("deformation_f21", "F 21", "coolwarm"),
+            ("deformation_f22", "F 22", "coolwarm"),
+            ("stretch_raw", "stretch raw", "coolwarm"),
+            ("phi", "phi", "twilight"),
+            ("phi_raw", "phi raw", "coolwarm"),
+            ("amplitude_raw", "amplitude raw", "coolwarm"),
+            ("amplitude", "amplitude", "viridis"),
+            ("directional_stretch", "directional stretch", "plasma"),
+            ("det_f", "det F", "coolwarm"),
+        ]
+        available = [
+            (key, title, cmap)
+            for key, title, cmap in latent_keys
+            if key in aux_tensors
+        ]
+        if available:
+            ncols = min(3, len(available))
+            nrows = int(np.ceil(len(available) / ncols))
+            fig_aux, axes_aux = plt.subplots(
+                nrows,
+                ncols,
+                figsize=(4.5 * ncols, 4.0 * nrows),
+                dpi=150,
+                squeeze=False,
+            )
+            for ax, (key, title, cmap) in zip(axes_aux.ravel(), available):
+                values = aux_tensors[key][0, :, 0].detach().cpu().numpy()
+                vmin = vmax = None
+                if key in {"det_f", "det_c"}:
+                    spread = max(float(np.abs(values - 1.0).max()), 1e-12)
+                    vmin = 1.0 - spread
+                    vmax = 1.0 + spread
+                im = _plot_point_cloud_field(
+                    ax,
+                    coords_np,
+                    values,
+                    title=title,
+                    point_size=point_size,
+                    vmin=vmin,
+                    vmax=vmax,
+                    cmap=cmap,
+                )
+                fig_aux.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            for ax in axes_aux.ravel()[len(available) :]:
+                ax.axis("off")
+            fig_aux.tight_layout()
+            payload[f"{prefix}/elasticity_latents"] = wandb.Image(fig_aux)
+            plt.close(fig_aux)
+
+    wandb.log(payload, step=step)
+
+
 def _plot_pipe_field(ax, x, y, field, *, title, vmin=None, vmax=None, cmap="viridis"):
     mesh = ax.pcolormesh(x, y, field, shading="gouraud", cmap=cmap, vmin=vmin, vmax=vmax)
     ax.plot(x[:, 0], y[:, 0], color="white", linewidth=1.2)

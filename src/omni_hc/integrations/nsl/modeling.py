@@ -9,6 +9,7 @@ from omni_hc.constraints import (
     ConstrainedModel,
     DarcyFluxConstraint,
     DirichletBoundaryAnsatz,
+    ElasticityDeviatoricStressConstraint,
     ForwardHookLatentExtractor,
     MeanConstraint,
     PipeInletParabolicAnsatz,
@@ -41,9 +42,7 @@ MODEL_REQUIRED_ARGS = {
 def ensure_nsl_path(nsl_root: str | Path | None, cfg: dict | None = None) -> Path:
     path = resolve_nsl_root(nsl_root, cfg=cfg)
     if not path.exists():
-        raise FileNotFoundError(
-            f"Neural-Solver-Library root does not exist: {path}"
-        )
+        raise FileNotFoundError(f"Neural-Solver-Library root does not exist: {path}")
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
     return path
@@ -58,9 +57,7 @@ def _validate_required_args(backbone: str, args_dict: dict[str, Any]) -> None:
     required = MODEL_REQUIRED_ARGS.get(backbone, [])
     missing = [name for name in required if args_dict.get(name) is None]
     if missing:
-        raise ValueError(
-            f"Missing required args for {backbone}: {missing}"
-        )
+        raise ValueError(f"Missing required args for {backbone}: {missing}")
 
 
 def build_model_args(cfg: dict, runtime_overrides: dict[str, Any] | None = None):
@@ -84,6 +81,12 @@ def build_model_args(cfg: dict, runtime_overrides: dict[str, Any] | None = None)
     args_dict.update(cfg.get("model", {}).get("args", {}))
     if runtime_overrides:
         args_dict.update(runtime_overrides)
+
+    constraint_cfg = cfg.get("constraint", {}) or {}
+    backbone_out_dim = constraint_cfg.get("backbone_out_dim")
+    if backbone_out_dim is not None:
+        args_dict["constraint_target_out_dim"] = int(args_dict.get("out_dim", 1))
+        args_dict["out_dim"] = int(backbone_out_dim)
 
     shapelist = args_dict.get("shapelist")
     if isinstance(shapelist, list):
@@ -253,12 +256,32 @@ def _build_constraint(backbone: torch.nn.Module, args, cfg: dict):
                 param.requires_grad = False
         return wrapped
 
+    if name == "elasticity_deviatoric_stress":
+        constraint = ElasticityDeviatoricStressConstraint(
+            backbone_out_dim=int(constraint_cfg.get("backbone_out_dim", args.out_dim)),
+            target_out_dim=int(
+                constraint_cfg.get(
+                    "target_out_dim",
+                    getattr(args, "constraint_target_out_dim", 1),
+                )
+            ),
+            c1=float(constraint_cfg.get("c1", 1.863e5)),
+            c2=float(constraint_cfg.get("c2", 9.79e3)),
+            max_log_lambda=float(constraint_cfg.get("max_log_lambda", 8.0)),
+        )
+        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
+        if bool(constraint_cfg.get("freeze_base", False)):
+            for param in wrapped.backbone.parameters():
+                param.requires_grad = False
+        return wrapped
+
     if name not in {"mean_correction", "mean_constraint"}:
         raise ValueError(
             "Unsupported constraint "
             f"'{name}'. Currently supported: mean_correction, dirichlet_ansatz, "
             "structured_wall_dirichlet, pipe_inlet_parabolic, pipe_ux_boundary, "
-            "pipe_stream_function_ux, pipe_stream_function_boundary, darcy_flux_projection"
+            "pipe_stream_function_ux, pipe_stream_function_boundary, "
+            "darcy_flux_projection, elasticity_deviatoric_stress"
         )
 
     mode = str(constraint_cfg.get("mode", "post_output")).lower()
@@ -267,7 +290,9 @@ def _build_constraint(backbone: torch.nn.Module, args, cfg: dict):
     if mode == "latent_head":
         latent_module = constraint_cfg.get("latent_module")
         if not latent_module:
-            raise ValueError("constraint.latent_module is required for latent_head mode")
+            raise ValueError(
+                "constraint.latent_module is required for latent_head mode"
+            )
         latent_extractor = ForwardHookLatentExtractor(backbone, str(latent_module))
         if latent_dim is None:
             latent_dim = getattr(args, "n_hidden", None)

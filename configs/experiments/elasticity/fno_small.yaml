@@ -1,0 +1,26 @@
+extends:
+  - ../../benchmarks/elasticity/base.yaml
+  - ../../backbones/FNO.yaml
+
+model:
+  args:
+    unified_pos: 0
+    task: "steady"
+    loader: "elas"
+    geotype: "unstructured"
+    fun_dim: 0
+    out_dim: 1
+    space_dim: 2
+    n_hidden: 32
+    modes: 12
+
+paths:
+  output_dir: "outputs/elasticity/fno_small"
+
+wandb_logging:
+  wandb: true
+  project: "omni_hc"
+  run_name: "elasticity_fno_small"
+  log_every: 100
+  image_log_every: 1
+  point_size: 28.0

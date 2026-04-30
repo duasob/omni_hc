@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import random
 from copy import deepcopy
 from pathlib import Path
-import random
 
 import torch
 import torch.nn.functional as F
@@ -27,11 +27,45 @@ from omni_hc.training.logging_utils import (
     init_wandb_if_enabled,
     log_metrics,
     log_steady_field_images,
+    log_unstructured_point_cloud_images,
 )
 
 
 def _decode_if_needed(normalizer, tensor: torch.Tensor) -> torch.Tensor:
     return normalizer.decode(tensor) if normalizer is not None else tensor
+
+
+def _check_finite(name: str, tensor: torch.Tensor | None, *, raise_on_nonfinite: bool):
+    if tensor is None:
+        return
+    mask = ~torch.isfinite(tensor)
+    if mask.any():
+        bad = tensor[mask]
+        summary = f"count={int(bad.numel())}"
+        if bad.numel() > 0:
+            summary += f" min={float(bad.min().item())} max={float(bad.max().item())}"
+        msg = f"Non-finite values detected in {name}: {summary}"
+        if raise_on_nonfinite:
+            raise RuntimeError(msg)
+        print(msg)
+
+
+def _tensor_stats(name: str, tensor: torch.Tensor | None) -> str:
+    if tensor is None:
+        return f"{name}: None"
+    if tensor.numel() == 0:
+        return f"{name}: shape={tuple(tensor.shape)} empty"
+    finite = torch.isfinite(tensor)
+    if not finite.any():
+        return f"{name}: shape={tuple(tensor.shape)} all_nonfinite"
+    finite_vals = tensor[finite]
+    return (
+        f"{name}: shape={tuple(tensor.shape)} "
+        f"min={float(finite_vals.min().item())} "
+        f"max={float(finite_vals.max().item())} "
+        f"mean={float(finite_vals.mean().item())} "
+        f"std={float(finite_vals.std(unbiased=False).item())}"
+    )
 
 
 def evaluate_steady(
@@ -41,6 +75,8 @@ def evaluate_steady(
     device,
     y_normalizer,
     prepare_batch,
+    debug_nan_checks: bool = False,
+    raise_on_nonfinite: bool = True,
 ):
     model.eval()
     mse_sum = 0.0
@@ -50,9 +86,23 @@ def evaluate_steady(
     with torch.no_grad():
         for batch in loader:
             coords, fx, target = prepare_batch(batch, device=device)
+            if debug_nan_checks:
+                _check_finite(
+                    "eval/coords", coords, raise_on_nonfinite=raise_on_nonfinite
+                )
+                _check_finite(
+                    "eval/target", target, raise_on_nonfinite=raise_on_nonfinite
+                )
             out = forward_with_optional_aux(model, coords, fx)
             pred = _decode_if_needed(y_normalizer, out["pred"])
             target_decoded = _decode_if_needed(y_normalizer, target)
+            if debug_nan_checks:
+                _check_finite("eval/pred", pred, raise_on_nonfinite=raise_on_nonfinite)
+                _check_finite(
+                    "eval/target_decoded",
+                    target_decoded,
+                    raise_on_nonfinite=raise_on_nonfinite,
+                )
             batch_size = int(target.shape[0])
             mse_sum += float(
                 F.mse_loss(pred, target_decoded, reduction="none")
@@ -122,9 +172,18 @@ def train_steady_task(
             )
 
     output_dir = resolve_output_dir(cfg)
-    write_resolved_config(cfg, output_dir=output_dir, resolved_nsl_root=resolved_nsl_root)
+    write_resolved_config(
+        cfg, output_dir=output_dir, resolved_nsl_root=resolved_nsl_root
+    )
 
     training_cfg = deepcopy(cfg.get("training", {}))
+    debug_nan_checks = bool(training_cfg.get("debug_nan_checks", False))
+    raise_on_nonfinite = bool(training_cfg.get("raise_on_nonfinite", True))
+    seed = int(training_cfg.get("seed", 42))
+    random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
     training_cfg["steps_per_epoch"] = len(train_loader)
     optimizer = build_optimizer(model, training_cfg)
     scheduler, scheduler_step_per_batch = build_scheduler(optimizer, training_cfg)
@@ -133,6 +192,7 @@ def train_steady_task(
     wandb_cfg = cfg.get("wandb_logging", {}) or {}
     log_every = normalize_interval(wandb_cfg.get("log_every", 100))
     image_log_every = normalize_interval(wandb_cfg.get("image_log_every"))
+    point_size = float(wandb_cfg.get("point_size", 24.0))
 
     init_wandb_if_enabled(cfg)
     try:
@@ -147,10 +207,38 @@ def train_steady_task(
 
             for step, batch in enumerate(train_loader):
                 coords, fx, target = prepare_batch(batch, device=device)
+                if debug_nan_checks:
+                    _check_finite(
+                        "train/coords", coords, raise_on_nonfinite=raise_on_nonfinite
+                    )
+                    _check_finite(
+                        "train/target", target, raise_on_nonfinite=raise_on_nonfinite
+                    )
                 out = forward_with_optional_aux(model, coords, fx)
                 pred = out["pred"]
+                if debug_nan_checks:
+                    _check_finite(
+                        "train/pred", pred, raise_on_nonfinite=raise_on_nonfinite
+                    )
                 pred_decoded = _decode_if_needed(y_normalizer, pred)
                 target_decoded = _decode_if_needed(y_normalizer, target)
+                if debug_nan_checks:
+                    _check_finite(
+                        "train/pred_decoded",
+                        pred_decoded,
+                        raise_on_nonfinite=raise_on_nonfinite,
+                    )
+                    _check_finite(
+                        "train/target_decoded",
+                        target_decoded,
+                        raise_on_nonfinite=raise_on_nonfinite,
+                    )
+                if debug_nan_checks and epoch == 0 and step == 0:
+                    print(_tensor_stats("train/coords", coords))
+                    print(_tensor_stats("train/target", target))
+                    print(_tensor_stats("train/pred", pred))
+                    print(_tensor_stats("train/pred_decoded", pred_decoded))
+                    print(_tensor_stats("train/target_decoded", target_decoded))
                 rel_l2 = relative_l2_per_sample(pred_decoded, target_decoded)
                 loss = rel_l2.mean()
                 optimizer.zero_grad(set_to_none=True)
@@ -208,26 +296,35 @@ def train_steady_task(
             train_metrics.update(train_diag_metrics.compute())
             epoch_step = (epoch + 1) * len(train_loader)
 
-            if (
-                (image_log_every is not None and image_log_every > 0)
-                or (log_every is not None and log_every > 0)
+            if (image_log_every is not None and image_log_every > 0) or (
+                log_every is not None and log_every > 0
             ):
                 model.eval()
                 with torch.no_grad():
                     max_val_idx = max(len(val_loader) - 1, 0)
                     sampled_idx = random.randint(0, max_val_idx)
-                    h, w = tuple(meta["shapelist"])
+                    shapelist = tuple(meta.get("shapelist", ()))
+                    can_log_field_image = (
+                        image_log_every is not None
+                        and image_log_every > 0
+                        and len(shapelist) == 2
+                    )
+                    can_log_point_cloud_image = (
+                        image_log_every is not None
+                        and image_log_every > 0
+                        and str(meta.get("geotype", "")) == "unstructured"
+                    )
                     for val_step, batch in enumerate(val_loader):
                         coords, fx, target = prepare_batch(batch, device=device)
                         out = forward_with_optional_aux(model, coords, fx)
                         pred_decoded = _decode_if_needed(y_normalizer, out["pred"])
                         target_decoded = _decode_if_needed(y_normalizer, target)
                         if (
-                            image_log_every is not None
-                            and image_log_every > 0
+                            can_log_field_image
                             and epoch % image_log_every == 0
                             and val_step == sampled_idx
                         ):
+                            h, w = shapelist
                             image_coords = _decode_if_needed(x_normalizer, fx)
                             log_steady_field_images(
                                 image_coords,
@@ -238,6 +335,22 @@ def train_steady_task(
                                 prefix="validation",
                                 epoch=epoch,
                                 aux_tensors=out["aux_tensors"],
+                                step=epoch_step,
+                            )
+                        if (
+                            can_log_point_cloud_image
+                            and epoch % image_log_every == 0
+                            and val_step == sampled_idx
+                        ):
+                            image_coords = _decode_if_needed(x_normalizer, coords)
+                            log_unstructured_point_cloud_images(
+                                image_coords,
+                                pred_decoded,
+                                target_decoded,
+                                prefix="validation",
+                                epoch=epoch,
+                                aux_tensors=out["aux_tensors"],
+                                point_size=point_size,
                                 step=epoch_step,
                             )
                         if (
@@ -264,6 +377,8 @@ def train_steady_task(
                 device=device,
                 y_normalizer=y_normalizer,
                 prepare_batch=prepare_batch,
+                debug_nan_checks=debug_nan_checks,
+                raise_on_nonfinite=raise_on_nonfinite,
             )
             print(
                 f"epoch {epoch + 1}/{int(training_cfg.get('num_epochs', 1))} "
@@ -321,6 +436,9 @@ def test_steady_task(
     output_dir = resolve_output_dir(cfg)
     if checkpoint_path is None:
         checkpoint_path = output_dir / "best.pt"
+    evaluation_cfg = cfg.get("evaluation", {}) or {}
+    debug_nan_checks = bool(evaluation_cfg.get("debug_nan_checks", False))
+    raise_on_nonfinite = bool(evaluation_cfg.get("raise_on_nonfinite", True))
     test_loader = build_test_loader(cfg)
     meta = get_meta(test_loader)
     x_normalizer = getattr(test_loader, "x_normalizer", None)
@@ -366,6 +484,8 @@ def test_steady_task(
         device=device,
         y_normalizer=y_normalizer,
         prepare_batch=prepare_batch,
+        debug_nan_checks=debug_nan_checks,
+        raise_on_nonfinite=raise_on_nonfinite,
     )
     return {
         "checkpoint": str(Path(checkpoint_path).resolve()),

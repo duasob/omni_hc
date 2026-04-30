@@ -9,3 +9,4 @@ documented once in [../README.md](../README.md).
 - [Navier-Stokes](navier_stokes.md)
 - [Darcy](darcy.md)
 - [Pipe](pipe.md)
+- [Elasticity](elasticity.md)

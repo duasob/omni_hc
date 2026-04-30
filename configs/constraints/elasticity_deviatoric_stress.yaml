@@ -1,0 +1,7 @@
+constraint:
+  name: "elasticity_deviatoric_stress"
+  backbone_out_dim: 2
+  target_out_dim: 1
+  c1: 1.863e5
+  c2: 9.79e3
+  max_log_lambda: 0.03
