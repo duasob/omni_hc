@@ -1,14 +1,14 @@
 # Elasticity Benchmark
+![elasticity_sample_0100](../figures/elasticity/elasticity_sample_0100.png)
 
+This benchmark predicts stress on an unstructured 2D
+point cloud. 
 
-
-This benchmark is a steady scalar-stress prediction task on an unstructured 2D
-point cloud. The upstream Neural-Solver-Library setup uses only:
-
+We only use:
 - `Meshes/Random_UnitCell_XY_10.npy`: point coordinates, interpreted as
-  `(samples, points, 2)` after orientation.
+  `(samples, points, 2)`.
 - `Meshes/Random_UnitCell_sigma_10.npy`: scalar stress target, interpreted as
-  `(samples, points, 1)` after orientation.
+  `(samples, points, 1)`.
 
 The default point-cloud setup therefore predicts one scalar `sigma` per material
 point from the 2D point coordinates.
@@ -22,7 +22,7 @@ The first documented hard-constraint variant is:
 
 - [ElasticityDeviatoricStressConstraint](../constraints/elasticity/ElasticityDeviatoricStressConstraint.md):
   maps two latent channels, $\theta$ and $\log\lambda$, to a 2D
-  incompressible Right Cauchy-Green tensor and returns deviatoric von Mises
+  incompressible Right Cauchy-Green tensor and returns von Mises
   stress.
 
 The corresponding experiment config is
