@@ -1,7 +1,12 @@
 constraint:
   name: "elasticity_deviatoric_stress"
-  backbone_out_dim: 2
+  backbone_out_dim: 1
   target_out_dim: 1
   c1: 1.863e5
   c2: 9.79e3
-  max_log_lambda: 0.03
+  max_log_lambda: 0.03 # Corresponds to lambda = 1.03 and output stress of around 2k
+  head_hidden_dim: 32
+  head_layers: 2
+  head_init_scale: 1.0e-3
+  theta_bias: 0.0
+  log_lambda_bias: 0.0

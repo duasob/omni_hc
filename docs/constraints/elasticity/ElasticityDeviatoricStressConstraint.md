@@ -1,9 +1,11 @@
 # ElasticityDeviatoricStressConstraint
 
-`ElasticityDeviatoricStressConstraint` maps a two-channel backbone output to the
+`ElasticityDeviatoricStressConstraint` maps a backbone latent field to the
 single scalar stress target used by the 2D elasticity point-cloud benchmark.
 
-The backbone output is interpreted as:
+The default configuration keeps the backbone at one output channel. That scalar
+latent value is concatenated with point coordinates `[z, x, y]` and passed
+through a small constraint-owned MLP that predicts:
 
 - $\theta$: orientation of the principal stretch basis.
 - $\log \lambda$: logarithmic principal stretch.
@@ -93,16 +95,23 @@ $\sigma_{VM}=0$.
 ```yaml
 constraint:
   name: "elasticity_deviatoric_stress"
-  backbone_out_dim: 2
+  backbone_out_dim: 1
   target_out_dim: 1
   c1: 1.863e5
   c2: 9.79e3
-  max_log_lambda: 8.0
+  max_log_lambda: 0.03
+  head_hidden_dim: 32
+  head_layers: 2
+  head_init_scale: 1.0e-3
+  theta_bias: 0.0
+  log_lambda_bias: 0.0
 ```
 
-`backbone_out_dim` deliberately differs from the benchmark target dimension:
-the backbone emits two latent kinematic quantities, and the constraint returns
-the scalar $\sigma_{VM}$ used for the loss.
+`backbone_out_dim` deliberately matches the benchmark target dimension in the
+default configuration. The backbone emits one scalar latent channel, while the
+constraint-owned head maps `[z, x, y]` to the two kinematic quantities used to
+construct $\mathbf{C}$.
 
-`max_log_lambda` is a numerical guard on the stretch range. It does not rescale
-the stress law.
+`max_log_lambda` bounds the predicted logarithmic stretch with a smooth `tanh`
+map. The small default value keeps the maximum representable stress close to the
+scale of the elasticity benchmark target.
