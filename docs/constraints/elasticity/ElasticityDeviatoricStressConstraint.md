@@ -49,12 +49,15 @@ sigma_VM = 0
 That avoids starting the model in a saturated high-stress state.
 
 The MLP predicts the right Cauchy-Green tensor $C$ for each point. We know that $C$ is formed as $C=F^{T}F$, and for the  Incompressible Hyperelasticity case there is no volume change, adn therefore $\det(F)=1$. This means that $C$ is a positive semi-definitie matrix that satisfies:
+
 $$
 \mathbf{C} = \mathbf{C}^\top,\qquad
 \mathbf{C} \succ 0,\qquad
 \det(\mathbf{C}) = 1.
 $$
+
 We can obtain that directly from $\theta$ and $\lambda$, which in physical terms are interpreted as the orientation of the principal stretch basis and the principal stretch:
+
 $$
 \mathbf{C}
 =
@@ -65,6 +68,7 @@ $$
 \end{bmatrix}
 \mathbf{R}(\theta)^\top.
 $$
+
 To ensure non-negativity of the eigenvalues, we instead predict $\log(\lambda)$.
 
 Since $\det(\mathbf{C})=\det(\mathbf{F})^2$, this enforces the 2D
@@ -75,9 +79,11 @@ law.
 The nature of the was directly obtained from the original [Geo-FNO paper](https://arxiv.org/abs/2207.05209)
 
 The material is the incompressible Rivlin-Saunders material Pascon (2019) and the constitutive model of the material is given by
+
 $$
 \mathbf{\sigma} = \frac{\partial w (\epsilon)}{\partial\epsilon}, \quad  w(\epsilon) = C_{1} (I_{1}-3) + C_{2} (I_{2}-3)
 $$
+
 where $I_{1}=tr(C)$ and $I_{2}=\frac{1}{2}(tr(C)^{2}-tr(C^{2}))$ are scalar invariants of the right Cauchy Green stretch tensor $C = 2ϵ+ I$. And energy density function parameters are $C1 = 1.863 ×10^{5}$ and $C1 = 9.79 ×10^{3}$. The Second Piola-Kirchhoff stress without the pressure term is:
 
 $$
