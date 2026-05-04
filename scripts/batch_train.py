@@ -100,6 +100,29 @@ def safe_name(value: str) -> str:
     )
 
 
+def load_run_base_config(run: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    if "config" in run and "extends" in run:
+        raise ValueError("Sweep runs must define either config or extends, not both.")
+    if "config" in run:
+        return load_composed_config(repo_path(run["config"])), [str(run["config"])]
+    if "extends" not in run:
+        raise KeyError(f"Sweep run {run!r} must define config or extends.")
+
+    extends = run["extends"]
+    if isinstance(extends, str):
+        extends = [extends]
+    if not isinstance(extends, list) or not extends:
+        raise ValueError(f"Sweep run {run!r} has invalid extends.")
+
+    cfg: dict[str, Any] = {}
+    sources: list[str] = []
+    for path in extends:
+        source = str(path)
+        cfg = deep_merge(cfg, load_composed_config(repo_path(source)))
+        sources.append(source)
+    return cfg, sources
+
+
 def resolve_run_config(
     *,
     sweep_name: str,
@@ -109,10 +132,7 @@ def resolve_run_config(
     seed: int | None,
     output_root: Path,
 ) -> dict[str, Any]:
-    if "config" not in run:
-        raise KeyError(f"Sweep run {run!r} must define a config path.")
-
-    cfg = load_composed_config(repo_path(run["config"]))
+    cfg, source_configs = load_run_base_config(run)
     cfg = deep_merge(cfg, budget_cfg)
     cfg = deep_merge(cfg, deepcopy(run.get("overrides", {}) or {}))
 
@@ -135,7 +155,7 @@ def resolve_run_config(
         "budget": budget_name,
         "run": run_name,
         "seed": seed_value,
-        "source_config": str(run["config"]),
+        "source_configs": source_configs,
         "tags": list(run.get("tags", [])),
         "split_policy": (
             "Batch training and tuning use only train/validation data. "
