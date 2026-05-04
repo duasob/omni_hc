@@ -22,6 +22,8 @@ BUDGET_CONFIGS = {
     "smoke": PROJECT_ROOT / "configs/budgets/smoke.yaml",
     "search": PROJECT_ROOT / "configs/budgets/search.yaml",
     "final": PROJECT_ROOT / "configs/budgets/final.yaml",
+    "tune_debug": PROJECT_ROOT / "configs/budgets/tune_debug.yaml",
+    "tune_colab": PROJECT_ROOT / "configs/budgets/tune_colab.yaml",
 }
 
 
@@ -64,7 +66,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-root",
-        default="outputs/batch",
+        default=None,
         help="Root directory for batch run outputs.",
     )
     parser.add_argument(
@@ -89,6 +91,20 @@ def load_budget(path_or_name: str) -> tuple[str, dict[str, Any]]:
         budget_path = repo_path(path_or_name)
         budget_name = budget_path.stem
     return budget_name, load_yaml_file(budget_path)
+
+
+def default_output_root(kind: str) -> Path:
+    import os
+
+    env_value = os.environ.get("OMNI_HC_OUTPUT_ROOT")
+    if env_value:
+        return repo_path(env_value) / kind
+
+    colab_drive = Path("/content/drive/MyDrive")
+    if colab_drive.exists():
+        return colab_drive / "omni_hc" / kind
+
+    return PROJECT_ROOT / "outputs" / kind
 
 
 def safe_name(value: str) -> str:
@@ -199,7 +215,7 @@ def main() -> int:
         raise ValueError(f"Sweep {sweep_path} must define at least one run.")
 
     config_root = repo_path(args.config_root) / sweep_name / budget_name
-    output_root = repo_path(args.output_root)
+    output_root = repo_path(args.output_root) if args.output_root else default_output_root("batch")
     seeds = args.seeds if args.seeds is not None else [None]
 
     jobs: list[tuple[str, Path, list[str]]] = []

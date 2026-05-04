@@ -7,6 +7,7 @@ runs:
       - configs/benchmarks/darcy/base.yaml
       - configs/backbones/darcy/Galerkin_Transformer.yaml
       - configs/constraints/darcy_flux_fft_pad.yaml
+      - configs/experiments/darcy/optuna/darcy_flux_fft_pad.yaml
     tags: ["darcy", "galerkin_transformer", "darcy_flux_fft_pad"]
 
   - name: gnot
@@ -14,6 +15,7 @@ runs:
       - configs/benchmarks/darcy/base.yaml
       - configs/backbones/darcy/GNOT.yaml
       - configs/constraints/darcy_flux_fft_pad.yaml
+      - configs/experiments/darcy/optuna/darcy_flux_fft_pad.yaml
     tags: ["darcy", "gnot", "darcy_flux_fft_pad"]
 
   - name: factformer
@@ -21,6 +23,7 @@ runs:
       - configs/benchmarks/darcy/base.yaml
       - configs/backbones/darcy/Factformer.yaml
       - configs/constraints/darcy_flux_fft_pad.yaml
+      - configs/experiments/darcy/optuna/darcy_flux_fft_pad.yaml
     tags: ["darcy", "factformer", "darcy_flux_fft_pad"]
 
   - name: ono
@@ -28,6 +31,7 @@ runs:
       - configs/benchmarks/darcy/base.yaml
       - configs/backbones/darcy/ONO.yaml
       - configs/constraints/darcy_flux_fft_pad.yaml
+      - configs/experiments/darcy/optuna/darcy_flux_fft_pad.yaml
     tags: ["darcy", "ono", "darcy_flux_fft_pad"]
 
   - name: transolver
@@ -35,4 +39,5 @@ runs:
       - configs/benchmarks/darcy/base.yaml
       - configs/backbones/darcy/Transolver.yaml
       - configs/constraints/darcy_flux_fft_pad.yaml
+      - configs/experiments/darcy/optuna/darcy_flux_fft_pad.yaml
     tags: ["darcy", "transolver", "darcy_flux_fft_pad"]

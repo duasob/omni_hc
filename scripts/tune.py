@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 
 import torch
+import yaml
 
 from omni_hc.core import load_composed_config
 from omni_hc.training import tune_benchmark
@@ -45,3 +46,16 @@ if __name__ == "__main__":
     )
     print("best_trial_value", study.best_value)
     print("best_trial_params", study.best_trial.params)
+
+    save_dir = cfg.get("optuna", {}).get("save_dir")
+    if save_dir:
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+        summary = {
+            "best_trial_value": float(study.best_value),
+            "best_trial_number": int(study.best_trial.number),
+            "best_trial_params": dict(study.best_trial.params),
+            "num_trials": len(study.trials),
+        }
+        with open(save_dir / "best_trial.yaml", "w", encoding="utf-8") as handle:
+            yaml.safe_dump(summary, handle, sort_keys=False)
