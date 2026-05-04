@@ -18,6 +18,7 @@ from omni_hc.core.config import deep_merge, load_composed_config, load_yaml_file
 
 BUDGET_CONFIGS = {
     "debug": PROJECT_ROOT / "configs/budgets/debug.yaml",
+    "debug_transformer": PROJECT_ROOT / "configs/budgets/debug_transformer.yaml",
     "smoke": PROJECT_ROOT / "configs/budgets/smoke.yaml",
     "search": PROJECT_ROOT / "configs/budgets/search.yaml",
     "final": PROJECT_ROOT / "configs/budgets/final.yaml",
@@ -201,7 +202,7 @@ def main() -> int:
     output_root = repo_path(args.output_root)
     seeds = args.seeds if args.seeds is not None else [None]
 
-    commands: list[list[str]] = []
+    jobs: list[tuple[str, Path, list[str]]] = []
     for run in runs:
         run_name = safe_name(str(run["name"]))
         for seed in seeds:
@@ -216,25 +217,40 @@ def main() -> int:
             seed_value = int(cfg["training"]["seed"])
             generated_config = config_root / run_name / f"seed_{seed_value}.yaml"
             write_config(cfg, generated_config)
-            commands.append(
-                command_for_config(
+            jobs.append(
+                (
+                    run_name,
+                    generated_config,
+                    command_for_config(
                     generated_config,
                     device=args.device,
                     nsl_root=args.nsl_root,
+                    ),
                 )
             )
 
-    print(f"Generated {len(commands)} config(s) under {config_root}")
-    for command in commands:
-        print(" ".join(command))
+    print(f"Generated {len(jobs)} config(s) under {config_root}", flush=True)
+    for _, _, command in jobs:
+        print(" ".join(command), flush=True)
 
     if args.dry_run:
         return 0
 
-    for command in commands:
+    for index, (run_name, generated_config, command) in enumerate(jobs, start=1):
+        print(
+            f"\n[{index}/{len(jobs)}] Launching {run_name}: {generated_config}",
+            flush=True,
+        )
         completed = subprocess.run(command, cwd=PROJECT_ROOT, check=False)
-        if completed.returncode != 0 and not args.continue_on_failure:
-            return int(completed.returncode)
+        if completed.returncode != 0:
+            print(
+                f"[{index}/{len(jobs)}] {run_name} failed with exit code {completed.returncode}",
+                flush=True,
+            )
+            if not args.continue_on_failure:
+                return int(completed.returncode)
+        else:
+            print(f"[{index}/{len(jobs)}] Finished {run_name}", flush=True)
     return 0
 
 
