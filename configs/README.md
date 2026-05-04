@@ -60,7 +60,7 @@ Preview the Darcy transformer baseline sweep:
 ```bash
 python scripts/batch_train.py \
   --sweep configs/sweeps/darcy_transformers.yaml \
-  --budget debug \
+  --budget debug_transformer \
   --dry-run
 ```
 
