@@ -1,0 +1,19 @@
+data:
+  ntrain: 128
+  ntest: 200
+
+training:
+  val_size: 16
+  num_epochs: 10
+  seed: 42
+
+evaluation:
+  batch_size: 4
+
+wandb_logging:
+  wandb: false
+  log_every: 25
+  image_log_every: null
+
+optuna:
+  num_trials: 10
