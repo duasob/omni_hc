@@ -166,6 +166,7 @@ def resolve_run_config(
     if "tags" in run:
         cfg["wandb_logging"]["tags"] = list(run["tags"])
 
+    ntest = cfg.get("data", {}).get("ntest", 200)
     cfg["experiment"] = {
         "sweep": sweep_name,
         "budget": budget_name,
@@ -175,7 +176,7 @@ def resolve_run_config(
         "tags": list(run.get("tags", [])),
         "split_policy": (
             "Batch training and tuning use only train/validation data. "
-            "The canonical test split is data.ntest=200 and should only be "
+            f"The canonical test split is data.ntest={ntest} and should only be "
             "evaluated with scripts/test.py after final model selection."
         ),
     }

@@ -4,6 +4,6 @@ from .base import BenchmarkAdapter, BenchmarkSpec
 
 BENCHMARKS = Registry[BenchmarkAdapter]("benchmarks")
 
-from . import darcy, elasticity, navier_stokes, pipe  # noqa: F401
+from . import darcy, elasticity, navier_stokes, pipe, plasticity  # noqa: F401
 
 __all__ = ["BENCHMARKS", "BenchmarkAdapter", "BenchmarkSpec"]

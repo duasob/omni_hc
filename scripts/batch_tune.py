@@ -137,6 +137,7 @@ def resolve_tune_config(
     if "tags" in run:
         cfg["wandb_logging"]["tags"] = list(run["tags"])
 
+    ntest = cfg.get("data", {}).get("ntest", 200)
     cfg["experiment"] = {
         "sweep": sweep_name,
         "budget": budget_name,
@@ -147,7 +148,7 @@ def resolve_tune_config(
         "mode": "tune",
         "split_policy": (
             "Optuna tuning uses validation metrics only. The canonical test split "
-            "is data.ntest=200 and should only be evaluated with scripts/test.py "
+            f"is data.ntest={ntest} and should only be evaluated with scripts/test.py "
             "after final model selection."
         ),
     }

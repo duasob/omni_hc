@@ -10,3 +10,4 @@ documented once in [../README.md](../README.md).
 - [Darcy](darcy.md)
 - [Pipe](pipe.md)
 - [Elasticity](elasticity.md)
+- [Plasticity](plasticity.md)

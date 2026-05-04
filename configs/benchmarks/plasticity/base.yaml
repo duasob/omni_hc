@@ -1,0 +1,45 @@
+benchmark:
+  name: "plasticity_2d"
+  dataset: "plas_N987_T20"
+  invariant: "dynamic_forging_deformation_response"
+  geometry: "structured_grid"
+
+paths:
+  root_dir: "data/plasticity"
+
+data:
+  ntrain: 900
+  ntest: 80
+  downsamplex: 1
+  downsampley: 1
+  T_out: 20
+  out_dim: 4
+  normalize_input: true
+  normalize: false
+  norm_type: "UnitTransformer"
+  channel_semantics: "unverified; NSL visualizes channels 0:2 as final deformed coordinates and channels 2:4 as a final vector magnitude"
+
+training:
+  batch_size: 8
+  val_size: 100
+  num_epochs: 10
+  optimizer: "adamw"
+  learning_rate: 0.001
+  weight_decay: 1.0e-5
+  scheduler: "OneCycleLR"
+  pct_start: 0.3
+  step_per_time: true
+  seed: 42
+
+evaluation:
+  batch_size: 8
+
+wandb_logging:
+  wandb: false
+  log_every: 10
+  image_log_every: null
+
+optuna:
+  direction: "minimize"
+  num_trials: 10
+  search_space: {}
