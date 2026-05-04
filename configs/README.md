@@ -69,7 +69,7 @@ Preview the Darcy transformer baseline sweep:
 ```bash
 python scripts/batch_train.py \
   --sweep configs/sweeps/darcy_transformers.yaml \
-  --budget debug_transformer \
+  --budget debug \
   --dry-run
 ```
 
@@ -84,6 +84,9 @@ python scripts/batch_train.py \
 For Colab tuning, prefer Drive-backed outputs. `batch_train.py` and
 `batch_tune.py` default to `/content/drive/MyDrive/omni_hc/...` when running in
 Colab, or you can set `OMNI_HC_OUTPUT_ROOT` explicitly.
+`batch_tune.py` disables W&B by default so W&B network/setup failures do not
+block Optuna trials. Pass `--wandb` when you explicitly want trial runs logged
+to W&B.
 
 Run a tiny Optuna wiring check:
 

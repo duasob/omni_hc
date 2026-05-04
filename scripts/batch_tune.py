@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from copy import deepcopy
@@ -72,6 +73,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Continue launching later tuning runs when one run fails.",
     )
+    parser.add_argument(
+        "--wandb",
+        action="store_true",
+        help="Enable W&B logging during tuning. Disabled by default for Colab stability.",
+    )
     return parser.parse_args()
 
 
@@ -107,6 +113,7 @@ def resolve_tune_config(
     run: dict[str, Any],
     budget_cfg: dict[str, Any],
     output_root: Path,
+    enable_wandb: bool,
 ) -> dict[str, Any]:
     cfg, source_configs = load_run_base_config(run)
     cfg = deep_merge(cfg, budget_cfg)
@@ -125,6 +132,7 @@ def resolve_tune_config(
     cfg["optuna"]["run_name"] = f"{sweep_name}_{budget_name}_{run_name}_seed_{seed}"
 
     cfg.setdefault("wandb_logging", {})
+    cfg["wandb_logging"]["wandb"] = bool(enable_wandb)
     cfg["wandb_logging"]["run_name"] = f"{sweep_name}_{budget_name}_{run_name}_seed_{seed}"
     if "tags" in run:
         cfg["wandb_logging"]["tags"] = list(run["tags"])
@@ -182,6 +190,7 @@ def main() -> int:
             run=run,
             budget_cfg=budget_cfg,
             output_root=output_root,
+            enable_wandb=args.wandb,
         )
         generated_config = config_root / str(run["name"]) / "tune.yaml"
         write_config(cfg, generated_config)
@@ -199,6 +208,8 @@ def main() -> int:
 
     print(f"Generated {len(jobs)} tune config(s) under {config_root}", flush=True)
     print(f"Tune outputs will be written under {output_root / sweep_name / budget_name}", flush=True)
+    if not args.wandb:
+        print("W&B logging is disabled for tuning. Pass --wandb to enable it.", flush=True)
     for _, _, command in jobs:
         print(" ".join(command), flush=True)
 
@@ -210,7 +221,10 @@ def main() -> int:
             f"\n[{index}/{len(jobs)}] Tuning {run_name}: {generated_config}",
             flush=True,
         )
-        completed = subprocess.run(command, cwd=PROJECT_ROOT, check=False)
+        env = dict(os.environ)
+        if not args.wandb:
+            env["WANDB_MODE"] = "disabled"
+        completed = subprocess.run(command, cwd=PROJECT_ROOT, check=False, env=env)
         if completed.returncode != 0:
             print(
                 f"[{index}/{len(jobs)}] {run_name} failed with exit code {completed.returncode}",
