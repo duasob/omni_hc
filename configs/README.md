@@ -5,6 +5,7 @@ Configs are split by responsibility:
 - `benchmarks/`: dataset and benchmark defaults
 - `backbones/`: model-family defaults
 - `constraints/`: hard-constraint defaults
+- `experiments/<benchmark>/optuna/`: benchmark and constraint-specific search spaces
 
 A run config can compose these layers with `extends`.
 
@@ -34,6 +35,14 @@ small and repeatable. Sweep configs under `configs/sweeps/` reference trusted
 experiment configs, usually initialized from the known-good baseline settings.
 Each sweep run can either reference one existing `config` or compose multiple
 config layers with `extends`.
+
+Budgets own compute size: sample counts, epochs, batch sizes, and Optuna trial
+counts. They should not define Optuna search spaces. Search spaces belong in
+benchmark experiment configs, for example:
+
+```text
+configs/experiments/darcy/optuna/darcy_flux_fft_pad.yaml
+```
 
 Training and tuning runs must use validation metrics only. The canonical test
 split is the held-out 200 samples defined by `data.ntest: 200`, and it should
@@ -72,5 +81,28 @@ python scripts/batch_train.py \
   --budget debug
 ```
 
+For Colab tuning, prefer Drive-backed outputs. `batch_train.py` and
+`batch_tune.py` default to `/content/drive/MyDrive/omni_hc/...` when running in
+Colab, or you can set `OMNI_HC_OUTPUT_ROOT` explicitly.
+
+Run a tiny Optuna wiring check:
+
+```bash
+python scripts/batch_tune.py \
+  --sweep configs/sweeps/darcy_transformers.yaml \
+  --budget tune_debug \
+  --only galerkin_transformer \
+  --dry-run
+```
+
+Run a Colab-sized batch tune:
+
+```bash
+python scripts/batch_tune.py \
+  --sweep configs/sweeps/darcy_transformers.yaml \
+  --budget tune_colab \
+  --continue-on-failure
+```
+
 Generated resolved configs are written under `artifacts/generated_configs/`.
-Run outputs are written under `outputs/batch/`.
+Run outputs are written under `outputs/batch/` locally or Drive on Colab.

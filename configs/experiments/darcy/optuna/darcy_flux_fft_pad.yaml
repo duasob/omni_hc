@@ -1,0 +1,21 @@
+optuna:
+  direction: "minimize"
+  search_space:
+    training.learning_rate:
+      type: "float"
+      low: 1.0e-4
+      high: 3.0e-3
+      log: true
+    training.weight_decay:
+      type: "float"
+      low: 1.0e-6
+      high: 1.0e-4
+      log: true
+    constraint.padding:
+      type: "categorical"
+      choices: [4, 8, 12]
+    constraint.permeability_eps:
+      type: "float"
+      low: 1.0e-7
+      high: 1.0e-5
+      log: true
