@@ -18,7 +18,6 @@ from omni_hc.core.config import deep_merge, load_composed_config, load_yaml_file
 
 BUDGET_CONFIGS = {
     "debug": PROJECT_ROOT / "configs/budgets/debug.yaml",
-    "debug_transformer": PROJECT_ROOT / "configs/budgets/debug_transformer.yaml",
     "smoke": PROJECT_ROOT / "configs/budgets/smoke.yaml",
     "search": PROJECT_ROOT / "configs/budgets/search.yaml",
     "final": PROJECT_ROOT / "configs/budgets/final.yaml",
