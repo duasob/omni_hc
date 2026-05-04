@@ -1,0 +1,27 @@
+model:
+  backbone: "ONO"
+  args:
+    loader: "darcy"
+    geotype: "structured_2D"
+    task: "steady"
+    space_dim: 2
+    fun_dim: 1
+    out_dim: 1
+    n_hidden: 128
+    n_heads: 8
+    n_layers: 10
+    mlp_ratio: 2
+    slice_num: 64
+    unified_pos: 0
+    ref: 8
+    psi_dim: 32
+
+training:
+  batch_size: 4
+  num_epochs: 500
+  optimizer: "adamw"
+  learning_rate: 0.001
+  weight_decay: 1.0e-5
+  scheduler: "OneCycleLR"
+  pct_start: 0.3
+  max_grad_norm: 0.1

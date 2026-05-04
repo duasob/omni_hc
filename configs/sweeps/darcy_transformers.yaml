@@ -1,0 +1,38 @@
+name: darcy_transformers_flux
+description: "DarcyFluxConstraint transformer runs using benchmark-specific hyperparameters."
+
+runs:
+  - name: galerkin_transformer
+    extends:
+      - configs/benchmarks/darcy/base.yaml
+      - configs/backbones/darcy/Galerkin_Transformer.yaml
+      - configs/constraints/darcy_flux_fft_pad.yaml
+    tags: ["darcy", "galerkin_transformer", "darcy_flux_fft_pad"]
+
+  - name: gnot
+    extends:
+      - configs/benchmarks/darcy/base.yaml
+      - configs/backbones/darcy/GNOT.yaml
+      - configs/constraints/darcy_flux_fft_pad.yaml
+    tags: ["darcy", "gnot", "darcy_flux_fft_pad"]
+
+  - name: factformer
+    extends:
+      - configs/benchmarks/darcy/base.yaml
+      - configs/backbones/darcy/Factformer.yaml
+      - configs/constraints/darcy_flux_fft_pad.yaml
+    tags: ["darcy", "factformer", "darcy_flux_fft_pad"]
+
+  - name: ono
+    extends:
+      - configs/benchmarks/darcy/base.yaml
+      - configs/backbones/darcy/ONO.yaml
+      - configs/constraints/darcy_flux_fft_pad.yaml
+    tags: ["darcy", "ono", "darcy_flux_fft_pad"]
+
+  - name: transolver
+    extends:
+      - configs/benchmarks/darcy/base.yaml
+      - configs/backbones/darcy/Transolver.yaml
+      - configs/constraints/darcy_flux_fft_pad.yaml
+    tags: ["darcy", "transolver", "darcy_flux_fft_pad"]

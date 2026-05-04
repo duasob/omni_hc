@@ -8,6 +8,17 @@ Configs are split by responsibility:
 
 A run config can compose these layers with `extends`.
 
+Backbone configs copied from Neural-Solver-Library StandardBench scripts live
+under:
+
+```text
+configs/backbones/<benchmark>/<model>.yaml
+```
+
+This keeps benchmark-specific baseline hyperparameters separate. The same model
+can have different trusted defaults for Darcy, Pipe, Elasticity, and the other
+StandardBench datasets without overwriting another benchmark's config.
+
 The intended entrypoints are:
 
 - `python scripts/train.py --config ...`
@@ -21,6 +32,8 @@ The runtime is selected from `benchmark.name` inside the resolved config.
 Budget configs under `configs/budgets/` keep debug, smoke, and search runs
 small and repeatable. Sweep configs under `configs/sweeps/` reference trusted
 experiment configs, usually initialized from the known-good baseline settings.
+Each sweep run can either reference one existing `config` or compose multiple
+config layers with `extends`.
 
 Training and tuning runs must use validation metrics only. The canonical test
 split is the held-out 200 samples defined by `data.ntest: 200`, and it should
@@ -38,6 +51,15 @@ Preview a sweep without launching training:
 ```bash
 python scripts/batch_train.py \
   --sweep configs/sweeps/darcy_flux.yaml \
+  --budget debug \
+  --dry-run
+```
+
+Preview the Darcy transformer baseline sweep:
+
+```bash
+python scripts/batch_train.py \
+  --sweep configs/sweeps/darcy_transformers.yaml \
   --budget debug \
   --dry-run
 ```
