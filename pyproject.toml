@@ -20,6 +20,7 @@ dev = [
   "pytest>=8.0",
 ]
 experiments = [
+  "nystrom-attention>=0.0.11",
   "optuna>=4.0",
   "wandb>=0.18",
 ]
