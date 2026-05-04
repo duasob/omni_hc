@@ -80,37 +80,41 @@ def _grid(h: int, w: int) -> torch.Tensor:
     return torch.stack([xx, yy], dim=-1).view(-1, 2)
 
 
-def _load_darcy_raw(cfg: dict):
-    train_path, test_path = resolve_darcy_mat_files(cfg["paths"]["root_dir"])
-    train_raw = scio.loadmat(str(train_path))
-    test_raw = scio.loadmat(str(test_path))
+def _load_darcy_mat(path: Path) -> dict:
+    raw = scio.loadmat(str(path), variable_names=("coeff", "sol"))
+    if "coeff" not in raw or "sol" not in raw:
+        raise KeyError(f"Expected 'coeff' and 'sol' in {path}")
+    return raw
 
-    if "coeff" not in train_raw or "sol" not in train_raw:
-        raise KeyError(f"Expected 'coeff' and 'sol' in {train_path}")
-    if "coeff" not in test_raw or "sol" not in test_raw:
-        raise KeyError(f"Expected 'coeff' and 'sol' in {test_path}")
 
+def _darcy_sampling(cfg: dict, coeff_shape: tuple[int, ...]):
     data_cfg = cfg.get("data", {})
     model_args = cfg.get("model", {}).get("args", {})
-    coeff_shape = train_raw["coeff"].shape
     h_full, w_full = int(coeff_shape[1]), int(coeff_shape[2])
     r1 = _as_int(data_cfg.get("downsamplex", model_args.get("downsamplex")), 1)
     r2 = _as_int(data_cfg.get("downsampley", model_args.get("downsampley")), 1)
     s1 = int(((h_full - 1) / r1) + 1)
     s2 = int(((w_full - 1) / r2) + 1)
+    return r1, r2, s1, s2
 
+
+def _slice_field(raw: dict, key: str, n: int, r1: int, r2: int, s1: int, s2: int):
+    return raw[key][:n, ::r1, ::r2][:, :s1, :s2]
+
+
+def _load_darcy_train_raw(cfg: dict):
+    train_path, test_path = resolve_darcy_mat_files(cfg["paths"]["root_dir"])
+    train_raw = _load_darcy_mat(train_path)
+
+    data_cfg = cfg.get("data", {})
+    r1, r2, s1, s2 = _darcy_sampling(cfg, train_raw["coeff"].shape)
     ntrain = _as_int(data_cfg.get("ntrain"), train_raw["coeff"].shape[0])
-    ntest = _as_int(data_cfg.get("ntest"), test_raw["coeff"].shape[0])
 
-    x_train = train_raw["coeff"][:ntrain, ::r1, ::r2][:, :s1, :s2]
-    y_train = train_raw["sol"][:ntrain, ::r1, ::r2][:, :s1, :s2]
-    x_test = test_raw["coeff"][:ntest, ::r1, ::r2][:, :s1, :s2]
-    y_test = test_raw["sol"][:ntest, ::r1, ::r2][:, :s1, :s2]
+    x_train = _slice_field(train_raw, "coeff", ntrain, r1, r2, s1, s2)
+    y_train = _slice_field(train_raw, "sol", ntrain, r1, r2, s1, s2)
 
     x_train = torch.from_numpy(x_train.reshape(ntrain, -1, 1)).float()
     y_train = torch.from_numpy(y_train.reshape(ntrain, -1, 1)).float()
-    x_test = torch.from_numpy(x_test.reshape(ntest, -1, 1)).float()
-    y_test = torch.from_numpy(y_test.reshape(ntest, -1, 1)).float()
 
     meta = {
         "shapelist": (s1, s2),
@@ -122,10 +126,30 @@ def _load_darcy_raw(cfg: dict):
         "loader": "darcy",
         "geotype": "structured_2D",
         "ntrain": ntrain,
-        "ntest": ntest,
+        "ntest": _as_int(data_cfg.get("ntest"), 200),
         "train_path": str(train_path),
         "test_path": str(test_path),
     }
+    return x_train, y_train, meta
+
+
+def _load_darcy_raw(cfg: dict):
+    train_path, test_path = resolve_darcy_mat_files(cfg["paths"]["root_dir"])
+    x_train, y_train, meta = _load_darcy_train_raw(cfg)
+    test_raw = _load_darcy_mat(test_path)
+
+    data_cfg = cfg.get("data", {})
+    r1, r2, s1, s2 = _darcy_sampling(cfg, test_raw["coeff"].shape)
+    ntest = _as_int(data_cfg.get("ntest"), test_raw["coeff"].shape[0])
+    x_test = _slice_field(test_raw, "coeff", ntest, r1, r2, s1, s2)
+    y_test = _slice_field(test_raw, "sol", ntest, r1, r2, s1, s2)
+
+    x_test = torch.from_numpy(x_test.reshape(ntest, -1, 1)).float()
+    y_test = torch.from_numpy(y_test.reshape(ntest, -1, 1)).float()
+
+    meta["ntest"] = ntest
+    meta["train_path"] = str(train_path)
+    meta["test_path"] = str(test_path)
     return x_train, y_train, x_test, y_test, meta
 
 
@@ -143,7 +167,7 @@ def _build_normalizers(cfg: dict, x_train: torch.Tensor, y_train: torch.Tensor):
 
 
 def build_train_val_loaders(cfg: dict):
-    x_train, y_train, _, _, meta = _load_darcy_raw(cfg)
+    x_train, y_train, meta = _load_darcy_train_raw(cfg)
     x_normalizer, y_normalizer = _build_normalizers(cfg, x_train, y_train)
     x_train = x_normalizer.encode(x_train)
     y_train = y_normalizer.encode(y_train)

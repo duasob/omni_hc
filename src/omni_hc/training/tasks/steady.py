@@ -132,6 +132,7 @@ def train_steady_task(
     runtime_overrides,
     prepare_batch,
 ):
+    print("building train/validation loaders", flush=True)
     train_loader, val_loader = build_train_val_loaders(cfg)
     meta = get_meta(train_loader)
     x_normalizer = getattr(train_loader, "x_normalizer", None)
@@ -141,6 +142,10 @@ def train_steady_task(
     if y_normalizer is not None:
         y_normalizer = y_normalizer.to(device)
 
+    print(
+        f"creating model {cfg.get('model', {}).get('backbone', 'FNO')}",
+        flush=True,
+    )
     model, model_args, resolved_nsl_root = create_model(
         cfg,
         nsl_root=nsl_root,
