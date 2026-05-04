@@ -15,3 +15,40 @@ The intended entrypoints are:
 - `python scripts/tune.py --config ...`
 
 The runtime is selected from `benchmark.name` inside the resolved config.
+
+## Batch Debug Workflow
+
+Budget configs under `configs/budgets/` keep debug, smoke, and search runs
+small and repeatable. Sweep configs under `configs/sweeps/` reference trusted
+experiment configs, usually initialized from the known-good baseline settings.
+
+Training and tuning runs must use validation metrics only. The canonical test
+split is the held-out 200 samples defined by `data.ntest: 200`, and it should
+only be evaluated with `scripts/test.py` after final model selection. Budget
+configs may reduce `data.ntrain` for cheaper debug/search runs, but they should
+not reduce `data.ntest`.
+
+For final selected runs, use the `final` budget: it sets `data.ntrain: 1000`
+and `training.val_size: 100`, so the training task fits on 900 samples and
+selects checkpoints on 100 validation samples. The last 200 samples remain
+reserved for the final test pass.
+
+Preview a sweep without launching training:
+
+```bash
+python scripts/batch_train.py \
+  --sweep configs/sweeps/darcy_flux.yaml \
+  --budget debug \
+  --dry-run
+```
+
+Run the same sweep:
+
+```bash
+python scripts/batch_train.py \
+  --sweep configs/sweeps/darcy_flux.yaml \
+  --budget debug
+```
+
+Generated resolved configs are written under `artifacts/generated_configs/`.
+Run outputs are written under `outputs/batch/`.

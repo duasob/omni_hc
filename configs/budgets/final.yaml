@@ -1,0 +1,15 @@
+data:
+  ntrain: 1000
+  ntest: 200
+
+training:
+  val_size: 100
+  seed: 42
+
+evaluation:
+  batch_size: 4
+
+wandb_logging:
+  wandb: true
+  log_every: 100
+  image_log_every: 1

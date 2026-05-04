@@ -1,0 +1,19 @@
+name: darcy_flux
+description: "Darcy baseline and flux-constraint debug sweep using baseline-derived configs."
+
+runs:
+  - name: fno_unconstrained
+    config: configs/experiments/darcy/fno_small.yaml
+    tags: ["darcy", "fno", "unconstrained"]
+
+  - name: fno_dirichlet
+    config: configs/experiments/darcy/fno_small_dirichlet.yaml
+    tags: ["darcy", "fno", "dirichlet"]
+
+  - name: fno_flux_fft_pad
+    config: configs/experiments/darcy/fno_small_flux_fft_pad.yaml
+    tags: ["darcy", "fno", "darcy_flux_fft_pad"]
+
+  # - name: gt_flux_fft_pad
+  #   config: configs/experiments/darcy/gt_small_flux_fft_pad.yaml
+  #   tags: ["darcy", "galerkin_transformer", "darcy_flux_fft_pad"]
