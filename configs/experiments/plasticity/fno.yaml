@@ -1,0 +1,10 @@
+extends:
+  - ../../benchmarks/plasticity/base.yaml
+  - ../../backbones/plasticity/FNO.yaml
+
+paths:
+  output_dir: "outputs/plasticity/fno"
+
+wandb_logging:
+  run_name: "plasticity_fno"
+  tags: ["plasticity", "fno", "unconstrained"]

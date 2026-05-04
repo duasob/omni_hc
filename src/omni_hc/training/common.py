@@ -171,10 +171,10 @@ def _normalize_forward_output(output) -> dict[str, Any]:
     }
 
 
-def forward_with_optional_aux(model, coords, fx):
+def forward_with_optional_aux(model, coords, fx, **kwargs):
     if bool(getattr(model, "supports_aux", False)):
-        return _normalize_forward_output(model(coords, fx, return_aux=True))
-    return _normalize_forward_output(model(coords, fx))
+        return _normalize_forward_output(model(coords, fx, return_aux=True, **kwargs))
+    return _normalize_forward_output(model(coords, fx, **kwargs))
 
 
 def relative_l2_per_sample(
