@@ -1,9 +1,12 @@
-extends:
-  - fno_small.yaml
-  - ../../constraints/pipe_stream_function.yaml
+name: "pipe_fno_stream"
+benchmark: "pipe"
+backbone: "FNO"
+constraint: "pipe_stream_function"
+budget: "debug"
 
-paths:
-  output_dir: "outputs/pipe/fno_small_stream"
+overrides:
+  paths:
+    output_dir: "outputs/pipe/fno_stream"
+  wandb_logging:
+    run_name: "pipe_fno_stream"
 
-wandb_logging:
-  run_name: "pipe_fno_small_stream"

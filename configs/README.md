@@ -1,111 +1,124 @@
 # Config Layout
 
-Configs are split by responsibility:
+Runs are composed from four source components:
 
-- `benchmarks/`: dataset and benchmark defaults
-- `backbones/`: model-family defaults
+- `benchmarks/`: dataset, geometry, normalization, and canonical split metadata
+- `backbones/<benchmark>/`: benchmark-specific model and optimizer defaults
 - `constraints/`: hard-constraint defaults
-- `experiments/<benchmark>/optuna/`: benchmark and constraint-specific search spaces
+- `budgets/`: runtime scale, seeds, batch sizes, epochs, Optuna trial counts, and logging policy
 
-A run config can compose these layers with `extends`.
-
-Backbone configs copied from Neural-Solver-Library StandardBench scripts live
-under:
-
-```text
-configs/backbones/<benchmark>/<model>.yaml
-```
-
-This keeps benchmark-specific baseline hyperparameters separate. The same model
-can have different trusted defaults for Darcy, Pipe, Elasticity, and the other
-StandardBench datasets without overwriting another benchmark's config.
-
-The intended entrypoints are:
-
-- `python scripts/train.py --config ...`
-- `python scripts/test.py --config ...`
-- `python scripts/tune.py --config ...`
-
-The runtime is selected from `benchmark.name` inside the resolved config.
-
-## Batch Debug Workflow
-
-Budget configs under `configs/budgets/` keep debug, smoke, and search runs
-small and repeatable. Sweep configs under `configs/sweeps/` reference trusted
-experiment configs, usually initialized from the known-good baseline settings.
-Each sweep run can either reference one existing `config` or compose multiple
-config layers with `extends`.
-
-Budgets own compute size: sample counts, epochs, batch sizes, and Optuna trial
-counts. They should not define Optuna search spaces. Search spaces belong in
-benchmark experiment configs, for example:
-
-```text
-configs/experiments/darcy/optuna/darcy_flux_fft_pad.yaml
-```
-
-Training and tuning runs must use validation metrics only. The canonical test
-split is the held-out 200 samples defined by `data.ntest: 200`, and it should
-only be evaluated with `scripts/test.py` after final model selection. Budget
-configs may reduce `data.ntrain` for cheaper debug/search runs, but they should
-not reduce `data.ntest`.
-
-For final selected runs, use the `final` budget: it sets `data.ntrain: 1000`
-and `training.val_size: 100`, so the training task fits on 900 samples and
-selects checkpoints on 100 validation samples. The last 200 samples remain
-reserved for the final test pass.
-
-Preview a sweep without launching training:
+`scripts/train.py`, `scripts/tune.py`, and `scripts/test.py` compose those
+components directly. The common path is to pass component names:
 
 ```bash
-python scripts/batch_train.py \
-  --sweep configs/sweeps/darcy_flux.yaml \
-  --budget debug \
-  --dry-run
-```
-
-Preview the Darcy transformer baseline sweep:
-
-```bash
-python scripts/batch_train.py \
-  --sweep configs/sweeps/darcy_transformers.yaml \
-  --budget debug \
-  --dry-run
-```
-
-Run the same sweep:
-
-```bash
-python scripts/batch_train.py \
-  --sweep configs/sweeps/darcy_flux.yaml \
+python scripts/train.py \
+  --benchmark darcy \
+  --backbone FNO \
+  --constraint darcy_flux_fft_pad \
   --budget debug
 ```
 
-For Colab tuning, prefer Drive-backed outputs. `batch_train.py` and
-`batch_tune.py` default to `/content/drive/MyDrive/omni_hc/...` when running in
-Colab, or you can set `OMNI_HC_OUTPUT_ROOT` explicitly.
-`batch_tune.py` disables W&B by default so W&B network/setup failures do not
-block Optuna trials. Pass `--wandb` when you explicitly want trial runs logged
-to W&B.
+Names resolve to config files by convention:
 
-Run a tiny Optuna wiring check:
+```text
+--benchmark darcy
+  -> configs/benchmarks/darcy/base.yaml
+
+--backbone FNO
+  -> configs/backbones/darcy/FNO.yaml
+
+--constraint darcy_flux_fft_pad
+  -> configs/constraints/darcy_flux_fft_pad.yaml
+
+--budget debug
+  -> configs/budgets/debug.yaml
+```
+
+Use `--constraint none` or omit `--constraint` for unconstrained runs.
+
+## Ownership
+
+Benchmark configs should not define training schedules, optimizer settings,
+W&B logging, or Optuna search spaces. They identify the problem and data.
+
+Backbone configs own model defaults and any optimizer defaults that belong to a
+specific benchmark/backbone pair.
+
+Budget configs make a run cheap or expensive. They can override sample counts,
+validation size, epochs, batch sizes, seeds, W&B behavior, and Optuna trial
+counts.
+
+Optuna search spaces live under `configs/optuna/`. `tune.py` composes them in
+addition to the train-time components:
 
 ```bash
-python scripts/batch_tune.py \
-  --sweep configs/sweeps/darcy_transformers.yaml \
+python scripts/tune.py \
+  --benchmark darcy \
+  --backbone Galerkin_Transformer \
+  --constraint darcy_flux_fft_pad \
   --budget tune_debug \
-  --only galerkin_transformer \
-  --dry-run
+  --optuna darcy_flux_fft_pad
 ```
 
-Run a Colab-sized batch tune:
+If `--optuna` is omitted, `tune.py` looks for a search-space config matching
+the constraint first, then the backbone.
+
+## Experiments
+
+Experiment files are optional named recipes. They can specify the same
+components as flags and then apply final overrides:
+
+```yaml
+name: "darcy_fno_flux_fft_pad"
+benchmark: "darcy"
+backbone: "FNO"
+constraint: "darcy_flux_fft_pad"
+budget: "debug"
+optuna: "darcy_flux_fft_pad"
+
+overrides:
+  paths:
+    output_dir: "outputs/darcy/fno_flux_fft_pad"
+  wandb_logging:
+    run_name: "darcy_fno_flux_fft_pad"
+```
+
+Run an experiment recipe with:
 
 ```bash
-python scripts/batch_tune.py \
-  --sweep configs/sweeps/darcy_transformers.yaml \
-  --budget tune_colab \
-  --continue-on-failure
+python scripts/train.py --config configs/experiments/darcy/fno_small_flux_fft_pad.yaml
+python scripts/tune.py --config configs/experiments/darcy/fno_small_flux_fft_pad.yaml --budget tune_debug
+python scripts/test.py --config configs/experiments/darcy/fno_small_flux_fft_pad.yaml
 ```
 
-Generated resolved configs are written under `artifacts/generated_configs/`.
-Run outputs are written under `outputs/batch/` locally or Drive on Colab.
+CLI flags override the experiment component names when provided.
+
+## Sweep Scripts
+
+Batch launch is handled by shell scripts under `scripts/sweeps/`. They are
+plain loops over component names:
+
+```bash
+scripts/sweeps/darcy_transformers_train.sh
+scripts/sweeps/darcy_transformers_tune.sh
+scripts/sweeps/plasticity_backbones_train.sh
+```
+
+Override sweep settings with environment variables:
+
+```bash
+BUDGET=smoke SEEDS="1 2 3" DEVICE=cuda scripts/sweeps/darcy_transformers_train.sh
+```
+
+For Colab tuning, set `OMNI_HC_OUTPUT_ROOT` to a Drive-backed directory if you
+want durable outputs:
+
+```bash
+OMNI_HC_OUTPUT_ROOT=/content/drive/MyDrive/omni_hc \
+  BUDGET=tune_colab \
+  scripts/sweeps/darcy_transformers_tune.sh
+```
+
+Training and tuning use validation metrics only. The canonical held-out test
+split is `data.ntest` in the resolved config and should only be evaluated with
+`scripts/test.py` after model selection.

@@ -1,49 +1,18 @@
-extends:
-  - ../../benchmarks/navier_stokes/base.yaml
-  - ../../backbones/Galerkin_Transformer.yaml
-  - ../../constraints/mean_correction.yaml
+name: "navier_stokes_galerkin_transformer_mean"
+benchmark: "navier_stokes"
+backbone: "Galerkin_Transformer"
+constraint: "mean_correction"
+budget: "debug"
+optuna: "mean_correction"
 
-model:
-  args:
-    unified_pos: 0
+overrides:
+  paths:
+    output_dir: "outputs/navier_stokes/galerkin_transformer_mean"
+  model:
+    args:
+      unified_pos: 0
+  constraint:
+    mode: "post_output"
+  wandb_logging:
+    run_name: "navier_stokes_galerkin_transformer_mean"
 
-paths:
-  output_dir: "outputs/navier_stokes/gt_small_mean"
-
-training:
-  batch_size: 2
-  num_epochs: 3
-  optimizer: "adamw"
-  learning_rate: 0.001
-  weight_decay: 1e-5
-  scheduler: "OneCycleLR"
-  pct_start: 0.3
-  teacher_forcing: 1
-  seed: 42
-
-constraint:
-  name: "mean_correction"
-  mode: "post_output"
-
-wandb_logging:
-  wandb: false
-  project: "omni_hc"
-  run_name: "gt_small_mean"
-  log_every: 100
-  image_log_every: null
-
-optuna:
-  num_trials: 5
-  direction: "minimize"
-  save_dir: "outputs/navier_stokes/gt_small_mean_optuna"
-  run_name: "gt_small_mean"
-  search_space:
-    training.learning_rate:
-      type: "float"
-      low: 1.0e-4
-      high: 5.0e-3
-      log: true
-    model.args.dropout:
-      type: "float"
-      low: 0.0
-      high: 0.2

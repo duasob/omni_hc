@@ -1,0 +1,17 @@
+name: "navier_stokes_demo"
+benchmark: "navier_stokes"
+backbone: "Galerkin_Transformer"
+constraint: "mean_correction"
+budget: "smoke"
+
+overrides:
+  paths:
+    output_dir: "outputs/navier_stokes/demo"
+  constraint:
+    mode: "latent_head"
+  training:
+    learning_rate: 0.002
+    weight_decay: 1.0e-5
+  wandb_logging:
+    run_name: "navier_stokes_demo"
+

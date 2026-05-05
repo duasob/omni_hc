@@ -5,9 +5,6 @@ model:
     geotype: "structured_2D"
     task: "dynamic_autoregressive"
     teacher_forcing: 0
-    lr: 0.0005
-    weight_decay: 0.0001
-    scheduler: "StepLR"
     space_dim: 2
     fun_dim: 10
     out_dim: 1
@@ -17,5 +14,15 @@ model:
     modes: 12
     unified_pos: 0
     ref: 8
-    batch_size: 20
-    epochs: 500
+
+training:
+  batch_size: 4
+  num_epochs: 500
+  optimizer: "adamw"
+  learning_rate: 0.0005
+  weight_decay: 0.0001
+  scheduler: "StepLR"
+  step_size: 100
+  gamma: 0.5
+  teacher_forcing: 1
+

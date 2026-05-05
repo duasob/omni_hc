@@ -12,7 +12,7 @@ evaluation:
   batch_size: 2
 
 wandb_logging:
-  wandb: false
+  wandb: true
   log_every: 1
   image_log_every: null
 

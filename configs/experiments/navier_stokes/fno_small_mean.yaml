@@ -1,35 +1,16 @@
-extends:
-  - ../../benchmarks/navier_stokes/base.yaml
-  - ../../backbones/FNO.yaml
-  - ../../constraints/mean_correction.yaml
+name: "navier_stokes_fno_mean"
+benchmark: "navier_stokes"
+backbone: "FNO"
+constraint: "mean_correction"
+budget: "debug"
+optuna: "mean_correction"
 
-paths:
-  output_dir: "outputs/navier_stokes/fno_small_mean"
+overrides:
+  paths:
+    output_dir: "outputs/navier_stokes/fno_mean"
+  constraint:
+    mode: "post_output"
+  wandb_logging:
+    run_name: "navier_stokes_fno_mean"
+    image_log_every: 10
 
-constraint:
-  name: "mean_correction"
-  mode: "post_output"
-
-wandb_logging:
-  wandb: true
-  project: "omni_hc"
-  run_name: "fno_small_mean"
-  log_every: 100
-  image_log_every: 10
-
-optuna:
-  num_trials: 2
-  direction: "minimize"
-  save_dir: "outputs/navier_stokes/fno_small_mean_optuna"
-  run_name: "fno_small_mean"
-  search_space:
-    training.learning_rate:
-      type: "float"
-      low: 1.0e-4
-      high: 5.0e-3
-      log: true
-    model.args.modes:
-      type: "int"
-      low: 8
-      high: 16
-      step: 2

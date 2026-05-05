@@ -8,24 +8,9 @@ paths:
   root_dir: "data/Darcy_421"
 
 data:
-  ntrain: 128
-  ntest: 32
+  ntrain: 1000
+  ntest: 200
   downsamplex: 5
   downsampley: 5
   normalize: true
   norm_type: "UnitTransformer"
-
-training:
-  batch_size: 4
-  val_size: 16
-  num_epochs: 10
-  optimizer: "adamw"
-  learning_rate: 0.001
-  weight_decay: 1.0e-5
-  scheduler: "StepLR"
-  step_size: 100
-  gamma: 0.5
-  seed: 42
-
-evaluation:
-  batch_size: 4

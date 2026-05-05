@@ -1,40 +1,13 @@
-extends:
-  - ../../benchmarks/darcy/base.yaml
-  - ../../backbones/FNO.yaml
-  - ../../constraints/dirichlet_ansatz_zero.yaml
+name: "darcy_fno_dirichlet"
+benchmark: "darcy"
+backbone: "FNO"
+constraint: "dirichlet_ansatz_zero"
+budget: "debug"
+optuna: "dirichlet_ansatz_zero"
 
-model:
-  args:
-    unified_pos: 0
-    task: "steady"
-    loader: "darcy"
-    geotype: "structured_2D"
-    fun_dim: 1
-    out_dim: 1
+overrides:
+  paths:
+    output_dir: "outputs/darcy/fno_dirichlet"
+  wandb_logging:
+    run_name: "darcy_fno_dirichlet"
 
-paths:
-  output_dir: "outputs/darcy/fno_small_dirichlet"
-
-wandb_logging:
-  wandb: true
-  project: "omni_hc"
-  run_name: "darcy_fno_small_dirichlet"
-  log_every: 100
-  image_log_every: 1
-
-optuna:
-  num_trials: 2
-  direction: "minimize"
-  save_dir: "outputs/darcy/fno_small_dirichlet_optuna"
-  run_name: "darcy_fno_small_dirichlet"
-  search_space:
-    training.learning_rate:
-      type: "float"
-      low: 1.0e-4
-      high: 5.0e-3
-      log: true
-    model.args.modes:
-      type: "int"
-      low: 8
-      high: 16
-      step: 2

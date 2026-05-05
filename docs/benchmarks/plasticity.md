@@ -44,4 +44,10 @@ check whether channels `2:4` equal channels `0:2` minus the reference grid.
 ## Runnable Configs
 
 - [`configs/experiments/plasticity/fno.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/plasticity/fno.yaml)
-- [`configs/sweeps/plasticity_backbones.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/sweeps/plasticity_backbones.yaml)
+- [`scripts/sweeps/plasticity_backbones_train.sh`](/Users/bruno/Documents/Y4/FYP/omni_hc/scripts/sweeps/plasticity_backbones_train.sh)
+
+Example:
+
+```bash
+python scripts/train.py --benchmark plasticity --backbone FNO --budget debug
+```
