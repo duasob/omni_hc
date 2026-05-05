@@ -13,7 +13,7 @@ def test_compose_train_config_from_named_components():
     assert cfg["model"]["backbone"] == "FNO"
     assert cfg["constraint"]["name"] == "darcy_flux_projection"
     assert cfg["training"]["num_epochs"] == 1
-    assert cfg["wandb_logging"]["wandb"] is False
+    assert cfg["wandb_logging"]["run_name"] == "darcy_fno_darcy_flux_fft_pad_debug_seed_42"
     assert cfg["experiment"]["source_configs"] == [
         "configs/benchmarks/darcy/base.yaml",
         "configs/backbones/darcy/FNO.yaml",
@@ -46,4 +46,3 @@ def test_experiment_config_applies_overrides():
     assert cfg["constraint"]["name"] == "mean_correction"
     assert cfg["constraint"]["mode"] == "post_output"
     assert cfg["wandb_logging"]["run_name"] == "navier_stokes_fno_mean"
-
