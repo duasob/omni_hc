@@ -26,3 +26,4 @@ training:
   weight_decay: 1.0e-5
   scheduler: "OneCycleLR"
   pct_start: 0.3
+  step_per_time: true

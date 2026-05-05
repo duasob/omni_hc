@@ -16,3 +16,13 @@ model:
     unified_pos: 1
     ref: 8
 
+training:
+  batch_size: 2
+  num_epochs: 500
+  optimizer: "adamw"
+  learning_rate: 0.001
+  weight_decay: 1.0e-5
+  scheduler: "OneCycleLR"
+  pct_start: 0.3
+  teacher_forcing: 1
+

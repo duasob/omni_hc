@@ -1,0 +1,26 @@
+model:
+  backbone: "FNO"
+  args:
+    loader: "elas"
+    geotype: "unstructured"
+    task: "steady"
+    space_dim: 2
+    fun_dim: 0
+    out_dim: 1
+    n_hidden: 32
+    n_heads: 8
+    n_layers: 8
+    modes: 12
+    unified_pos: 0
+    ref: 8
+
+training:
+  batch_size: 4
+  num_epochs: 500
+  optimizer: "adamw"
+  learning_rate: 0.001
+  weight_decay: 1.0e-5
+  scheduler: "StepLR"
+  step_size: 100
+  gamma: 0.5
+

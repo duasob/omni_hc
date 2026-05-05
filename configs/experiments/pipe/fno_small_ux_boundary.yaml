@@ -1,9 +1,12 @@
-extends:
-  - fno_small.yaml
-  - ../../constraints/pipe_ux_boundary.yaml
+name: "pipe_fno_ux_boundary"
+benchmark: "pipe"
+backbone: "FNO"
+constraint: "pipe_ux_boundary"
+budget: "debug"
 
-paths:
-  output_dir: "outputs/pipe/fno_small_ux_boundary"
+overrides:
+  paths:
+    output_dir: "outputs/pipe/fno_ux_boundary"
+  wandb_logging:
+    run_name: "pipe_fno_ux_boundary"
 
-wandb_logging:
-  run_name: "pipe_fno_small_ux_boundary"

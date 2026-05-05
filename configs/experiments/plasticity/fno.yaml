@@ -1,10 +1,12 @@
-extends:
-  - ../../benchmarks/plasticity/base.yaml
-  - ../../backbones/plasticity/FNO.yaml
+name: "plasticity_fno"
+benchmark: "plasticity"
+backbone: "FNO"
+budget: "debug"
 
-paths:
-  output_dir: "outputs/plasticity/fno"
+overrides:
+  paths:
+    output_dir: "outputs/plasticity/fno"
+  wandb_logging:
+    run_name: "plasticity_fno"
+    tags: ["plasticity", "fno", "unconstrained"]
 
-wandb_logging:
-  run_name: "plasticity_fno"
-  tags: ["plasticity", "fno", "unconstrained"]

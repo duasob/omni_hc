@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 import yaml
 
-from omni_hc.core import load_composed_config
+from omni_hc.core import compose_run_config
 from omni_hc.training import tune_benchmark
 
 
@@ -13,7 +13,36 @@ def parse_args():
     parser.add_argument(
         "--config",
         type=str,
-        default="configs/experiments/navier_stokes/fno_small_mean.yaml",
+        default=None,
+        help="Experiment YAML composition spec. Alias for --experiment.",
+    )
+    parser.add_argument(
+        "--experiment",
+        type=str,
+        default=None,
+        help="Experiment YAML composition spec.",
+    )
+    parser.add_argument("--benchmark", type=str, default=None)
+    parser.add_argument("--backbone", type=str, default=None)
+    parser.add_argument(
+        "--constraint",
+        type=str,
+        default=None,
+        help="Constraint name/path. Use none or unconstrained to skip.",
+    )
+    parser.add_argument("--budget", type=str, default=None)
+    parser.add_argument(
+        "--optuna",
+        type=str,
+        default=None,
+        help="Optuna search-space config name/path. Defaults from benchmark+constraint when available.",
+    )
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument(
+        "--output-root",
+        type=str,
+        default=None,
+        help="Root for generated output dirs when the config does not set one.",
     )
     parser.add_argument(
         "--nsl-root",
@@ -38,7 +67,17 @@ def resolve_device(device_arg: str):
 
 if __name__ == "__main__":
     args = parse_args()
-    cfg = load_composed_config(args.config)
+    cfg = compose_run_config(
+        benchmark=args.benchmark,
+        backbone=args.backbone,
+        constraint=args.constraint,
+        budget=args.budget,
+        experiment=args.experiment or args.config,
+        optuna=args.optuna,
+        mode="tune",
+        seed=args.seed,
+        output_root=args.output_root,
+    )
     study = tune_benchmark(
         cfg,
         nsl_root=None if args.nsl_root is None else Path(args.nsl_root),

@@ -1,9 +1,12 @@
-extends:
-  - fno_small.yaml
-  - ../../constraints/pipe_wall_no_slip.yaml
+name: "pipe_fno_wall"
+benchmark: "pipe"
+backbone: "FNO"
+constraint: "pipe_wall_no_slip"
+budget: "debug"
 
-paths:
-  output_dir: "outputs/pipe/fno_small_wall"
+overrides:
+  paths:
+    output_dir: "outputs/pipe/fno_wall"
+  wandb_logging:
+    run_name: "pipe_fno_wall"
 
-wandb_logging:
-  run_name: "pipe_fno_small_wall"

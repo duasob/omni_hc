@@ -1,9 +1,13 @@
-extends:
-  - fno_small.yaml
-  - ../../constraints/elasticity_deviatoric_stress.yaml
+name: "elasticity_fno_deviatoric_stress"
+benchmark: "elasticity"
+backbone: "FNO"
+constraint: "elasticity_deviatoric_stress"
+budget: "debug"
 
-paths:
-  output_dir: "outputs/elasticity/fno_small_deviatoric_stress"
+overrides:
+  paths:
+    output_dir: "outputs/elasticity/fno_deviatoric_stress"
+  wandb_logging:
+    run_name: "elasticity_fno_deviatoric_stress"
+    point_size: 28.0
 
-wandb_logging:
-  run_name: "elasticity_fno_small_deviatoric_stress"

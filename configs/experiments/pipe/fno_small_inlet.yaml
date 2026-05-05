@@ -1,9 +1,12 @@
-extends:
-  - fno_small.yaml
-  - ../../constraints/pipe_inlet_parabolic.yaml
+name: "pipe_fno_inlet"
+benchmark: "pipe"
+backbone: "FNO"
+constraint: "pipe_inlet_parabolic"
+budget: "debug"
 
-paths:
-  output_dir: "outputs/pipe/fno_small_inlet"
+overrides:
+  paths:
+    output_dir: "outputs/pipe/fno_inlet"
+  wandb_logging:
+    run_name: "pipe_fno_inlet"
 
-wandb_logging:
-  run_name: "pipe_fno_small_inlet"
