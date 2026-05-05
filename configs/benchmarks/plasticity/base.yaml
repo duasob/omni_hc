@@ -17,4 +17,4 @@ data:
   normalize_input: true
   normalize: false
   norm_type: "UnitTransformer"
-  channel_semantics: "unverified; NSL visualizes channels 0:2 as final deformed coordinates and channels 2:4 as a final vector magnitude"
+  channel_semantics: "verified by Geo-FNO visualization and local diagnostics: channels 0:2 are deformed physical coordinates, channels 2:4 are displacement components"

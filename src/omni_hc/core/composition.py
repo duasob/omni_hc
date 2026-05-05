@@ -134,6 +134,12 @@ def _experiment_value(
     return str(value)
 
 
+def _has_component_value(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() not in {"", "none", "null", "unconstrained"}
+
+
 def _default_optuna_name(
     *,
     benchmark: str,
@@ -211,6 +217,7 @@ def compose_run_config(
 
     cfg: dict[str, Any] = {}
     source_configs: list[str] = []
+    constraint_required = _has_component_value(constraint_name)
     component_paths = [
         _component_path(benchmark_name, kind="benchmark"),
         _component_path(backbone_name, kind="backbone", benchmark=benchmark_name),
@@ -218,7 +225,7 @@ def compose_run_config(
             constraint_name,
             kind="constraint",
             benchmark=benchmark_name,
-            required=False,
+            required=constraint_required,
         ),
     ]
 
@@ -307,4 +314,3 @@ def compose_run_config(
         ),
     }
     return cfg
-

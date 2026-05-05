@@ -1,3 +1,5 @@
+import pytest
+
 from omni_hc.core import compose_run_config
 
 
@@ -35,6 +37,30 @@ def test_compose_tune_config_adds_search_space_and_trial_dir():
     assert "constraint.padding" in cfg["optuna"]["search_space"]
     assert cfg["optuna"]["save_dir"].endswith("/trials")
     assert "configs/optuna/darcy/darcy_flux_fft_pad.yaml" in cfg["experiment"]["source_configs"]
+
+
+def test_constraint_alias_resolves_to_config_parameters():
+    cfg = compose_run_config(
+        benchmark="darcy",
+        backbone="Galerkin_Transformer",
+        constraint="darcy_flux_projection",
+        budget="final",
+    )
+
+    assert cfg["constraint"]["name"] == "darcy_flux_projection"
+    assert cfg["constraint"]["spectral_backend"] == "helmholtz_sine"
+    assert cfg["constraint"]["padding"] == 8
+    assert "configs/constraints/darcy_flux_projection.yaml" in cfg["experiment"]["source_configs"]
+
+
+def test_explicit_unknown_constraint_fails_fast():
+    with pytest.raises(FileNotFoundError):
+        compose_run_config(
+            benchmark="darcy",
+            backbone="FNO",
+            constraint="definitely_missing",
+            budget="debug",
+        )
 
 
 def test_experiment_config_applies_overrides():
