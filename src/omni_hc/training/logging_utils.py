@@ -114,6 +114,76 @@ def log_prediction_images(pred, target, fx, h, w, *, prefix, epoch, step=None):
     )
 
 
+def _plot_grid_image(ax, image, *, title, cmap="viridis", vmin=None, vmax=None):
+    im = ax.imshow(image, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower")
+    ax.set_title(title)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    return im
+
+
+def _make_scalar_field_comparison(coeff_img, pred_img, target_img):
+    coeff_np = coeff_img.detach().cpu().numpy()
+    pred_np = pred_img.detach().cpu().numpy()
+    target_np = target_img.detach().cpu().numpy()
+    error_np = pred_np - target_np
+
+    pred_vmin = float(min(pred_np.min(), target_np.min()))
+    pred_vmax = float(max(pred_np.max(), target_np.max()))
+    err_abs = float(np.abs(error_np).max())
+    if err_abs <= 0.0:
+        err_abs = 1e-12
+
+    fig, axes = plt.subplots(
+        1,
+        4,
+        figsize=(14.5, 3.6),
+        dpi=150,
+        constrained_layout=True,
+    )
+    coeff_mesh = _plot_grid_image(
+        axes[0],
+        coeff_np,
+        title="coefficient",
+        cmap="gray",
+    )
+    target_mesh = _plot_grid_image(
+        axes[1],
+        target_np,
+        title="target",
+        vmin=pred_vmin,
+        vmax=pred_vmax,
+    )
+    _plot_grid_image(
+        axes[2],
+        pred_np,
+        title="prediction",
+        vmin=pred_vmin,
+        vmax=pred_vmax,
+    )
+    error_mesh = _plot_grid_image(
+        axes[3],
+        error_np,
+        title="pred - target",
+        cmap="coolwarm",
+        vmin=-err_abs,
+        vmax=err_abs,
+    )
+
+    coeff_bar = fig.colorbar(coeff_mesh, ax=axes[0], fraction=0.046, pad=0.04)
+    coeff_bar.set_label("a(x)")
+    shared_bar = fig.colorbar(
+        target_mesh,
+        ax=[axes[1], axes[2]],
+        fraction=0.046,
+        pad=0.04,
+    )
+    shared_bar.set_label("pressure")
+    error_bar = fig.colorbar(error_mesh, ax=axes[3], fraction=0.046, pad=0.04)
+    error_bar.set_label("error")
+    return fig
+
+
 def log_steady_field_images(
     coeff,
     pred,
@@ -155,23 +225,27 @@ def log_steady_field_images(
     if abs_vmax <= 0.0:
         abs_vmax = 1e-12
 
-    wandb.log(
-        {
-            f"{prefix}/coeff": wandb.Image(_to_grayscale_rgb(coeff_img)),
-            f"{prefix}/pred": wandb.Image(
-                _to_grayscale_rgb(pred_img, vmin=pred_vmin, vmax=pred_vmax)
-            ),
-            f"{prefix}/target": wandb.Image(
-                _to_grayscale_rgb(target_img, vmin=pred_vmin, vmax=pred_vmax)
-            ),
-            f"{prefix}/error_signed": wandb.Image(_to_red_blue_rgb(error_signed)),
-            f"{prefix}/error_abs": wandb.Image(
-                _to_grayscale_rgb(error_abs, vmin=0.0, vmax=abs_vmax)
-            ),
-            "epoch": epoch + 1,
-        },
-        step=step,
-    )
+    payload = {
+        f"{prefix}/coeff": wandb.Image(_to_grayscale_rgb(coeff_img)),
+        f"{prefix}/pred": wandb.Image(
+            _to_grayscale_rgb(pred_img, vmin=pred_vmin, vmax=pred_vmax)
+        ),
+        f"{prefix}/target": wandb.Image(
+            _to_grayscale_rgb(target_img, vmin=pred_vmin, vmax=pred_vmax)
+        ),
+        f"{prefix}/error_signed": wandb.Image(_to_red_blue_rgb(error_signed)),
+        f"{prefix}/error_abs": wandb.Image(
+            _to_grayscale_rgb(error_abs, vmin=0.0, vmax=abs_vmax)
+        ),
+        "epoch": epoch + 1,
+    }
+
+    if plt is not None:
+        fig = _make_scalar_field_comparison(coeff_img, pred_img, target_img)
+        payload[f"{prefix}/fields"] = wandb.Image(fig)
+        plt.close(fig)
+
+    wandb.log(payload, step=step)
 
 
 def _plot_point_cloud_field(

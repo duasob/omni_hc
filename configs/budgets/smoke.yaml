@@ -12,9 +12,9 @@ evaluation:
   batch_size: 4
 
 wandb_logging:
-  wandb: false
+  wandb: true
   log_every: 10
-  image_log_every: null
+  image_log_every: 1
 
 optuna:
   num_trials: 5
