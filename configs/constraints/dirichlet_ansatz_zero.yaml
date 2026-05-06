@@ -1,5 +1,5 @@
 constraint:
   name: "dirichlet_ansatz"
   boundary_value: 0.0
-  distance_power: 0.5
+  distance_power: 0.05
   distance_reduce: "product"

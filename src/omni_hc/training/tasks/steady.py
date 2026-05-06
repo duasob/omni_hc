@@ -192,8 +192,10 @@ def train_steady_task(
     training_cfg["steps_per_epoch"] = len(train_loader)
     optimizer = build_optimizer(model, training_cfg)
     scheduler, scheduler_step_per_batch = build_scheduler(optimizer, training_cfg)
-    best_val = float("inf")
+    has_validation = val_loader is not None
+    best_score = float("inf")
     best_metrics = None
+    best_selection_metric = "val/rel_l2" if has_validation else "train/loss"
     wandb_cfg = cfg.get("wandb_logging", {}) or {}
     log_every = normalize_interval(wandb_cfg.get("log_every", 100))
     image_log_every = normalize_interval(wandb_cfg.get("image_log_every"))
@@ -301,8 +303,9 @@ def train_steady_task(
             train_metrics.update(train_diag_metrics.compute())
             epoch_step = (epoch + 1) * len(train_loader)
 
-            if (image_log_every is not None and image_log_every > 0) or (
-                log_every is not None and log_every > 0
+            if has_validation and (
+                (image_log_every is not None and image_log_every > 0)
+                or (log_every is not None and log_every > 0)
             ):
                 model.eval()
                 with torch.no_grad():
@@ -376,29 +379,42 @@ def train_steady_task(
                             log_metrics(payload, step=epoch_step)
                 model.train()
 
-            val_metrics = evaluate_steady(
-                model,
-                val_loader,
-                device=device,
-                y_normalizer=y_normalizer,
-                prepare_batch=prepare_batch,
-                debug_nan_checks=debug_nan_checks,
-                raise_on_nonfinite=raise_on_nonfinite,
-            )
-            print(
-                f"epoch {epoch + 1}/{int(training_cfg.get('num_epochs', 1))} "
-                f"train_rel_l2={train_metrics['rel_l2']:.6f} "
-                f"val_rel_l2={val_metrics['rel_l2']:.6f} "
-                f"val_mse={val_metrics['mse']:.6f}"
-            )
-            log_metrics(
-                (
+            val_metrics = None
+            if has_validation:
+                val_metrics = evaluate_steady(
+                    model,
+                    val_loader,
+                    device=device,
+                    y_normalizer=y_normalizer,
+                    prepare_batch=prepare_batch,
+                    debug_nan_checks=debug_nan_checks,
+                    raise_on_nonfinite=raise_on_nonfinite,
+                )
+                print(
+                    f"epoch {epoch + 1}/{int(training_cfg.get('num_epochs', 1))} "
+                    f"train_rel_l2={train_metrics['rel_l2']:.6f} "
+                    f"val_rel_l2={val_metrics['rel_l2']:.6f} "
+                    f"val_mse={val_metrics['mse']:.6f}"
+                )
+                log_metrics(
+                    (
+                        {"epoch": epoch + 1}
+                        | prefix_metric_names(train_metrics, "train")
+                        | prefix_metric_names(val_metrics, "val")
+                    ),
+                    step=epoch_step,
+                )
+            else:
+                print(
+                    f"epoch {epoch + 1}/{int(training_cfg.get('num_epochs', 1))} "
+                    f"train_loss={train_metrics['loss']:.6f} "
+                    f"train_rel_l2={train_metrics['rel_l2']:.6f}"
+                )
+                log_metrics(
                     {"epoch": epoch + 1}
-                    | prefix_metric_names(train_metrics, "train")
-                    | prefix_metric_names(val_metrics, "val")
-                ),
-                step=epoch_step,
-            )
+                    | prefix_metric_names(train_metrics, "train"),
+                    step=epoch_step,
+                )
 
             checkpoint_payload = {
                 "epoch": epoch + 1,
@@ -409,20 +425,45 @@ def train_steady_task(
                 else scheduler.state_dict(),
                 "train_metrics": train_metrics,
                 "val_metrics": val_metrics,
+                "selection_metric": best_selection_metric,
                 "model_args": vars(model_args),
                 "resolved_nsl_root": str(resolved_nsl_root),
             }
-            is_best = val_metrics["rel_l2"] < best_val
+            current_score = (
+                float(val_metrics["rel_l2"])
+                if has_validation and val_metrics is not None
+                else float(train_metrics["loss"])
+            )
+            is_best = current_score < best_score
             if is_best:
-                best_val = float(val_metrics["rel_l2"])
-                best_metrics = deepcopy(val_metrics)
+                best_score = current_score
+                best_metrics = deepcopy(
+                    val_metrics if has_validation else train_metrics
+                )
             save_checkpoint_bundle(output_dir, checkpoint_payload, is_best=is_best)
-        return {
-            "best_val_rel_l2": best_val,
-            "best_val_metrics": best_metrics,
+        result = {
+            "selection_metric": best_selection_metric,
+            "best_score": best_score,
             "output_dir": str(output_dir),
             "resolved_nsl_root": str(resolved_nsl_root),
         }
+        if has_validation:
+            result.update(
+                {
+                    "best_val_rel_l2": best_score,
+                    "best_val_metrics": best_metrics,
+                }
+            )
+        else:
+            result.update(
+                {
+                    "best_train_loss": best_score,
+                    "best_train_metrics": best_metrics,
+                    "best_val_rel_l2": None,
+                    "best_val_metrics": None,
+                }
+            )
+        return result
     finally:
         finish_wandb_if_active()
 

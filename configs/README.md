@@ -119,6 +119,8 @@ OMNI_HC_OUTPUT_ROOT=/content/drive/MyDrive/omni_hc \
   scripts/sweeps/darcy_transformers_tune.sh
 ```
 
-Training and tuning use validation metrics only. The canonical held-out test
+Training and tuning use validation metrics by default. If a benchmark supports
+`training.val_size: 0`, the full training subset is used for optimization and
+`best.pt` is selected by the training loss instead. The canonical held-out test
 split is `data.ntest` in the resolved config and should only be evaluated with
 `scripts/test.py` after model selection.
