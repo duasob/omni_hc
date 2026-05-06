@@ -35,6 +35,12 @@ def _decode_if_needed(normalizer, tensor: torch.Tensor) -> torch.Tensor:
     return normalizer.decode(tensor) if normalizer is not None else tensor
 
 
+def _as_bool(value) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
 def _check_finite(name: str, tensor: torch.Tensor | None, *, raise_on_nonfinite: bool):
     if tensor is None:
         return
@@ -192,6 +198,20 @@ def train_steady_task(
     training_cfg["steps_per_epoch"] = len(train_loader)
     optimizer = build_optimizer(model, training_cfg)
     scheduler, scheduler_step_per_batch = build_scheduler(optimizer, training_cfg)
+    derivloss = _as_bool(
+        training_cfg.get("derivloss", getattr(model_args, "derivloss", False))
+    )
+    derivloss_weight = float(training_cfg.get("derivloss_weight", 0.1))
+    shapelist = tuple(meta.get("shapelist", ()))
+    if derivloss and len(shapelist) != 2:
+        raise ValueError(f"derivloss requires a 2D shapelist, got {shapelist!r}")
+    nsl_l2_loss = None
+    nsl_deriv_loss = None
+    if derivloss:
+        from utils.loss import DerivLoss, L2Loss
+
+        nsl_l2_loss = L2Loss(size_average=False)
+        nsl_deriv_loss = DerivLoss(size_average=False, shapelist=shapelist)
     has_validation = val_loader is not None
     best_score = float("inf")
     best_metrics = None
@@ -208,6 +228,7 @@ def train_steady_task(
             train_loss_sum = 0.0
             train_mse_sum = 0.0
             train_rel_l2_sum = 0.0
+            train_deriv_rel_l2_sum = 0.0
             train_pred_mean_sum = 0.0
             train_diag_metrics = MetricAccumulator()
             samples = 0
@@ -247,7 +268,16 @@ def train_steady_task(
                     print(_tensor_stats("train/pred_decoded", pred_decoded))
                     print(_tensor_stats("train/target_decoded", target_decoded))
                 rel_l2 = relative_l2_per_sample(pred_decoded, target_decoded)
+                deriv_loss_value = None
                 loss = rel_l2.mean()
+                batch_size = int(target.shape[0])
+                batch_loss_sum = float(loss.item()) * batch_size
+                if derivloss:
+                    base_loss = nsl_l2_loss(pred_decoded, target_decoded)
+                    deriv_loss = nsl_deriv_loss(pred_decoded, target_decoded)
+                    deriv_loss_value = float(deriv_loss.item())
+                    loss = base_loss + derivloss_weight * deriv_loss
+                    batch_loss_sum = float(loss.item())
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 max_grad_norm = training_cfg.get("max_grad_norm")
@@ -259,8 +289,7 @@ def train_steady_task(
                 if scheduler is not None and scheduler_step_per_batch:
                     scheduler.step()
 
-                batch_size = int(target.shape[0])
-                train_loss_sum += float(loss.item()) * batch_size
+                train_loss_sum += batch_loss_sum
                 train_mse_sum += float(
                     F.mse_loss(pred_decoded, target_decoded, reduction="none")
                     .reshape(batch_size, -1)
@@ -269,6 +298,8 @@ def train_steady_task(
                     .item()
                 )
                 train_rel_l2_sum += float(rel_l2.sum().item())
+                if deriv_loss_value is not None:
+                    train_deriv_rel_l2_sum += deriv_loss_value
                 train_pred_mean_sum += float(pred_decoded.mean().item()) * batch_size
                 train_diag_metrics.update(out["diagnostics"], weight=batch_size)
                 samples += batch_size
@@ -279,10 +310,14 @@ def train_steady_task(
                         payload = {
                             "epoch": epoch + 1,
                             "global_step": global_step,
-                            "train/step_loss": float(loss.item()),
+                            "train/step_loss": batch_loss_sum / max(batch_size, 1),
                             "train/step_rel_l2": float(rel_l2.mean().item()),
                             "train/pred_mean": float(pred_decoded.mean().item()),
                         }
+                        if deriv_loss_value is not None:
+                            payload["train/step_deriv_rel_l2"] = (
+                                deriv_loss_value / max(batch_size, 1)
+                            )
                         payload.update(
                             prefix_metric_names(
                                 diagnostic_values(out["diagnostics"]),
@@ -300,6 +335,11 @@ def train_steady_task(
                 "rel_l2": train_rel_l2_sum / max(samples, 1),
                 "pred_mean": train_pred_mean_sum / max(samples, 1),
             }
+            if derivloss:
+                train_metrics["deriv_rel_l2"] = train_deriv_rel_l2_sum / max(
+                    samples,
+                    1,
+                )
             train_metrics.update(train_diag_metrics.compute())
             epoch_step = (epoch + 1) * len(train_loader)
 
