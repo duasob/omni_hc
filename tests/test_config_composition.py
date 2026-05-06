@@ -1,4 +1,5 @@
 import pytest
+import yaml
 
 from omni_hc.core import compose_run_config
 
@@ -79,3 +80,21 @@ def test_experiment_config_applies_overrides():
     assert cfg["constraint"]["name"] == "mean_correction"
     assert cfg["constraint"]["mode"] == "post_output"
     assert cfg["wandb_logging"]["run_name"] == "navier_stokes_fno_mean"
+
+
+def test_resolved_config_can_be_loaded_as_experiment(tmp_path):
+    resolved = compose_run_config(
+        benchmark="darcy",
+        backbone="Galerkin_Transformer",
+        constraint="dirichlet_ansatz_zero",
+        budget="final",
+    )
+    resolved_path = tmp_path / "resolved_config.yaml"
+    resolved_path.write_text(yaml.safe_dump(resolved), encoding="utf-8")
+
+    cfg = compose_run_config(experiment=resolved_path, mode="test")
+
+    assert cfg["benchmark"]["name"] == "darcy_2d"
+    assert cfg["model"]["backbone"] == "Galerkin_Transformer"
+    assert cfg["constraint"]["name"] == "dirichlet_ansatz"
+    assert cfg["experiment"]["mode"] == "test"
