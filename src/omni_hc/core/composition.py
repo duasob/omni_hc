@@ -140,6 +140,16 @@ def _has_component_value(value: str | None) -> bool:
     return value.strip().lower() not in {"", "none", "null", "unconstrained"}
 
 
+def _is_resolved_run_config(cfg: dict[str, Any]) -> bool:
+    benchmark_cfg = cfg.get("benchmark")
+    model_cfg = cfg.get("model")
+    return (
+        isinstance(benchmark_cfg, dict)
+        and isinstance(model_cfg, dict)
+        and model_cfg.get("backbone") is not None
+    )
+
+
 def _default_optuna_name(
     *,
     benchmark: str,
@@ -195,6 +205,17 @@ def compose_run_config(
     """
 
     experiment_cfg = _load_experiment(experiment)
+    if experiment is not None and _is_resolved_run_config(experiment_cfg):
+        cfg = deepcopy(experiment_cfg)
+        if extra_overrides:
+            cfg = deep_merge(cfg, extra_overrides)
+        if seed is not None:
+            cfg.setdefault("training", {})
+            cfg["training"]["seed"] = int(seed)
+        cfg.setdefault("experiment", {})
+        cfg["experiment"]["mode"] = mode
+        return cfg
+
     if "extends" in experiment_cfg:
         cfg = load_composed_config(repo_path(experiment))
         cfg = deep_merge(cfg, deepcopy(experiment_cfg.get("overrides", {}) or {}))

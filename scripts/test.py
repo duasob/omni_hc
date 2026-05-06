@@ -3,7 +3,7 @@ from pathlib import Path
 
 import torch
 
-from omni_hc.core import compose_run_config
+from omni_hc.core import compose_run_config, load_yaml_file
 from omni_hc.training import test_benchmark
 
 
@@ -13,13 +13,13 @@ def parse_args():
         "--config",
         type=str,
         default=None,
-        help="Experiment YAML composition spec. Alias for --experiment.",
+        help="Full resolved run YAML config. Alias for --experiment.",
     )
     parser.add_argument(
         "--experiment",
         type=str,
         default=None,
-        help="Experiment YAML composition spec.",
+        help="Full resolved run YAML config.",
     )
     parser.add_argument("--benchmark", type=str, default=None)
     parser.add_argument("--backbone", type=str, default=None)
@@ -64,18 +64,37 @@ def resolve_device(device_arg: str):
     return torch.device(device_arg)
 
 
+def load_test_config(args):
+    config_path = args.experiment or args.config
+    if config_path is None:
+        return compose_run_config(
+            benchmark=args.benchmark,
+            backbone=args.backbone,
+            constraint=args.constraint,
+            budget=args.budget,
+            mode="test",
+            seed=args.seed,
+            output_root=args.output_root,
+        )
+
+    cfg = load_yaml_file(config_path)
+    if args.seed is not None:
+        cfg.setdefault("training", {})
+        cfg["training"]["seed"] = int(args.seed)
+    if args.output_root is not None:
+        cfg.setdefault("paths", {})
+        cfg["paths"]["output_dir"] = str(Path(args.output_root))
+    elif args.checkpoint is not None:
+        cfg.setdefault("paths", {})
+        cfg["paths"]["output_dir"] = str(Path(args.checkpoint).expanduser().parent)
+    cfg.setdefault("experiment", {})
+    cfg["experiment"]["mode"] = "test"
+    return cfg
+
+
 if __name__ == "__main__":
     args = parse_args()
-    cfg = compose_run_config(
-        benchmark=args.benchmark,
-        backbone=args.backbone,
-        constraint=args.constraint,
-        budget=args.budget,
-        experiment=args.experiment or args.config,
-        mode="test",
-        seed=args.seed,
-        output_root=args.output_root,
-    )
+    cfg = load_test_config(args)
     result = test_benchmark(
         cfg,
         nsl_root=None if args.nsl_root is None else Path(args.nsl_root),
