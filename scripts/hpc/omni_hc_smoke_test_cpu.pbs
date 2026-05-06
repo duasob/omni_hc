@@ -1,0 +1,12 @@
+#!/bin/bash
+#PBS -N omni_hc_cpu_smoke
+#PBS -l select=1:ncpus=4:mem=24gb
+#PBS -l walltime=00:10:00
+#PBS -j oe
+
+set -euo pipefail
+
+PROJECT_DIR="${PROJECT_DIR:-${PBS_O_WORKDIR:-$PWD}}"
+cd "$PROJECT_DIR"
+
+DEVICE="${DEVICE:-cpu}" bash scripts/hpc/omni_hc_smoke_test_runner.sh
