@@ -1,0 +1,30 @@
+model:
+  backbone: "ONO"
+  args:
+    loader: "ns"
+    geotype: "structured_2D"
+    task: "dynamic_autoregressive"
+    teacher_forcing: 0
+    space_dim: 2
+    fun_dim: 10
+    out_dim: 1
+    attn_type: "selfAttention"
+    n_hidden: 128
+    n_heads: 8
+    n_layers: 8
+    mlp_ratio: 1
+    slice_num: 32
+    unified_pos: 0
+    ref: 8
+    psi_dim: 16
+
+training:
+  batch_size: 8
+  num_epochs: 500
+  optimizer: "adamw"
+  learning_rate: 0.001
+  weight_decay: 1.0e-5
+  scheduler: "OneCycleLR"
+  pct_start: 0.3
+  teacher_forcing: 1
+  max_grad_norm: 0.1
