@@ -222,6 +222,54 @@ def load_checkpoint_state(checkpoint_path: str | Path, *, device):
     return checkpoint
 
 
+def _metric_line(prefix: str, metrics: dict[str, Any]) -> list[str]:
+    if not metrics:
+        return [f"{prefix}: <missing>"]
+    lines = [f"{prefix}:"]
+    for key in sorted(metrics):
+        value = metrics[key]
+        if isinstance(value, torch.Tensor):
+            if value.numel() == 1:
+                value = float(value.detach().cpu().item())
+            else:
+                value = value.detach().cpu().tolist()
+        if isinstance(value, float):
+            rendered = f"{value:.10g}"
+        else:
+            rendered = str(value)
+        lines.append(f"  {key}: {rendered}")
+    return lines
+
+
+def _checkpoint_summary_block(name: str, payload: dict[str, Any] | None) -> list[str]:
+    title = name.upper()
+    if payload is None:
+        return [f"[{title}]", "available: false"]
+    epoch = payload.get("epoch", "<missing>")
+    lines = [f"[{title}]", "available: true", f"epoch: {epoch}"]
+    lines.extend(_metric_line("train_metrics", payload.get("train_metrics", {}) or {}))
+    lines.extend(_metric_line("val_metrics", payload.get("val_metrics", {}) or {}))
+    return lines
+
+
+def _write_checkpoint_summary(
+    output_dir: Path,
+    *,
+    latest_payload: dict[str, Any],
+    best_payload: dict[str, Any] | None,
+) -> None:
+    lines = [
+        "OmniHC checkpoint summary",
+        "",
+        *_checkpoint_summary_block("latest", latest_payload),
+        "",
+        *_checkpoint_summary_block("best", best_payload),
+        "",
+    ]
+    with open(output_dir / "checkpoint_summary.txt", "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines))
+
+
 def save_checkpoint_bundle(
     output_dir: Path,
     payload: dict[str, Any],
@@ -230,5 +278,16 @@ def save_checkpoint_bundle(
 ):
     latest_path = output_dir / "latest.pt"
     torch.save(payload, latest_path)
+    best_payload = None
     if is_best:
-        torch.save(torch.load(latest_path, map_location="cpu"), output_dir / "best.pt")
+        best_payload = torch.load(latest_path, map_location="cpu")
+        torch.save(best_payload, output_dir / "best.pt")
+    else:
+        best_path = output_dir / "best.pt"
+        if best_path.exists():
+            best_payload = torch.load(best_path, map_location="cpu")
+    _write_checkpoint_summary(
+        output_dir,
+        latest_payload=payload,
+        best_payload=best_payload,
+    )

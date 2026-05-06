@@ -40,13 +40,13 @@ def safe_name(value: str) -> str:
 def default_output_root(mode: str) -> Path:
     env_value = os.environ.get("OMNI_HC_OUTPUT_ROOT")
     if env_value:
-        return repo_path(env_value) / mode
+        return repo_path(env_value)
 
     colab_drive = Path("/content/drive/MyDrive")
     if colab_drive.exists():
-        return colab_drive / "omni_hc" / mode
+        return colab_drive / "omni_hc"
 
-    return PROJECT_ROOT / "outputs" / mode
+    return PROJECT_ROOT / "outputs"
 
 
 def _component_path(
@@ -273,7 +273,7 @@ def compose_run_config(
     cfg.setdefault("paths", {})
     cfg["paths"].setdefault(
         "output_dir",
-        str(root / safe_name(benchmark_name) / safe_name(backbone_name) / safe_name(constraint_name or "unconstrained") / safe_name(budget_name) / f"seed_{seed_value}"),
+        str(root / safe_name(benchmark_name) / safe_name(constraint_name or "unconstrained") / safe_name(backbone_name) / safe_name(budget_name) / f"seed_{seed_value}"),
     )
 
     cfg.setdefault("wandb_logging", {})
