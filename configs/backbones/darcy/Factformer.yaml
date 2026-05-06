@@ -17,6 +17,8 @@ model:
 training:
   batch_size: 4
   num_epochs: 500
+  derivloss: true
+  derivloss_weight: 0.1
   optimizer: "adamw"
   learning_rate: 0.001
   weight_decay: 1.0e-5
