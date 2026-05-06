@@ -7,7 +7,7 @@ def test_compose_train_config_from_named_components():
     cfg = compose_run_config(
         benchmark="darcy",
         backbone="FNO",
-        constraint="darcy_flux_fft_pad",
+        constraint="darcy_flux_projection",
         budget="debug",
     )
 
@@ -15,11 +15,14 @@ def test_compose_train_config_from_named_components():
     assert cfg["model"]["backbone"] == "FNO"
     assert cfg["constraint"]["name"] == "darcy_flux_projection"
     assert cfg["training"]["num_epochs"] == 1
-    assert cfg["wandb_logging"]["run_name"] == "darcy_fno_darcy_flux_fft_pad_debug_seed_42"
+    assert cfg["wandb_logging"]["run_name"] == "darcy_fno_darcy_flux_projection_debug_seed_42"
+    assert cfg["paths"]["output_dir"].endswith(
+        "outputs/darcy/darcy_flux_projection/fno/debug/seed_42"
+    )
     assert cfg["experiment"]["source_configs"] == [
         "configs/benchmarks/darcy/base.yaml",
         "configs/backbones/darcy/FNO.yaml",
-        "configs/constraints/darcy_flux_fft_pad.yaml",
+        "configs/constraints/darcy_flux_projection.yaml",
         "configs/budgets/debug.yaml",
     ]
 
@@ -28,14 +31,18 @@ def test_compose_tune_config_adds_search_space_and_trial_dir():
     cfg = compose_run_config(
         benchmark="darcy",
         backbone="Galerkin_Transformer",
-        constraint="darcy_flux_fft_pad",
+        constraint="darcy_flux_projection",
         budget="tune_debug",
+        optuna="darcy_flux_fft_pad",
         mode="tune",
     )
 
     assert cfg["optuna"]["num_trials"] == 2
     assert "constraint.padding" in cfg["optuna"]["search_space"]
     assert cfg["optuna"]["save_dir"].endswith("/trials")
+    assert cfg["paths"]["output_dir"].endswith(
+        "outputs/darcy/darcy_flux_projection/galerkin_transformer/tune_debug/seed_42"
+    )
     assert "configs/optuna/darcy/darcy_flux_fft_pad.yaml" in cfg["experiment"]["source_configs"]
 
 
