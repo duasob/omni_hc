@@ -247,6 +247,9 @@ def _checkpoint_summary_block(name: str, payload: dict[str, Any] | None) -> list
         return [f"[{title}]", "available: false"]
     epoch = payload.get("epoch", "<missing>")
     lines = [f"[{title}]", "available: true", f"epoch: {epoch}"]
+    selection_metric = payload.get("selection_metric")
+    if selection_metric is not None:
+        lines.append(f"selection_metric: {selection_metric}")
     lines.extend(_metric_line("train_metrics", payload.get("train_metrics", {}) or {}))
     lines.extend(_metric_line("val_metrics", payload.get("val_metrics", {}) or {}))
     return lines

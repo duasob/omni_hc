@@ -42,6 +42,8 @@ def run_optuna_search(
                 ),
             }
         result = train_fn(trial_cfg, nsl_root=nsl_root, device=device)
+        if "best_score" in result:
+            return float(result["best_score"])
         return float(result["best_val_rel_l2"])
 
     study = optuna.create_study(direction=direction)

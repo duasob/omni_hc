@@ -169,6 +169,20 @@ def build_train_val_loaders(cfg: dict):
     training_cfg = cfg.get("training", {})
     batch_size = int(training_cfg.get("batch_size", 4))
     val_size = int(training_cfg.get("val_size", 16))
+    if val_size < 0:
+        raise ValueError(f"Invalid val_size={val_size}")
+    if val_size == 0:
+        train_loader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=0,
+        )
+        train_loader.pipe_meta = meta
+        train_loader.x_normalizer = x_normalizer
+        train_loader.y_normalizer = y_normalizer
+        return train_loader, None
+
     val_size = min(max(val_size, 1), len(dataset) - 1)
     train_size = len(dataset) - val_size
     generator = torch.Generator().manual_seed(int(training_cfg.get("seed", 42)))
