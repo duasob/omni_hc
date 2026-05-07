@@ -1,7 +1,7 @@
 import pytest
 import yaml
 
-from omni_hc.core import compose_run_config
+from omni_hc.core import compose_run_config, parse_dotted_overrides
 
 
 def test_compose_train_config_from_named_components():
@@ -80,6 +80,24 @@ def test_experiment_config_applies_overrides():
     assert cfg["constraint"]["name"] == "mean_correction"
     assert cfg["constraint"]["mode"] == "post_output"
     assert cfg["wandb_logging"]["run_name"] == "navier_stokes_fno_mean"
+
+
+def test_dotted_cli_overrides_apply_to_composed_config():
+    cfg = compose_run_config(
+        benchmark="navier_stokes",
+        backbone="Galerkin_Transformer",
+        constraint="mean_correction",
+        budget="debug",
+        extra_overrides=parse_dotted_overrides(
+            [
+                "constraint.mode=latent_head",
+                "constraint.latent_module=blocks.-1.ln_3",
+            ]
+        ),
+    )
+
+    assert cfg["constraint"]["mode"] == "latent_head"
+    assert cfg["constraint"]["latent_module"] == "blocks.-1.ln_3"
 
 
 def test_resolved_config_can_be_loaded_as_experiment(tmp_path):
