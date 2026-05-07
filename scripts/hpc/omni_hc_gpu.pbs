@@ -1,7 +1,7 @@
 #!/bin/bash
-#PBS -N omni_hc_gpu_smoke
+#PBS -N navier_stokes_mean_correction_transformers_final
 #PBS -l select=1:ncpus=4:mem=24gb:ngpus=1
-#PBS -l walltime=00:30:00
+#PBS -l walltime=12:00:00
 #PBS -j oe
 
 set -euo pipefail
@@ -9,4 +9,4 @@ set -euo pipefail
 PROJECT_DIR="${PROJECT_DIR:-${PBS_O_WORKDIR:-$PWD}}"
 cd "$PROJECT_DIR"
 
-DEVICE="${DEVICE:-auto}" bash scripts/hpc/omni_hc_smoke_test_runner.sh
+DEVICE="${DEVICE:-auto}" bash scripts/hpc/omni_hc_runner.sh
