@@ -11,6 +11,7 @@ set -euo pipefail
 #   qsub -v DEVICE=cpu examples/omni_hc_smoke_test_cpu.pbs
 #   qsub -v RESULT_DIRS=outputs examples/omni_hc_smoke_test_cpu.pbs
 #   qsub -v TRAIN_EXTRA_ARGS="--max_epochs 1" examples/omni_hc_smoke_test_cpu.pbs
+#   qsub -v BENCHMARK=navier_stokes,CONSTRAINT=mean_correction,SMOKE_BACKBONES="Galerkin_Transformer Transolver Factformer ONO GNOT" examples/omni_hc_smoke_test_gpu.pbs
 #
 # To test multiple backbones, either edit SMOKE_BACKBONES below or export it
 # before submission with `qsub -V`.
@@ -44,6 +45,8 @@ RESULT_DIRS="${RESULT_DIRS:-outputs results runs checkpoints wandb logs}"
 OUT_ROOT="${OUT_ROOT:-$HOME/omni-hc-smoke-results/${PBS_JOBID:-manual}}"
 REQUIRE_RESULT_ARTIFACT="${REQUIRE_RESULT_ARTIFACT:-1}"
 TRAIN_EXTRA_ARGS="${TRAIN_EXTRA_ARGS:-}"
+
+LATENT_MODULES="${LATENT_MODULES:-Galerkin_Transformer=blocks.-1.ln_3 Transolver=blocks.-1.ln_3 Factformer=blocks.-1.ln_3 ONO=blocks.-1.ln_3 GNOT=blocks.-1.ln5}"
 
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
 export MKL_NUM_THREADS="${MKL_NUM_THREADS:-$OMP_NUM_THREADS}"
@@ -83,6 +86,20 @@ fi
 
 IFS=' ' read -r -a EXTRA_ARGS <<< "$TRAIN_EXTRA_ARGS"
 
+latent_module_for_backbone() {
+    local backbone="$1"
+    local entry name module
+    for entry in $LATENT_MODULES; do
+        name="${entry%%=*}"
+        module="${entry#*=}"
+        if [ "$name" = "$backbone" ] && [ "$module" != "$entry" ]; then
+            printf '%s\n' "$module"
+            return 0
+        fi
+    done
+    return 1
+}
+
 for BACKBONE in $SMOKE_BACKBONES; do
     [ -n "$BACKBONE" ] || continue
 
@@ -90,12 +107,22 @@ for BACKBONE in $SMOKE_BACKBONES; do
     marker="$OUT_ROOT/start-${BACKBONE}-$(date +%s)"
     touch "$marker"
 
+    LATENT_ARGS=()
+    if LATENT_MODULE="$(latent_module_for_backbone "$BACKBONE")"; then
+        echo "Using latent_module=$LATENT_MODULE for backbone=$BACKBONE"
+        LATENT_ARGS=(
+            --override constraint.mode=latent_head
+            --override "constraint.latent_module=$LATENT_MODULE"
+        )
+    fi
+
     "$PYTHON" scripts/train.py \
         --benchmark "$BENCHMARK" \
         --backbone "$BACKBONE" \
         --constraint "$CONSTRAINT" \
         --budget "$BUDGET" \
         --device "$DEVICE" \
+        "${LATENT_ARGS[@]}" \
         "${EXTRA_ARGS[@]}" \
         2>&1 | tee "$OUT_ROOT/train-${BACKBONE}.log"
 

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import torch
 
-from omni_hc.core import compose_run_config
+from omni_hc.core import compose_run_config, parse_dotted_overrides
 from omni_hc.training import train_benchmark
 
 
@@ -49,6 +49,13 @@ def parse_args():
         default="auto",
         help="auto | cpu | cuda",
     )
+    parser.add_argument(
+        "--override",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Dotted config override, e.g. constraint.latent_module=blocks.-1.ln_3. Repeatable.",
+    )
 
     return parser.parse_args()
 
@@ -70,6 +77,7 @@ if __name__ == "__main__":
         mode="train",
         seed=args.seed,
         output_root=args.output_root,
+        extra_overrides=parse_dotted_overrides(args.override),
     )
     train_benchmark(
         cfg,

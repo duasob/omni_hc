@@ -1,5 +1,10 @@
 from .composition import compose_run_config
-from .config import deep_merge, load_composed_config, load_yaml_file
+from .config import (
+    deep_merge,
+    load_composed_config,
+    load_yaml_file,
+    parse_dotted_overrides,
+)
 from .registry import Registry
 
 __all__ = [
@@ -8,4 +13,5 @@ __all__ = [
     "deep_merge",
     "load_composed_config",
     "load_yaml_file",
+    "parse_dotted_overrides",
 ]
