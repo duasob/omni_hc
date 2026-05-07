@@ -1,10 +1,10 @@
 data:
-  ntrain: 1000
+  ntrain: 64
   ntest: 200
 
 training:
   batch_size: 4
-  val_size: 0
+  val_size: 8
   num_epochs: 5
   seed: 42
 
