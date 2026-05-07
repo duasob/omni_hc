@@ -56,8 +56,6 @@ Original results are taken from [here](https://arxiv.org/abs/2402.02366). Furthe
 | Model                            | Original Model Relative L2 | Hard Constrained Model Relative L2 |
 | -------------------------------- | -------------------------- | ---------------------------------- |
 | Galerkin Transformer (Cao, 2021) | 0.1401                     | 0.103730                           |
-| HT-NET (LIU ET AL., 2022)        | 0.1847                     |                                    |
-| OFORMER (LI ET AL., 2023C)       | 0.1705                     |                                    |
 | GNOT (HAO ET AL., 2023)          | 0.1380                     |                                    |
 | FACTFORMER (LI ET AL., 2023D)    | 0.1214                     |                                    |
 | ONO (XIAO ET AL., 2024)          | 0.1195                     |                                    |

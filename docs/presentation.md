@@ -51,19 +51,70 @@ model = ConstrainedModel(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## benchmarks
+from [Transolver](https://github.com/thuml/Transolver) 
 ![image](https://github.com/thuml/Transolver/raw/main/PDE-Solving-StandardBenchmark/fig/standard_benchmark.png)
+
+![benchmarks](benchmarks/Readme.md)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ## hard constraints
 
-| Benchmark                                             | Physical Domain                                  | Hard Constraint Implemented                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Status              |
-| :---------------------------------------------------- | :----------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------ |
-| [**Navier-Stokes**](docs/benchmarks/navier_stokes.md) | Incompressible Viscous Fluid Dynamics (Periodic) | [MeanConstraint](docs/constraints/mean/MeanConstraint.md): global vorticity mean preservation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Implemented         |
-| [**Darcy Flow**](docs/benchmarks/darcy.md)            | Steady-state Porous Media                        | [DirichletBoundaryAnsatz](docs/constraints/boundary/DirichletBoundaryAnsatz.md): direct architectural ansatz for exact zero pressure on the box boundary.<br>[DarcyFluxConstraint](docs/constraints/stream/DarcyFluxConstraint.md): flux-based pressure recovery that hard-builds the continuity equation `div(v) = 1` before solving back for pressure.                                                                                                                                                                                                                                                                                                                                                                                                                                       | Implemented         |
-| **Airfoil**                                           | Transonic Aerodynamics                           | No-penetration boundary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Drafting            |
-| [**Pipe Flow**](docs/benchmarks/pipe.md)              | Internal Fluid Dynamics                          | [StructuredWallDirichletAnsatz](docs/constraints/boundary/StructuredWallDirichletAnsatz.md): wall-only direct-output ansatz for zero wall velocity.<br>[PipeInletParabolicAnsatz](docs/constraints/boundary/PipeInletParabolicAnsatz.md): inlet-only direct-output ansatz for scalar `u_x`.<br>[PipeUxBoundaryAnsatz](docs/constraints/boundary/PipeUxBoundaryAnsatz.md): combined inlet-plus-wall direct-output ansatz for scalar `u_x`.<br>[PipeStreamFunctionUxConstraint](docs/constraints/stream/PipeStreamFunctionUxConstraint.md): divergence-free stream-function construction that returns `u_x`.<br>[PipeStreamFunctionBoundaryAnsatz](docs/constraints/stream/PipeStreamFunctionBoundaryAnsatz.md): divergence-free stream-function construction with hard inlet and wall behavior. | Implemented         |
-| [**Elasticity**](docs/benchmarks/elasticity.md)       | Solid Mechanics (Point Cloud)                    | [ElasticityDeviatoricStressConstraint](docs/constraints/elasticity/ElasticityDeviatoricStressConstraint.md): deviatoric von Mises stress from a 2D incompressible Right Cauchy-Green tensor                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Implemented         |
-| [**Plasticity**](docs/benchmarks/plasticity.md)       | Time-dependent Deformation                       | Channel semantics under verification before hard-constraint design                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Baseline integrated |
+| Benchmark                                        | Hard Constraint Implemented                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| :----------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [**Navier-Stokes**](benchmarks/navier_stokes.md) | [MeanConstraint](constraints/mean/MeanConstraint.md): global vorticity mean preservation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| [**Darcy Flow**](benchmarks/darcy.md)            | [DirichletBoundaryAnsatz](constraints/boundary/DirichletBoundaryAnsatz.md): direct architectural ansatz for exact zero pressure on the box boundary.<br>[DarcyFluxConstraint](constraints/stream/DarcyFluxConstraint.md): flux-based pressure recovery that hard-builds the continuity equation `div(v) = 1` before solving back for pressure.                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Airfoil**                                      | No-penetration boundary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| [**Pipe Flow**](benchmarks/pipe.md)              | [StructuredWallDirichletAnsatz](constraints/boundary/StructuredWallDirichletAnsatz.md): wall-only direct-output ansatz for zero wall velocity.<br>[PipeInletParabolicAnsatz](constraints/boundary/PipeInletParabolicAnsatz.md): inlet-only direct-output ansatz for scalar `u_x`.<br>[PipeUxBoundaryAnsatz](constraints/boundary/PipeUxBoundaryAnsatz.md): combined inlet-plus-wall direct-output ansatz for scalar `u_x`.<br>[PipeStreamFunctionUxConstraint](constraints/stream/PipeStreamFunctionUxConstraint.md): divergence-free stream-function construction that returns `u_x`.<br>[PipeStreamFunctionBoundaryAnsatz](constraints/stream/PipeStreamFunctionBoundaryAnsatz.md): divergence-free stream-function construction with hard inlet and wall behavior. |
+| [**Elasticity**](benchmarks/elasticity.md)       | [ElasticityDeviatoricStressConstraint](constraints/elasticity/ElasticityDeviatoricStressConstraint.md): deviatoric von Mises stress from a 2D incompressible Right Cauchy-Green tensor                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| [**Plasticity**](benchmarks/plasticity.md)       | Channel semantics under verification before hard-constraint design                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ## experiments
