@@ -30,6 +30,34 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
     return merged
 
 
+def parse_dotted_overrides(items: list[str] | None) -> dict[str, Any]:
+    """Parse CLI overrides like ``constraint.mode=latent_head`` into a dict."""
+    overrides: dict[str, Any] = {}
+    for item in items or []:
+        if "=" not in item:
+            raise ValueError(f"Override must be KEY=VALUE, got: {item}")
+        key, raw_value = item.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise ValueError(f"Override key cannot be empty: {item}")
+
+        value = yaml.safe_load(raw_value)
+        cursor = overrides
+        parts = key.split(".")
+        for part in parts[:-1]:
+            if not part:
+                raise ValueError(f"Override path contains an empty segment: {item}")
+            existing = cursor.setdefault(part, {})
+            if not isinstance(existing, dict):
+                raise ValueError(f"Override path conflicts with existing value: {item}")
+            cursor = existing
+        leaf = parts[-1]
+        if not leaf:
+            raise ValueError(f"Override path contains an empty segment: {item}")
+        cursor[leaf] = value
+    return overrides
+
+
 def load_composed_config(path: str | Path) -> dict[str, Any]:
     return _load_composed_config(Path(path).resolve(), seen=set())
 
@@ -55,4 +83,3 @@ def _load_composed_config(path: Path, seen: set[Path]) -> dict[str, Any]:
     seen.remove(path)
 
     return deep_merge(merged, raw)
-
