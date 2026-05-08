@@ -37,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--downsamplex", type=int, default=5)
     parser.add_argument("--downsampley", type=int, default=5)
     parser.add_argument("--boundary-value", type=float, default=0.0)
-    parser.add_argument("--out-dir", type=Path, default=Path("artifacts/darcy_boundary"))
+    parser.add_argument("--out-dir", type=Path, default=Path("artifacts/darcy/darcy_boundary"))
     parser.add_argument("--show", action="store_true")
     parser.add_argument("--no-plot", action="store_true")
     return parser.parse_args()

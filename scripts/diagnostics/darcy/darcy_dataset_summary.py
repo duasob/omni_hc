@@ -36,7 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("artifacts/darcy_dataset_summary"),
+        default=Path("artifacts/darcy/darcy_dataset_summary"),
     )
     parser.add_argument("--show", action="store_true")
     parser.add_argument("--no-plot", action="store_true")

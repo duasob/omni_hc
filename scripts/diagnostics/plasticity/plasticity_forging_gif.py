@@ -44,7 +44,10 @@ def parse_args() -> argparse.Namespace:
         "--out-path",
         type=Path,
         default=None,
-        help="Output GIF path. Defaults to artifacts/plasticity_forging_sample_XXXX.gif.",
+        help=(
+            "Output GIF path. Defaults to "
+            "artifacts/plasticity/plasticity_forging_gif/plasticity_forging_sample_XXXX.gif."
+        ),
     )
     parser.add_argument("--fps", type=int, default=4)
     parser.add_argument("--dpi", type=int, default=130)
@@ -76,7 +79,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--die-speed",
         type=float,
-        default=3.0,
+        default=6.0,
         help=(
             "Downward die speed in physical y units per physical time unit for "
             "--die-fit-mode raw-coordinate."
@@ -576,7 +579,12 @@ def main() -> None:
 
     out_path = args.out_path
     if out_path is None:
-        out_path = Path("artifacts") / f"plasticity_forging_sample_{args.sample:04d}.gif"
+        out_path = (
+            Path("artifacts")
+            / "plasticity"
+            / "plasticity_forging_gif"
+            / f"plasticity_forging_sample_{args.sample:04d}.gif"
+        )
 
     if args.boundary_debug_path is not None:
         die_profile = die[args.sample]

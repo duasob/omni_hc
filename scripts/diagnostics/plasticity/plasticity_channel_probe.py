@@ -86,7 +86,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("artifacts/plasticity_channel_probe"),
+        default=Path("artifacts/plasticity/plasticity_channel_probe"),
     )
     parser.add_argument("--show", action="store_true")
     parser.add_argument("--no-plot", action="store_true")
