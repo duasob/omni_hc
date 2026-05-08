@@ -40,7 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("artifacts/pipe_stream_function"),
+        default=Path("artifacts/pipe/pipe_stream_function"),
         help="Directory where plots and CSV summaries are written.",
     )
     parser.add_argument(

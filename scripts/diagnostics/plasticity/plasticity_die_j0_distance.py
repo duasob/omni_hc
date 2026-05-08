@@ -66,13 +66,19 @@ def parse_args() -> argparse.Namespace:
         "--out-path",
         type=Path,
         default=None,
-        help="Output PNG path. Defaults to artifacts/plasticity_die_j0_distance_sample_XXXX.png.",
+        help=(
+            "Output PNG path. Defaults to "
+            "artifacts/plasticity/plasticity_die_j0_distance/plasticity_die_j0_distance_sample_XXXX.png."
+        ),
     )
     parser.add_argument(
         "--gif-path",
         type=Path,
         default=None,
-        help="Output GIF path. Defaults to artifacts/plasticity_die_j0_distance_sample_XXXX.gif.",
+        help=(
+            "Output GIF path. Defaults to "
+            "artifacts/plasticity/plasticity_die_j0_distance/plasticity_die_j0_distance_sample_XXXX.gif."
+        ),
     )
     parser.add_argument(
         "--csv-path",
@@ -341,10 +347,20 @@ def main() -> None:
 
     out_path = args.out_path
     if out_path is None:
-        out_path = Path("artifacts") / f"plasticity_die_j0_distance_sample_{args.sample:04d}.png"
+        out_path = (
+            Path("artifacts")
+            / "plasticity"
+            / "plasticity_die_j0_distance"
+            / f"plasticity_die_j0_distance_sample_{args.sample:04d}.png"
+        )
     gif_path = args.gif_path
     if gif_path is None:
-        gif_path = Path("artifacts") / f"plasticity_die_j0_distance_sample_{args.sample:04d}.gif"
+        gif_path = (
+            Path("artifacts")
+            / "plasticity"
+            / "plasticity_die_j0_distance"
+            / f"plasticity_die_j0_distance_sample_{args.sample:04d}.gif"
+        )
 
     payload = compute_distances(
         die_profile=die_profile,

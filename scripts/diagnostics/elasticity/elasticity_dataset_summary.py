@@ -45,7 +45,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("artifacts/elasticity_dataset_summary"),
+        default=Path("artifacts/elasticity/elasticity_dataset_summary"),
     )
     parser.add_argument(
         "--point-size",

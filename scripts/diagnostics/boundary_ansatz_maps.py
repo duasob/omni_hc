@@ -67,7 +67,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("artifacts/boundary_ansatz_maps"),
+        default=Path("artifacts/boundary/boundary_ansatz_maps"),
         help="Directory where figures are written.",
     )
     parser.add_argument(

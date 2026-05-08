@@ -45,7 +45,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("artifacts/pipe_inlet"),
+        default=Path("artifacts/pipe/pipe_inlet_profile"),
         help="Directory where figures and CSV summaries are written.",
     )
     parser.add_argument(
