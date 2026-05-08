@@ -4,11 +4,11 @@ set -euo pipefail
 usage() {
     cat <<'EOF'
 Usage:
-  scripts/hpc/watch_pbs_job.sh JOB_ID [INTERVAL_SECONDS]
+  scripts/hpc/watch_pbs.sh JOB_ID [INTERVAL_SECONDS]
 
 Examples:
-  scripts/hpc/watch_pbs_job.sh 2710135.pbs-7
-  scripts/hpc/watch_pbs_job.sh 2710135.pbs-7 30
+  scripts/hpc/watch_pbs.sh 2710135.pbs-7
+  scripts/hpc/watch_pbs.sh 2710135.pbs-7 30
 
 Optional environment:
   PBS_WATCH_NOTIFY_CMD
@@ -61,10 +61,21 @@ is_final_state() {
     esac
 }
 
+timestamp() {
+    date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
 notify_finished() {
     local message="$1"
+    local notify_program
     printf '\a'
     if [ -n "${PBS_WATCH_NOTIFY_CMD:-}" ]; then
+        notify_program="${PBS_WATCH_NOTIFY_CMD%% *}"
+        if ! command -v "$notify_program" >/dev/null 2>&1; then
+            echo "WARNING: PBS_WATCH_NOTIFY_CMD was set, but '$notify_program' is not on PATH; skipping notification." >&2
+            echo "         Current PBS_WATCH_NOTIFY_CMD='$PBS_WATCH_NOTIFY_CMD'" >&2
+            return 0
+        fi
         # shellcheck disable=SC2086
         $PBS_WATCH_NOTIFY_CMD "$message" || true
     fi
@@ -76,7 +87,7 @@ last_line=""
 echo "Watching PBS job $JOB_ID every ${INTERVAL_SECONDS}s. Press Ctrl-C to stop."
 
 while true; do
-    timestamp="$(date -Is)"
+    timestamp="$(timestamp)"
     qstat_output="$(qstat -x "$JOB_ID" 2>&1 || true)"
 
     if printf '%s\n' "$qstat_output" | grep -qiE 'Unknown Job Id|Unknown Job|not found|does not exist'; then
