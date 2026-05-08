@@ -18,6 +18,7 @@ from omni_hc.training.common import (
     normalize_interval,
     prefix_metric_names,
     relative_l2_per_sample,
+    restore_training_checkpoint,
     resolve_output_dir,
     save_checkpoint_bundle,
     write_resolved_config,
@@ -195,6 +196,17 @@ def train_dynamic_conditional_task(
     training_cfg["steps_per_epoch"] = len(train_loader)
     optimizer = build_optimizer(model, training_cfg)
     scheduler, scheduler_step_per_batch = build_scheduler(optimizer, training_cfg)
+    start_epoch = 0
+    resume_checkpoint = training_cfg.get("resume_checkpoint")
+    if resume_checkpoint is not None:
+        start_epoch = restore_training_checkpoint(
+            resume_checkpoint,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            device=device,
+        )
+        print(f"resuming training from {resume_checkpoint} at epoch {start_epoch}")
     train_step_per_time = bool(training_cfg.get("step_per_time", True))
     max_grad_norm = training_cfg.get("max_grad_norm")
     t_out = int(meta["t_out"])
@@ -208,7 +220,13 @@ def train_dynamic_conditional_task(
 
     init_wandb_if_enabled(cfg)
     try:
-        for epoch in range(int(training_cfg.get("num_epochs", 1))):
+        num_epochs = int(training_cfg.get("num_epochs", 1))
+        if start_epoch >= num_epochs:
+            raise ValueError(
+                f"Checkpoint epoch {start_epoch} is already at or beyond "
+                f"configured num_epochs={num_epochs}."
+            )
+        for epoch in range(start_epoch, num_epochs):
             model.train()
             train_loss_sum = 0.0
             train_rel_l2_sum = 0.0

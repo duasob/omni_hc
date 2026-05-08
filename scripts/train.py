@@ -30,7 +30,7 @@ def parse_args():
         help="Constraint name/path. Use none or unconstrained to skip.",
     )
     parser.add_argument("--budget", type=str, default=None)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=None)
     parser.add_argument(
         "--output-root",
         type=str,
@@ -48,6 +48,12 @@ def parse_args():
         type=str,
         default="auto",
         help="auto | cpu | cuda",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Optional full training checkpoint to resume from, typically latest.pt.",
     )
     parser.add_argument(
         "--override",
@@ -79,6 +85,8 @@ if __name__ == "__main__":
         output_root=args.output_root,
         extra_overrides=parse_dotted_overrides(args.override),
     )
+    if args.checkpoint is not None:
+        cfg.setdefault("training", {})["resume_checkpoint"] = args.checkpoint
     train_benchmark(
         cfg,
         nsl_root=None if args.nsl_root is None else Path(args.nsl_root),

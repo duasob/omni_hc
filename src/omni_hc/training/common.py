@@ -222,6 +222,35 @@ def load_checkpoint_state(checkpoint_path: str | Path, *, device):
     return checkpoint
 
 
+def restore_training_checkpoint(
+    checkpoint_path: str | Path,
+    *,
+    model,
+    optimizer,
+    scheduler,
+    device,
+) -> int:
+    checkpoint = load_checkpoint_state(checkpoint_path, device=device)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+
+    checkpoint_scheduler_state = checkpoint.get("scheduler_state_dict")
+    if scheduler is None:
+        if checkpoint_scheduler_state is not None:
+            raise RuntimeError(
+                "Checkpoint has scheduler state, but the current config does not "
+                "build a scheduler."
+            )
+    elif checkpoint_scheduler_state is None:
+        raise RuntimeError(
+            "Current config builds a scheduler, but the checkpoint has no scheduler state."
+        )
+    else:
+        scheduler.load_state_dict(checkpoint_scheduler_state)
+
+    return int(checkpoint["epoch"])
+
+
 def _metric_line(prefix: str, metrics: dict[str, Any]) -> list[str]:
     if not metrics:
         return [f"{prefix}: <missing>"]
