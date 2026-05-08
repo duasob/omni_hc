@@ -9,4 +9,4 @@ set -euo pipefail
 PROJECT_DIR="${PROJECT_DIR:-${PBS_O_WORKDIR:-$PWD}}"
 cd "$PROJECT_DIR"
 
-DEVICE="${DEVICE:-auto}" bash scripts/hpc/omni_hc_runner.sh
+DEVICE="${DEVICE:-auto}" bash scripts/hpc/resumer.sh #runner.sh
