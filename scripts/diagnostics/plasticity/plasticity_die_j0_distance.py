@@ -186,7 +186,7 @@ def plot_distances(
     die_y = payload["die_y"]
     j0_y = payload["j0_y"]
 
-    fig, axes = plt.subplots(3, 1, figsize=(9.4, 10.2), dpi=150, sharex=True)
+    fig, axes = plt.subplots(2, 1, figsize=(9.4, 7.2), dpi=150, sharex=True)
     cmap = plt.get_cmap("viridis")
 
     ax = axes[0]
@@ -207,24 +207,7 @@ def plot_distances(
     ax.set_ylabel("die_y - j0_y")
     ax.grid(True, alpha=0.25)
 
-    summary_ax = axes[1]
-    min_d = np.nanmin(signed_distance, axis=0)
-    mean_d = np.nanmean(signed_distance, axis=0)
-    max_d = np.nanmax(signed_distance, axis=0)
-    p05 = np.nanpercentile(signed_distance, 5, axis=0)
-    p95 = np.nanpercentile(signed_distance, 95, axis=0)
-    summary_ax.fill_between(time, p05, p95, color="#2563eb", alpha=0.16, label="5-95% over x")
-    summary_ax.plot(time, min_d, color="#dc2626", linewidth=1.5, label="min over x")
-    summary_ax.plot(time, mean_d, color="#2563eb", linewidth=1.8, label="mean over x")
-    summary_ax.plot(time, max_d, color="#111827", linewidth=1.2, label="max over x")
-    summary_ax.axhline(0.0, color="#111827", linestyle="--", linewidth=0.8)
-    summary_ax.set_title("Distance summary over x")
-    summary_ax.set_xlabel("time")
-    summary_ax.set_ylabel("signed distance")
-    summary_ax.grid(True, alpha=0.25)
-    summary_ax.legend(fontsize=8)
-
-    curves_ax = axes[2]
+    curves_ax = axes[1]
     final_timestep = int(time.shape[0] - 1)
     curves_ax.plot(x, die_y[:, 0], color="#94a3b8", linewidth=1.6, label="die t=0")
     curves_ax.plot(x, die_y[:, final_timestep], color="#111827", linewidth=2.0, label="die final")

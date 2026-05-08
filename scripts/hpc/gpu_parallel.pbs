@@ -1,0 +1,17 @@
+#!/bin/bash
+#PBS -N navier_stokes_mean_correction_parallel
+#PBS -l select=1:ncpus=12:mem=72gb:ngpus=3
+#PBS -l walltime=24:00:00
+#PBS -j oe
+
+set -euo pipefail
+
+PROJECT_DIR="${PROJECT_DIR:-${PBS_O_WORKDIR:-$PWD}}"
+cd "$PROJECT_DIR"
+
+export PARALLEL_BACKBONES="${PARALLEL_BACKBONES:-1}"
+export SMOKE_BACKBONES="${SMOKE_BACKBONES:-Factformer ONO GNOT}"
+export GPU_IDS="${GPU_IDS:-0 1 2}"
+export DEVICE="${DEVICE:-auto}"
+
+bash scripts/hpc/runner.sh
