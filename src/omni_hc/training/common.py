@@ -222,6 +222,41 @@ def load_checkpoint_state(checkpoint_path: str | Path, *, device):
     return checkpoint
 
 
+def _prepare_none_buffers_for_load(model, state_dict: dict[str, Any]) -> None:
+    """Materialize buffers saved by modules that register them as None initially."""
+
+    for full_key, value in state_dict.items():
+        if not isinstance(value, torch.Tensor) or "." not in full_key:
+            continue
+        module_path, buffer_name = full_key.rsplit(".", 1)
+        get_submodule = getattr(model, "get_submodule", None)
+        if callable(get_submodule):
+            try:
+                module = get_submodule(module_path)
+            except (AttributeError, ValueError):
+                continue
+        else:
+            current = model
+            try:
+                for part in module_path.split("."):
+                    if part.isdigit():
+                        current = current[int(part)]
+                    else:
+                        current = getattr(current, part)
+            except (AttributeError, IndexError, TypeError):
+                continue
+            module = current
+
+        buffers = getattr(module, "_buffers", {})
+        if buffer_name in buffers and buffers[buffer_name] is None:
+            setattr(module, buffer_name, torch.empty_like(value))
+
+
+def load_model_state_dict(model, state_dict: dict[str, Any]):
+    _prepare_none_buffers_for_load(model, state_dict)
+    return model.load_state_dict(state_dict)
+
+
 def restore_training_checkpoint(
     checkpoint_path: str | Path,
     *,
@@ -231,7 +266,7 @@ def restore_training_checkpoint(
     device,
 ) -> int:
     checkpoint = load_checkpoint_state(checkpoint_path, device=device)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    load_model_state_dict(model, checkpoint["model_state_dict"])
     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
     checkpoint_scheduler_state = checkpoint.get("scheduler_state_dict")

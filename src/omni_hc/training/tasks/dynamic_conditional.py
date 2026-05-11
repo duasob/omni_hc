@@ -15,6 +15,7 @@ from omni_hc.training.common import (
     diagnostic_values,
     forward_with_optional_aux,
     load_checkpoint_state,
+    load_model_state_dict,
     normalize_interval,
     prefix_metric_names,
     relative_l2_per_sample,
@@ -34,6 +35,12 @@ def _decode_if_needed(normalizer, tensor: torch.Tensor) -> torch.Tensor:
     return normalizer.decode(tensor) if normalizer is not None else tensor
 
 
+def _build_nsl_l2_loss():
+    from utils.loss import L2Loss
+
+    return L2Loss(size_average=False)
+
+
 def rollout_dynamic_conditional(
     model,
     coords,
@@ -47,6 +54,7 @@ def rollout_dynamic_conditional(
     train_step_per_time: bool = False,
     optimizer=None,
     max_grad_norm=None,
+    step_loss_fn=None,
 ):
     preds = []
     step_rel_l2_sum = torch.zeros((), device=coords.device)
@@ -65,8 +73,15 @@ def rollout_dynamic_conditional(
         pred_t_decoded = _decode_if_needed(y_normalizer, pred_t)
         y_t_decoded = _decode_if_needed(y_normalizer, y_t)
         rel_l2 = relative_l2_per_sample(pred_t_decoded, y_t_decoded)
-        loss = rel_l2.mean()
-        metric_loss_sum += float(loss.item())
+        if step_loss_fn is None:
+            loss = rel_l2.sum()
+        else:
+            loss = step_loss_fn(
+                pred_t_decoded.reshape(pred_t_decoded.shape[0], -1),
+                y_t_decoded.reshape(y_t_decoded.shape[0], -1),
+            )
+        metric_loss = loss / int(coords.shape[0])
+        metric_loss_sum += float(metric_loss.item())
 
         if train_step_per_time:
             optimizer.zero_grad(set_to_none=True)
@@ -86,13 +101,14 @@ def rollout_dynamic_conditional(
 
     pred = torch.cat(preds, dim=-1)
     mean_loss = total_loss / max(int(t_out), 1)
+    mean_metric_loss = metric_loss_sum / max(int(t_out), 1)
     if train_step_per_time:
         mean_loss = torch.tensor(
-            metric_loss_sum / max(int(t_out), 1),
+            mean_metric_loss,
             device=coords.device,
             dtype=coords.dtype,
         )
-    return pred, mean_loss, step_rel_l2_sum, {
+    return pred, mean_loss, mean_metric_loss, step_rel_l2_sum, {
         "pred_mean": pred_mean_sum / max(int(t_out), 1),
         "diagnostics": diag_metrics.as_diagnostics(),
     }
@@ -109,6 +125,7 @@ def evaluate_dynamic_conditional(
     out_dim: int,
 ):
     model.eval()
+    nsl_l2_loss = _build_nsl_l2_loss()
     mse_sum = 0.0
     rel_l2_sum = 0.0
     step_rel_l2_sum = 0.0
@@ -117,7 +134,7 @@ def evaluate_dynamic_conditional(
     with torch.no_grad():
         for batch in loader:
             coords, time, fx, target = prepare_batch(batch, device=device)
-            pred, _, step_rel_l2, summary = rollout_dynamic_conditional(
+            pred, _, _, step_rel_l2, summary = rollout_dynamic_conditional(
                 model,
                 coords,
                 fx,
@@ -126,6 +143,7 @@ def evaluate_dynamic_conditional(
                 t_out=t_out,
                 out_dim=out_dim,
                 y_normalizer=y_normalizer,
+                step_loss_fn=nsl_l2_loss,
             )
             pred_decoded = _decode_if_needed(y_normalizer, pred)
             target_decoded = _decode_if_needed(y_normalizer, target)
@@ -181,6 +199,7 @@ def train_dynamic_conditional_task(
         device=device,
         runtime_overrides=runtime_overrides(meta),
     )
+    nsl_l2_loss = _build_nsl_l2_loss()
     output_dir = resolve_output_dir(cfg)
     write_resolved_config(
         cfg, output_dir=output_dir, resolved_nsl_root=resolved_nsl_root
@@ -237,18 +256,21 @@ def train_dynamic_conditional_task(
 
             for step, batch in enumerate(train_loader):
                 coords, time, fx, target = prepare_batch(batch, device=device)
-                pred, loss, step_rel_l2, summary = rollout_dynamic_conditional(
-                    model,
-                    coords,
-                    fx,
-                    time,
-                    target,
-                    t_out=t_out,
-                    out_dim=out_dim,
-                    y_normalizer=y_normalizer,
-                    train_step_per_time=train_step_per_time,
-                    optimizer=optimizer,
-                    max_grad_norm=max_grad_norm,
+                pred, loss, metric_loss, step_rel_l2, summary = (
+                    rollout_dynamic_conditional(
+                        model,
+                        coords,
+                        fx,
+                        time,
+                        target,
+                        t_out=t_out,
+                        out_dim=out_dim,
+                        y_normalizer=y_normalizer,
+                        train_step_per_time=train_step_per_time,
+                        optimizer=optimizer,
+                        max_grad_norm=max_grad_norm,
+                        step_loss_fn=nsl_l2_loss,
+                    )
                 )
                 if not train_step_per_time:
                     optimizer.zero_grad(set_to_none=True)
@@ -264,7 +286,7 @@ def train_dynamic_conditional_task(
                 pred_decoded = _decode_if_needed(y_normalizer, pred)
                 target_decoded = _decode_if_needed(y_normalizer, target)
                 batch_size = int(target.shape[0])
-                train_loss_sum += float(loss.item()) * batch_size
+                train_loss_sum += float(metric_loss) * batch_size
                 train_rel_l2_sum += float(
                     relative_l2_per_sample(pred_decoded, target_decoded).sum().item()
                 )
@@ -279,7 +301,7 @@ def train_dynamic_conditional_task(
                         payload = {
                             "epoch": epoch + 1,
                             "global_step": global_step,
-                            "train/step_loss": float(loss.item()),
+                            "train/step_loss": float(metric_loss),
                             "train/step_rel_l2": float(
                                 step_rel_l2.item()
                                 / (batch_size * max(int(t_out), 1))
@@ -421,7 +443,7 @@ def test_dynamic_conditional_task(
         runtime_overrides=runtime_overrides(meta),
     )
     checkpoint = load_checkpoint_state(checkpoint_path, device=device)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    load_model_state_dict(model, checkpoint["model_state_dict"])
     metrics = evaluate_dynamic_conditional(
         model,
         test_loader,
