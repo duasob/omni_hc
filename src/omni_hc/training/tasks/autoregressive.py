@@ -15,6 +15,7 @@ from omni_hc.training.common import (
     diagnostic_values,
     forward_with_optional_aux,
     load_checkpoint_state,
+    load_model_state_dict,
     normalize_interval,
     prefix_metric_names,
     relative_l2_per_sample,
@@ -31,8 +32,22 @@ from omni_hc.training.logging_utils import (
 )
 
 
+def _build_nsl_l2_loss():
+    from utils.loss import L2Loss
+
+    return L2Loss(size_average=False)
+
+
 def rollout_autoregressive(
-    model, coords, fx, target, *, t_out: int, out_dim: int, teacher_forcing: bool
+    model,
+    coords,
+    fx,
+    target,
+    *,
+    t_out: int,
+    out_dim: int,
+    teacher_forcing: bool,
+    step_loss_fn=None,
 ):
     preds = []
     current_fx = fx
@@ -46,7 +61,14 @@ def rollout_autoregressive(
         pred_mean_sum += float(out["pred_mean"])
         diag_metrics.update(out["diagnostics"])
         y_t = target[..., out_dim * step : out_dim * (step + 1)]
-        step_rel_l2 = step_rel_l2 + relative_l2_per_sample(pred_t, y_t).sum()
+        if step_loss_fn is None:
+            step_loss = relative_l2_per_sample(pred_t, y_t).sum()
+        else:
+            step_loss = step_loss_fn(
+                pred_t.reshape(pred_t.shape[0], -1),
+                y_t.reshape(y_t.shape[0], -1),
+            )
+        step_rel_l2 = step_rel_l2 + step_loss
         next_tail = y_t if teacher_forcing else pred_t
         current_fx = torch.cat((current_fx[..., out_dim:], next_tail), dim=-1)
     pred = torch.cat(preds, dim=-1)
@@ -68,8 +90,10 @@ def evaluate_autoregressive(
     out_dim: int,
 ):
     model.eval()
+    nsl_l2_loss = _build_nsl_l2_loss()
     mse_sum = 0.0
     rel_l2_sum = 0.0
+    step_rel_l2_sum = 0.0
     diag_metrics = MetricAccumulator()
     samples = 0
     with torch.no_grad():
@@ -77,7 +101,7 @@ def evaluate_autoregressive(
             coords, fx, target = prepare_batch(
                 batch, device=device, task_state=task_state
             )
-            pred, _, summary = rollout_autoregressive(
+            pred, step_rel_l2, summary = rollout_autoregressive(
                 model,
                 coords,
                 fx,
@@ -85,6 +109,7 @@ def evaluate_autoregressive(
                 t_out=t_out,
                 out_dim=out_dim,
                 teacher_forcing=False,
+                step_loss_fn=nsl_l2_loss,
             )
             batch_size = int(target.shape[0])
             mse_sum += float(
@@ -95,10 +120,15 @@ def evaluate_autoregressive(
                 .item()
             )
             rel_l2_sum += float(relative_l2_per_sample(pred, target).sum().item())
+            step_rel_l2_sum += float(step_rel_l2.item())
             diag_metrics.update(summary["diagnostics"], weight=batch_size)
             samples += batch_size
     denom = max(samples, 1)
-    metrics = {"mse": mse_sum / denom, "rel_l2": rel_l2_sum / denom}
+    metrics = {
+        "mse": mse_sum / denom,
+        "rel_l2": rel_l2_sum / denom,
+        "step_rel_l2": step_rel_l2_sum / (denom * max(int(t_out), 1)),
+    }
     metrics.update(diag_metrics.compute())
     return metrics
 
@@ -122,6 +152,7 @@ def train_autoregressive_task(
         device=device,
         runtime_overrides=runtime_overrides(meta),
     )
+    nsl_l2_loss = _build_nsl_l2_loss()
 
     output_dir = resolve_output_dir(cfg)
     write_resolved_config(cfg, output_dir=output_dir, resolved_nsl_root=resolved_nsl_root)
@@ -167,7 +198,9 @@ def train_autoregressive_task(
         for epoch in range(start_epoch, num_epochs):
             model.train()
             train_loss_sum = 0.0
+            train_mse_sum = 0.0
             train_rel_l2_sum = 0.0
+            train_step_rel_l2_sum = 0.0
             train_pred_mean_sum = 0.0
             train_diag_metrics = MetricAccumulator()
             samples = 0
@@ -176,7 +209,7 @@ def train_autoregressive_task(
                 coords, fx, target = prepare_batch(
                     batch, device=device, task_state=task_state
                 )
-                pred, _, summary = rollout_autoregressive(
+                pred, step_rel_l2, summary = rollout_autoregressive(
                     model,
                     coords,
                     fx,
@@ -184,8 +217,11 @@ def train_autoregressive_task(
                     t_out=t_out,
                     out_dim=out_dim,
                     teacher_forcing=teacher_forcing,
+                    step_loss_fn=nsl_l2_loss,
                 )
-                loss = F.mse_loss(pred, target)
+                batch_size = int(target.shape[0])
+                loss = step_rel_l2
+                metric_loss = loss / (batch_size * max(int(t_out), 1))
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 max_grad_norm = training_cfg.get("max_grad_norm")
@@ -197,11 +233,18 @@ def train_autoregressive_task(
                 if scheduler is not None and scheduler_step_per_batch:
                     scheduler.step()
 
-                batch_size = int(target.shape[0])
-                train_loss_sum += float(loss.item()) * batch_size
+                train_loss_sum += float(step_rel_l2.item())
+                train_mse_sum += float(
+                    F.mse_loss(pred, target, reduction="none")
+                    .reshape(batch_size, -1)
+                    .mean(dim=1)
+                    .sum()
+                    .item()
+                )
                 train_rel_l2_sum += float(
                     relative_l2_per_sample(pred, target).sum().item()
                 )
+                train_step_rel_l2_sum += float(step_rel_l2.item())
                 train_pred_mean_sum += float(summary["pred_mean"]) * batch_size
                 train_diag_metrics.update(summary["diagnostics"], weight=batch_size)
                 samples += batch_size
@@ -212,8 +255,9 @@ def train_autoregressive_task(
                         payload = {
                             "epoch": epoch + 1,
                             "global_step": global_step,
-                            "train/step_mse": float(loss.item()),
-                            "train/step_rel_l2": float(
+                            "train/step_loss": float(metric_loss.item()),
+                            "train/step_time_rel_l2": float(metric_loss.item()),
+                            "train/rollout_rel_l2": float(
                                 relative_l2_per_sample(pred, target).mean().item()
                             ),
                             "train/pred_mean": float(summary["pred_mean"]),
@@ -230,9 +274,12 @@ def train_autoregressive_task(
                 scheduler.step()
 
             train_metrics = {
-                "loss": train_loss_sum / max(samples, 1),
-                "mse": train_loss_sum / max(samples, 1),
+                "loss": train_loss_sum
+                / (max(samples, 1) * max(int(t_out), 1)),
+                "mse": train_mse_sum / max(samples, 1),
                 "rel_l2": train_rel_l2_sum / max(samples, 1),
+                "step_rel_l2": train_step_rel_l2_sum
+                / (max(samples, 1) * max(int(t_out), 1)),
                 "pred_mean": train_pred_mean_sum / max(samples, 1),
             }
             train_metrics.update(train_diag_metrics.compute())
@@ -306,6 +353,7 @@ def train_autoregressive_task(
                 )
                 print(
                     f"epoch {epoch + 1}/{int(training_cfg.get('num_epochs', 1))} "
+                    f"train_loss={train_metrics['loss']:.6f} "
                     f"train_mse={train_metrics['mse']:.6f} "
                     f"train_rel_l2={train_metrics['rel_l2']:.6f} "
                     f"val_mse={val_metrics['mse']:.6f} "
@@ -322,6 +370,7 @@ def train_autoregressive_task(
             else:
                 print(
                     f"epoch {epoch + 1}/{int(training_cfg.get('num_epochs', 1))} "
+                    f"train_loss={train_metrics['loss']:.6f} "
                     f"train_mse={train_metrics['mse']:.6f} "
                     f"train_rel_l2={train_metrics['rel_l2']:.6f}"
                 )
@@ -407,7 +456,7 @@ def test_autoregressive_task(
         runtime_overrides=runtime_overrides(meta),
     )
     checkpoint = load_checkpoint_state(checkpoint_path, device=device)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    load_model_state_dict(model, checkpoint["model_state_dict"])
     sample_dtype = next(iter(test_loader))["x"].dtype
     task_state = init_task_state(meta, sample_dtype=sample_dtype, device=device)
     metrics = evaluate_autoregressive(
