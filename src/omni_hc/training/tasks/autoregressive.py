@@ -15,6 +15,7 @@ from omni_hc.training.common import (
     diagnostic_values,
     forward_with_optional_aux,
     load_checkpoint_state,
+    load_model_state_dict,
     normalize_interval,
     prefix_metric_names,
     relative_l2_per_sample,
@@ -455,7 +456,7 @@ def test_autoregressive_task(
         runtime_overrides=runtime_overrides(meta),
     )
     checkpoint = load_checkpoint_state(checkpoint_path, device=device)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    load_model_state_dict(model, checkpoint["model_state_dict"])
     sample_dtype = next(iter(test_loader))["x"].dtype
     task_state = init_task_state(meta, sample_dtype=sample_dtype, device=device)
     metrics = evaluate_autoregressive(
