@@ -15,6 +15,7 @@ from omni_hc.training.common import (
     diagnostic_values,
     forward_with_optional_aux,
     load_checkpoint_state,
+    load_model_state_dict,
     normalize_interval,
     prefix_metric_names,
     relative_l2_per_sample,
@@ -585,7 +586,7 @@ def test_steady_task(
                 upper=float(domain_bounds[1]),
             )
     checkpoint = load_checkpoint_state(checkpoint_path, device=device)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    load_model_state_dict(model, checkpoint["model_state_dict"])
     metrics = evaluate_steady(
         model,
         test_loader,
