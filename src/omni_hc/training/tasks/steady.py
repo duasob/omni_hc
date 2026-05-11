@@ -36,6 +36,12 @@ def _decode_if_needed(normalizer, tensor: torch.Tensor) -> torch.Tensor:
     return normalizer.decode(tensor) if normalizer is not None else tensor
 
 
+def _build_nsl_l2_loss():
+    from utils.loss import L2Loss
+
+    return L2Loss(size_average=False)
+
+
 def _as_bool(value) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
@@ -159,6 +165,7 @@ def train_steady_task(
         device=device,
         runtime_overrides=runtime_overrides(meta),
     )
+    nsl_l2_loss = _build_nsl_l2_loss()
     if (
         y_normalizer is not None
         and hasattr(model, "constraint")
@@ -217,12 +224,10 @@ def train_steady_task(
     shapelist = tuple(meta.get("shapelist", ()))
     if derivloss and len(shapelist) != 2:
         raise ValueError(f"derivloss requires a 2D shapelist, got {shapelist!r}")
-    nsl_l2_loss = None
     nsl_deriv_loss = None
     if derivloss:
-        from utils.loss import DerivLoss, L2Loss
+        from utils.loss import DerivLoss
 
-        nsl_l2_loss = L2Loss(size_average=False)
         nsl_deriv_loss = DerivLoss(size_average=False, shapelist=shapelist)
     has_validation = val_loader is not None
     best_score = float("inf")
@@ -287,14 +292,13 @@ def train_steady_task(
                     print(_tensor_stats("train/target_decoded", target_decoded))
                 rel_l2 = relative_l2_per_sample(pred_decoded, target_decoded)
                 deriv_loss_value = None
-                loss = rel_l2.mean()
                 batch_size = int(target.shape[0])
-                batch_loss_sum = float(loss.item()) * batch_size
+                loss = nsl_l2_loss(pred_decoded, target_decoded)
+                batch_loss_sum = float(loss.item())
                 if derivloss:
-                    base_loss = nsl_l2_loss(pred_decoded, target_decoded)
                     deriv_loss = nsl_deriv_loss(pred_decoded, target_decoded)
                     deriv_loss_value = float(deriv_loss.item())
-                    loss = base_loss + derivloss_weight * deriv_loss
+                    loss = loss + derivloss_weight * deriv_loss
                     batch_loss_sum = float(loss.item())
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
