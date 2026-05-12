@@ -1,5 +1,7 @@
 # Plasticity
 
+![plasticity](../figures/plasticity/plasticity_forging_sample_0100.gif)
+
 The plasticity benchmark uses the Geo-FNO/NSL forging dataset:
 
 - `plas_N987_T20.mat`
