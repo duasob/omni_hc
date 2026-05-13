@@ -14,6 +14,9 @@ physically restricted output space.
 - [Elasticity deviatoric stress](elasticity/ElasticityDeviatoricStressConstraint.md):
   2D incompressible hyperelastic von Mises stress from a scalar backbone latent,
   coordinates, and a constrained Right Cauchy-Green tensor.
+- [Plasticity mesh consistency](plasticity/PlasticityMeshConsistencyConstraint.md):
+  ordered deformation mesh reconstruction from positive learned spacings,
+  returning consistent `[x, y, u_x, u_y]` channels.
 - [Mean constraints](MeanConstraint.md): global mean-preserving correction.
 
 ## Implementation Map

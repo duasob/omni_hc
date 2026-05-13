@@ -1,24 +1,41 @@
-# Plasticity
+# Plasticity Benchmark
 
 ![plasticity](../figures/plasticity/plasticity_forging_sample_0100.gif)
 
-The plasticity benchmark uses the Geo-FNO/NSL forging dataset:
+This benchmark predicts plastic forging deformation on astructured 2D mesh. 
+
+The benchmark defaults live in
+[`configs/benchmarks/plasticity/base.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/benchmarks/plasticity/base.yaml).
+
+## Dataset
+
+The plasticity benchmark uses the following dataset:
 
 - `plas_N987_T20.mat`
 - `input`: `(987, 101)`
 - `output`: `(987, 101, 31, 20, 4)`
 
 The input is a one-dimensional die profile sampled at 101 points. The NSL
-loader broadcasts that profile across the second spatial axis, so each model
-receives:
+loader broadcasts that profile across the second spatial axis, so each model receives:
 
 - coordinates: `(N, 3131, 2)`
 - function input: `(N, 3131, 1)`
 - time input: `(N, 20)`
 - target: `(N, 3131, 80)`, where `80 = 20 * 4`
 
-The runtime task is `dynamic_conditional`: the model is called once per time
-step with the same die field and a scalar normalized time value.
+At runtime, each model call predicts one timestep:
+
+```text
+model(coords, fx, T=t) -> (batch, points, 4)
+```
+
+The full prediction used for validation and testing is built by concatenating the 20 time-conditioned outputs:
+
+```text
+(batch, points, 4) * 20 -> (batch, points, 80)
+```
+
+This is not autoregressive: previous predictions are not fed back into the next step. The time scalar tells the model which deformation state to predict.
 
 ## Splits
 
@@ -33,7 +50,7 @@ selection.
 
 ## Channel Semantics
 
-The four output channels are:
+The four output channels at each timestep are:
 
 - channel `0`: deformed physical `x` coordinate
 - channel `1`: deformed physical `y` coordinate
@@ -63,13 +80,66 @@ python scripts/diagnostics/plasticity/plasticity_channel_probe.py \
   --samples 0
 ```
 
-## Runnable Configs
+## Metrics And Plots
+For mesh visualizations, the unconstrained output has two possible geometry sources:
 
-- [`configs/experiments/plasticity/fno.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/plasticity/fno.yaml)
-- [`scripts/sweeps/plasticity_backbones_train.sh`](/Users/bruno/Documents/Y4/FYP/omni_hc/scripts/sweeps/plasticity_backbones_train.sh)
+- direct coordinate channels: `[x, y]`
+- displacement-derived coordinates: `[x_ref, y_ref] + [u_x, u_y]`
 
-Example:
+OmniHC plots their average:
+
+```text
+plot_xy = 0.5 * ([x, y] + ([x_ref, y_ref] + [u_x, u_y]))
+```
+
+For constrained runs these two sources agree by construction because the
+constraint builds the displacement from the reconstructed coordinates.
+
+## Hard Constraints
+
+The documented hard-constraint variant is:
+
+- [PlasticityMeshConsistencyConstraint](../constraints/plasticity/PlasticityMeshConsistencyConstraint.md):
+  reconstructs an ordered deformation mesh from positive learned spacings and
+  returns the benchmark target channels `[x, y, u_x, u_y]`.
+
+The shared constraint config is
+[`configs/constraints/plasticity_mesh_consistency.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/constraints/plasticity_mesh_consistency.yaml).
+
+The current baseline experiment config is
+[`configs/experiments/plasticity/fno.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/plasticity/fno.yaml).
+
+Example unconstrained run:
 
 ```bash
 python scripts/train.py --benchmark plasticity --backbone FNO --budget debug
+```
+
+Example constrained run:
+
+```bash
+python scripts/train.py \
+  --benchmark plasticity \
+  --backbone FNO \
+  --constraint plasticity_mesh_consistency \
+  --budget debug
+```
+
+## Dataset Checks
+
+Generate the forging rollout figure used above with:
+
+```bash
+python scripts/diagnostics/plasticity/plasticity_forging_gif.py \
+  --data-dir data/plasticity \
+  --sample 100
+```
+
+Inspect channel consistency with:
+
+```bash
+python scripts/diagnostics/plasticity/plasticity_channel_probe.py \
+  --data-dir data/plasticity \
+  --summary-samples 64 \
+  --samples 0
 ```
