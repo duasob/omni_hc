@@ -86,6 +86,28 @@ def test_elasticity_deviatoric_stress_config_builds_scalar_constraint():
     assert "constraint/det_c_abs_error_max" in out.diagnostics
 
 
+def test_plasticity_mesh_consistency_config_builds_ordered_mesh():
+    height, width = 4, 3
+    pred = torch.zeros(2, height * width, 3)
+    cfg = load_yaml_file("configs/constraints/plasticity_mesh_consistency.yaml")
+    cfg["constraint"]["x_left"] = 0.35
+    cfg["constraint"]["x_right"] = -1.15
+    cfg["constraint"]["y_top"] = 0.9
+    cfg["constraint"]["y_bottom"] = -0.1
+
+    model = _build_constraint(
+        DummyBackbone(pred),
+        _args(out_dim=3, shapelist=(height, width)),
+        cfg,
+    )
+    out = model(return_aux=True)
+
+    assert isinstance(model, ConstrainedModel)
+    assert out.pred.shape == (2, height * width, 4)
+    assert "constraint/bottom_y_abs_error_max" in out.diagnostics
+    assert "constraint/axis_order_margin_min" in out.diagnostics
+
+
 def test_constraint_backbone_out_dim_overrides_backbone_output_only():
     cfg = {
         "model": {

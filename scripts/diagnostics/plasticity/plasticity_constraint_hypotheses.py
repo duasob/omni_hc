@@ -66,6 +66,15 @@ def parse_args() -> argparse.Namespace:
         help="Minimum oriented cell area tolerance for no-foldover checks.",
     )
     parser.add_argument(
+        "--axis-order-tol",
+        type=float,
+        default=0.0,
+        help=(
+            "Minimum signed nearest-neighbor coordinate spacing for the stronger "
+            "axis-aligned order-preservation check."
+        ),
+    )
+    parser.add_argument(
         "--center-x-tol",
         type=float,
         default=1.0e-3,
@@ -398,6 +407,69 @@ def cell_area_orientation_rows(
         extra={"cell_area_tol": float(area_tol)},
     )
     return summary, violations
+
+
+def axis_aligned_order_rows(
+    output: np.ndarray,
+    *,
+    tol: float,
+    top_k: int,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    coords = output[..., 0:2].astype(np.float64)
+
+    dx_i = coords[:, 1:, :, :, 0] - coords[:, :-1, :, :, 0]
+    dx_initial_sign = np.sign(np.median(dx_i[:, :, :, 0], axis=(1, 2)))
+    dx_initial_sign[dx_initial_sign == 0.0] = 1.0
+    oriented_dx = dx_i * dx_initial_sign[:, None, None, None]
+    dx_violation = np.maximum(tol - oriented_dx, 0.0)
+    dx_summary = violation_summary(
+        name="axis_x_neighbor_order_preserved",
+        values=oriented_dx,
+        violation=dx_violation,
+        extra={
+            "axis_order_tol": float(tol),
+            "interpretation": (
+                "Checks x-coordinate nearest-neighbor order along the first "
+                "grid/material axis is preserved from t=0."
+            ),
+        },
+    )
+    dx_violations = top_index_rows(
+        hypothesis="axis_x_neighbor_order_preserved",
+        values=oriented_dx,
+        violation=dx_violation,
+        axis_names=("sample", "edge_i", "j", "timestep"),
+        top_k=top_k,
+        extra={"axis_order_tol": float(tol)},
+    )
+
+    dy_j = coords[:, :, 1:, :, 1] - coords[:, :, :-1, :, 1]
+    dy_initial_sign = np.sign(np.median(dy_j[:, :, :, 0], axis=(1, 2)))
+    dy_initial_sign[dy_initial_sign == 0.0] = 1.0
+    oriented_dy = dy_j * dy_initial_sign[:, None, None, None]
+    dy_violation = np.maximum(tol - oriented_dy, 0.0)
+    dy_summary = violation_summary(
+        name="axis_y_neighbor_order_preserved",
+        values=oriented_dy,
+        violation=dy_violation,
+        extra={
+            "axis_order_tol": float(tol),
+            "interpretation": (
+                "Checks y-coordinate nearest-neighbor order along the second "
+                "grid/material axis is preserved from t=0."
+            ),
+        },
+    )
+    dy_violations = top_index_rows(
+        hypothesis="axis_y_neighbor_order_preserved",
+        values=oriented_dy,
+        violation=dy_violation,
+        axis_names=("sample", "i", "edge_j", "timestep"),
+        top_k=top_k,
+        extra={"axis_order_tol": float(tol)},
+    )
+
+    return [dx_summary, dy_summary], dx_violations + dy_violations
 
 
 def center_x_drift_rows(
@@ -1339,6 +1411,8 @@ def main() -> None:
         raise ValueError("--area-rel-tol must be non-negative")
     if args.cell_area_tol < 0.0:
         raise ValueError("--cell-area-tol must be non-negative")
+    if args.axis_order_tol < 0.0:
+        raise ValueError("--axis-order-tol must be non-negative")
     if args.center_x_tol < 0.0:
         raise ValueError("--center-x-tol must be non-negative")
     if args.mean_ux_tol < 0.0:
@@ -1434,6 +1508,14 @@ def main() -> None:
         top_k=int(args.top_k),
     )
     summaries.append(summary)
+    violations.extend(rows)
+
+    axis_order_summaries, rows = axis_aligned_order_rows(
+        output,
+        tol=float(args.axis_order_tol),
+        top_k=int(args.top_k),
+    )
+    summaries.extend(axis_order_summaries)
     violations.extend(rows)
 
     summary, rows = center_x_drift_rows(

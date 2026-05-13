@@ -1,0 +1,10 @@
+constraint:
+  name: "plasticity_mesh_consistency"
+  backbone_out_dim: 3
+  target_out_dim: 4
+  spacing_activation: "softplus"
+  min_spacing: 1.0e-6
+  x_left: 0.35000038
+  x_right: -49.65
+  y_top: 14.9
+  y_bottom: -0.099999905
