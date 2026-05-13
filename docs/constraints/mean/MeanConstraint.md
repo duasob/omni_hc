@@ -2,10 +2,7 @@
 
 ![model_diagram](../../figures/ns/model_diagram.png)
 
-The Navier-Stokes benchmark predicts vorticity on a periodic grid. In this
-setting, the zero Fourier mode should stay fixed, so the spatial mean of the
-predicted field should remain constant. OmniHC enforces that invariant with a
-mean-correction wrapper in [src/omni_hc/constraints/mean.py](/Users/bruno/Documents/Y4/FYP/omni_hc/src/omni_hc/constraints/mean.py).
+The Navier-Stokes benchmark predicts vorticity on a periodic grid. In this setting, the zero Fourier mode should stay fixed, so the spatial mean of the predicted field should remain constant.
 
 ## Mechanism
 
@@ -56,10 +53,9 @@ Original results are taken from [here](https://arxiv.org/abs/2402.02366). Furthe
 | Model                            | Original Model Relative L2 | Hard Constrained Model Relative L2 |
 | -------------------------------- | -------------------------- | ---------------------------------- |
 | Galerkin Transformer (Cao, 2021) | 0.1401                     | 0.103730                           |
-| GNOT (HAO ET AL., 2023)          | 0.1380                     |                                    |
-| FACTFORMER (LI ET AL., 2023D)    | 0.1214                     |                                    |
-| ONO (XIAO ET AL., 2024)          | 0.1195                     |                                    |
-| TRANSOLVER (WU ET AL 2024)       | 0.0900                     |                                    |
+| FACTFORMER (LI ET AL., 2023D)    | 0.1214                     | 0.075955                           |
+| ONO (XIAO ET AL., 2024)          | 0.1195                     | 0.152669                           |
+| TRANSOLVER (WU ET AL 2024)       | 0.0900                     | 0.096941                           |
 
 ## Tests
 
