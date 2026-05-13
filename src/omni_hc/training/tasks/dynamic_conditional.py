@@ -27,6 +27,7 @@ from omni_hc.training.common import (
 from omni_hc.training.logging_utils import (
     finish_wandb_if_active,
     init_wandb_if_enabled,
+    log_plasticity_mesh_consistency_media,
     log_metrics,
 )
 
@@ -236,6 +237,8 @@ def train_dynamic_conditional_task(
     best_selection_metric = "val/rel_l2" if has_validation else "train/loss"
     wandb_cfg = cfg.get("wandb_logging", {}) or {}
     log_every = normalize_interval(wandb_cfg.get("log_every", 100))
+    image_log_every = normalize_interval(wandb_cfg.get("image_log_every"))
+    plasticity_video_fps = int(wandb_cfg.get("plasticity_video_fps", 4))
 
     init_wandb_if_enabled(cfg)
     try:
@@ -330,6 +333,61 @@ def train_dynamic_conditional_task(
             epoch_step = (epoch + 1) * len(train_loader)
             val_metrics = None
             if has_validation:
+                if (
+                    image_log_every is not None
+                    and image_log_every > 0
+                    and epoch % image_log_every == 0
+                    and str(meta.get("loader", "")) == "plas"
+                ):
+                    model.eval()
+                    with torch.no_grad():
+                        sampled_idx = random.randint(0, max(len(val_loader) - 1, 0))
+                        for val_step, batch in enumerate(val_loader):
+                            if val_step != sampled_idx:
+                                continue
+                            coords, time, fx, target = prepare_batch(
+                                batch,
+                                device=device,
+                            )
+                            pred, *_ = rollout_dynamic_conditional(
+                                model,
+                                coords,
+                                fx,
+                                time,
+                                target,
+                                t_out=t_out,
+                                out_dim=out_dim,
+                                y_normalizer=y_normalizer,
+                                step_loss_fn=nsl_l2_loss,
+                            )
+                            final_time = time[:, -1:].reshape(coords.shape[0], 1)
+                            final_out = forward_with_optional_aux(
+                                model,
+                                coords,
+                                fx,
+                                T=final_time,
+                            )
+                            pred_decoded = _decode_if_needed(y_normalizer, pred)
+                            target_decoded = _decode_if_needed(y_normalizer, target)
+                            shapelist = tuple(meta.get("shapelist", ()))
+                            if len(shapelist) == 2:
+                                h, w = shapelist
+                                log_plasticity_mesh_consistency_media(
+                                    pred_decoded,
+                                    target_decoded,
+                                    h,
+                                    w,
+                                    t_out=t_out,
+                                    out_dim=out_dim,
+                                    prefix="validation",
+                                    epoch=epoch,
+                                    aux_tensors=final_out["aux_tensors"],
+                                    step=epoch_step,
+                                    fps=plasticity_video_fps,
+                                )
+                            break
+                    model.train()
+
                 val_metrics = evaluate_dynamic_conditional(
                     model,
                     val_loader,

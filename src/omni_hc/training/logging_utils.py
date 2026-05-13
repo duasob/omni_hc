@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/omni_hc_matplotlib")
 
@@ -16,6 +17,11 @@ try:
     import matplotlib.pyplot as plt
 except Exception:  # pragma: no cover - optional dependency
     plt = None
+
+try:
+    from PIL import Image
+except Exception:  # pragma: no cover - optional dependency
+    Image = None
 
 
 def init_wandb_if_enabled(cfg: dict):
@@ -89,6 +95,12 @@ def _to_red_blue_rgb(image):
     blue = np.clip(-norm, 0.0, 1.0)
     rgb = np.stack([red, np.zeros_like(red), blue], axis=-1)
     return (rgb * 255).astype("uint8")
+
+
+def _figure_to_chw_frame(fig):
+    fig.canvas.draw()
+    rgb = np.asarray(fig.canvas.buffer_rgba())[..., :3].copy()
+    return np.transpose(rgb, (2, 0, 1))
 
 
 def log_prediction_images(pred, target, fx, h, w, *, prefix, epoch, step=None):
@@ -419,6 +431,269 @@ def log_unstructured_point_cloud_images(
             fig_aux.tight_layout()
             payload[f"{prefix}/elasticity_latents"] = wandb.Image(fig_aux)
             plt.close(fig_aux)
+
+    wandb.log(payload, step=step)
+
+
+def _reshape_plasticity_sequence(tensor, h, w, t_out, out_dim):
+    return (
+        tensor[0]
+        .detach()
+        .cpu()
+        .reshape(h, w, int(t_out), int(out_dim))
+        .numpy()
+    )
+
+
+def _plasticity_signed_cell_areas(coords):
+    p00 = coords[:-1, :-1]
+    p10 = coords[1:, :-1]
+    p11 = coords[1:, 1:]
+    p01 = coords[:-1, 1:]
+    vertices = np.stack((p00, p10, p11, p01), axis=-2)
+    x = vertices[..., 0]
+    y = vertices[..., 1]
+    return 0.5 * (
+        np.sum(x * np.roll(y, shift=-1, axis=-1), axis=-1)
+        - np.sum(y * np.roll(x, shift=-1, axis=-1), axis=-1)
+    )
+
+
+def _plot_plasticity_mesh(
+    ax,
+    coords,
+    *,
+    title,
+    color="#2563eb",
+    linewidth=0.28,
+    alpha=0.72,
+):
+    for i in range(coords.shape[0]):
+        ax.plot(
+            coords[i, :, 0],
+            coords[i, :, 1],
+            color=color,
+            linewidth=linewidth,
+            alpha=alpha,
+        )
+    for j in range(coords.shape[1]):
+        ax.plot(
+            coords[:, j, 0],
+            coords[:, j, 1],
+            color=color,
+            linewidth=linewidth,
+            alpha=alpha,
+        )
+    ax.set_title(title)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.grid(True, linewidth=0.35, alpha=0.15)
+
+
+def _set_plasticity_mesh_limits(ax, *coord_sets):
+    finite_coords = [
+        coords.reshape(-1, 2)
+        for coords in coord_sets
+        if coords is not None and np.isfinite(coords).any()
+    ]
+    if not finite_coords:
+        return
+    merged = np.concatenate(finite_coords, axis=0)
+    x_min, y_min = np.nanmin(merged, axis=0)
+    x_max, y_max = np.nanmax(merged, axis=0)
+    x_span = max(float(x_max - x_min), 1.0e-6)
+    y_span = max(float(y_max - y_min), 1.0e-6)
+    ax.set_xlim(float(x_min) - 0.05 * x_span, float(x_max) + 0.05 * x_span)
+    ax.set_ylim(float(y_min) - 0.05 * y_span, float(y_max) + 0.05 * y_span)
+
+
+def _make_plasticity_final_mesh_figure(pred_seq, target_seq):
+    pred_final = pred_seq[:, :, -1, :2]
+    target_final = target_seq[:, :, -1, :2]
+    coord_error = np.linalg.norm(pred_final - target_final, axis=-1)
+    err_max = max(float(np.nanmax(coord_error)), 1.0e-12)
+
+    fig, axes = plt.subplots(1, 3, figsize=(15.0, 4.2), dpi=140)
+    _plot_plasticity_mesh(
+        axes[0],
+        target_final,
+        title="target final mesh",
+        color="#0f766e",
+    )
+    _plot_plasticity_mesh(
+        axes[1],
+        pred_final,
+        title="predicted final mesh",
+        color="#2563eb",
+    )
+    _plot_plasticity_mesh(
+        axes[2],
+        target_final,
+        title="overlay and point error",
+        color="#0f766e",
+        alpha=0.42,
+    )
+    _plot_plasticity_mesh(
+        axes[2],
+        pred_final,
+        title="overlay and point error",
+        color="#dc2626",
+        alpha=0.52,
+    )
+    scatter = axes[2].scatter(
+        pred_final[..., 0].reshape(-1),
+        pred_final[..., 1].reshape(-1),
+        c=coord_error.reshape(-1),
+        s=4.0,
+        cmap="magma",
+        vmin=0.0,
+        vmax=err_max,
+        linewidths=0,
+        alpha=0.9,
+    )
+    for ax in axes:
+        _set_plasticity_mesh_limits(ax, pred_final, target_final)
+    fig.colorbar(scatter, ax=axes[2], fraction=0.046, pad=0.04).set_label(
+        "coordinate error"
+    )
+    fig.tight_layout()
+    return fig
+
+
+def _make_plasticity_consistency_figure(pred_seq, aux_tensors):
+    pred_final = pred_seq[:, :, -1, :2]
+    dx = aux_tensors.get("dx")
+    dy = aux_tensors.get("dy")
+    dx_np = None if dx is None else dx[0].detach().cpu().numpy()
+    dy_np = None if dy is None else dy[0].detach().cpu().numpy()
+    area = _plasticity_signed_cell_areas(pred_final)
+    orientation = np.sign(np.nanmean(area))
+    if orientation == 0:
+        orientation = 1.0
+    oriented_area = area * orientation
+
+    fig, axes = plt.subplots(1, 3, figsize=(13.0, 3.8), dpi=140)
+    if dx_np is not None:
+        im0 = axes[0].imshow(dx_np.T, origin="lower", aspect="auto", cmap="viridis")
+        fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+    axes[0].set_title("positive dx spacing")
+    axes[0].set_xlabel("i")
+    axes[0].set_ylabel("j")
+
+    if dy_np is not None:
+        im1 = axes[1].imshow(dy_np.T, origin="lower", aspect="auto", cmap="viridis")
+        fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+    axes[1].set_title("positive dy spacing")
+    axes[1].set_xlabel("i")
+    axes[1].set_ylabel("j")
+
+    im2 = axes[2].imshow(
+        oriented_area.T,
+        origin="lower",
+        aspect="auto",
+        cmap="magma",
+    )
+    axes[2].set_title("oriented cell area")
+    axes[2].set_xlabel("i")
+    axes[2].set_ylabel("j")
+    fig.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+    fig.tight_layout()
+    return fig
+
+
+def _make_plasticity_rollout_video(pred_seq, target_seq, *, fps):
+    if Image is None:
+        return None
+
+    frames = []
+    t_out = int(pred_seq.shape[2])
+    for timestep in range(t_out):
+        pred_t = pred_seq[:, :, timestep, :2]
+        target_t = target_seq[:, :, timestep, :2]
+        fig, ax = plt.subplots(figsize=(6.8, 4.6), dpi=120)
+        _plot_plasticity_mesh(
+            ax,
+            target_t,
+            title=f"mesh rollout t={timestep}",
+            color="#0f766e",
+            linewidth=0.24,
+            alpha=0.35,
+        )
+        _plot_plasticity_mesh(
+            ax,
+            pred_t,
+            title=f"mesh rollout t={timestep}",
+            color="#dc2626",
+            linewidth=0.28,
+            alpha=0.72,
+        )
+        _set_plasticity_mesh_limits(ax, pred_seq[..., :2], target_seq[..., :2])
+        fig.tight_layout()
+        frames.append(np.transpose(_figure_to_chw_frame(fig), (1, 2, 0)))
+        plt.close(fig)
+
+    handle = tempfile.NamedTemporaryFile(
+        suffix=".gif",
+        prefix="omni_hc_plasticity_mesh_",
+        delete=False,
+    )
+    handle.close()
+    duration_ms = max(int(1000 / max(int(fps), 1)), 1)
+    pil_frames = [Image.fromarray(frame) for frame in frames]
+    pil_frames[0].save(
+        handle.name,
+        save_all=True,
+        append_images=pil_frames[1:],
+        duration=duration_ms,
+        loop=0,
+    )
+    return wandb.Video(handle.name, fps=int(fps), format="gif")
+
+
+def log_plasticity_mesh_consistency_media(
+    pred,
+    target,
+    h,
+    w,
+    *,
+    t_out,
+    out_dim,
+    prefix,
+    epoch,
+    aux_tensors=None,
+    step=None,
+    fps=4,
+):
+    if wandb is None or getattr(wandb, "run", None) is None or plt is None:
+        return
+
+    pred_seq = _reshape_plasticity_sequence(pred, h, w, int(t_out), int(out_dim))
+    target_seq = _reshape_plasticity_sequence(target, h, w, int(t_out), int(out_dim))
+    payload = {"epoch": epoch + 1}
+
+    fig_final = _make_plasticity_final_mesh_figure(pred_seq, target_seq)
+    payload[f"{prefix}/plasticity_mesh_final"] = wandb.Image(fig_final)
+    plt.close(fig_final)
+
+    if aux_tensors is not None:
+        fig_consistency = _make_plasticity_consistency_figure(pred_seq, aux_tensors)
+        payload[f"{prefix}/plasticity_mesh_consistency"] = wandb.Image(
+            fig_consistency
+        )
+        plt.close(fig_consistency)
+
+    if hasattr(wandb, "Video"):
+        try:
+            video = _make_plasticity_rollout_video(pred_seq, target_seq, fps=fps)
+        except Exception as exc:
+            print(
+                f"W&B plasticity GIF logging skipped "
+                f"({type(exc).__name__}: {exc})."
+            )
+            video = None
+        if video is not None:
+            payload[f"{prefix}/plasticity_mesh_rollout"] = video
 
     wandb.log(payload, step=step)
 

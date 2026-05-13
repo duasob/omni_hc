@@ -61,6 +61,22 @@ def test_constraint_alias_resolves_to_config_parameters():
     assert "configs/constraints/darcy_flux_projection.yaml" in cfg["experiment"]["source_configs"]
 
 
+def test_plasticity_mesh_consistency_alias_resolves_to_config_parameters():
+    cfg = compose_run_config(
+        benchmark="plasticity",
+        backbone="FNO",
+        constraint="plasticity_mesh_consistency",
+        budget="debug",
+    )
+
+    assert cfg["constraint"]["name"] == "plasticity_mesh_consistency"
+    assert cfg["constraint"]["backbone_out_dim"] == 3
+    assert cfg["constraint"]["target_out_dim"] == 4
+    assert "configs/constraints/plasticity_mesh_consistency.yaml" in cfg[
+        "experiment"
+    ]["source_configs"]
+
+
 def test_explicit_unknown_constraint_fails_fast():
     with pytest.raises(FileNotFoundError):
         compose_run_config(

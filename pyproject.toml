@@ -22,7 +22,7 @@ dev = [
 experiments = [
   "nystrom-attention>=0.0.11",
   "optuna>=4.0",
-  "wandb>=0.18",
+  "wandb[media]>=0.18",
 ]
 
 [tool.setuptools]

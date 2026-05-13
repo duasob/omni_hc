@@ -13,6 +13,7 @@ from omni_hc.constraints import (
     ForwardHookLatentExtractor,
     MeanConstraint,
     PipeInletParabolicAnsatz,
+    PlasticityMeshConsistencyConstraint,
     PipeStreamFunctionBoundaryAnsatz,
     PipeStreamFunctionUxConstraint,
     PipeUxBoundaryAnsatz,
@@ -280,13 +281,44 @@ def _build_constraint(backbone: torch.nn.Module, args, cfg: dict):
                 param.requires_grad = False
         return wrapped
 
+    if name in {
+        "plasticity_mesh_consistency",
+        "plasticity_axis_order",
+        "plasticity_positive_spacings",
+        "plasticity_cell_axis_order",
+    }:
+        constraint = PlasticityMeshConsistencyConstraint(
+            shapelist=getattr(args, "shapelist", None),
+            backbone_out_dim=int(constraint_cfg.get("backbone_out_dim", args.out_dim)),
+            target_out_dim=int(
+                constraint_cfg.get(
+                    "target_out_dim",
+                    getattr(args, "constraint_target_out_dim", 4),
+                )
+            ),
+            x_left=float(constraint_cfg.get("x_left", 0.35000038)),
+            x_right=float(constraint_cfg.get("x_right", -49.65)),
+            y_top=float(constraint_cfg.get("y_top", 14.9)),
+            y_bottom=float(constraint_cfg.get("y_bottom", -0.099999905)),
+            spacing_activation=str(
+                constraint_cfg.get("spacing_activation", "softplus")
+            ),
+            min_spacing=float(constraint_cfg.get("min_spacing", 1.0e-6)),
+        )
+        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
+        if bool(constraint_cfg.get("freeze_base", False)):
+            for param in wrapped.backbone.parameters():
+                param.requires_grad = False
+        return wrapped
+
     if name not in {"mean_correction", "mean_constraint"}:
         raise ValueError(
             "Unsupported constraint "
             f"'{name}'. Currently supported: mean_correction, dirichlet_ansatz, "
             "structured_wall_dirichlet, pipe_inlet_parabolic, pipe_ux_boundary, "
             "pipe_stream_function_ux, pipe_stream_function_boundary, "
-            "darcy_flux_projection, elasticity_deviatoric_stress"
+            "darcy_flux_projection, elasticity_deviatoric_stress, "
+            "plasticity_mesh_consistency"
         )
 
     mode = str(constraint_cfg.get("mode", "post_output")).lower()
