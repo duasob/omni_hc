@@ -29,6 +29,7 @@ from omni_hc.training.logging_utils import (
     init_wandb_if_enabled,
     log_plasticity_mesh_consistency_media,
     log_metrics,
+    save_plasticity_mesh_consistency_media,
 )
 
 
@@ -511,9 +512,58 @@ def test_dynamic_conditional_task(
         t_out=int(meta["t_out"]),
         out_dim=int(meta["out_dim"]),
     )
+    media_paths = {}
+    if str(meta.get("loader", "")) == "plas":
+        media_dir = output_dir / "test_media"
+        t_out = int(meta["t_out"])
+        out_dim = int(meta["out_dim"])
+        plasticity_video_fps = int(
+            (cfg.get("wandb_logging", {}) or {}).get("plasticity_video_fps", 4)
+        )
+        model.eval()
+        with torch.no_grad():
+            for batch in test_loader:
+                coords, time, fx, target = prepare_batch(batch, device=device)
+                pred, *_ = rollout_dynamic_conditional(
+                    model,
+                    coords,
+                    fx,
+                    time,
+                    target,
+                    t_out=t_out,
+                    out_dim=out_dim,
+                    y_normalizer=y_normalizer,
+                    step_loss_fn=_build_nsl_l2_loss(),
+                )
+                final_time = time[:, -1:].reshape(coords.shape[0], 1)
+                final_out = forward_with_optional_aux(
+                    model,
+                    coords,
+                    fx,
+                    T=final_time,
+                )
+                pred_decoded = _decode_if_needed(y_normalizer, pred)
+                target_decoded = _decode_if_needed(y_normalizer, target)
+                shapelist = tuple(meta.get("shapelist", ()))
+                if len(shapelist) == 2:
+                    h, w = shapelist
+                    media_paths = save_plasticity_mesh_consistency_media(
+                        pred_decoded,
+                        target_decoded,
+                        h,
+                        w,
+                        t_out=t_out,
+                        out_dim=out_dim,
+                        out_dir=media_dir,
+                        prefix="test",
+                        aux_tensors=final_out["aux_tensors"],
+                        fps=plasticity_video_fps,
+                    )
+                break
     return {
         "checkpoint": str(Path(checkpoint_path).resolve()),
         "metrics": metrics,
+        "media": media_paths,
         "resolved_nsl_root": str(resolved_nsl_root),
         "model_args": vars(model_args),
     }
