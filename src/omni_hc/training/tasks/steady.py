@@ -30,6 +30,8 @@ from omni_hc.training.logging_utils import (
     log_metrics,
     log_steady_field_images,
     log_unstructured_point_cloud_images,
+    save_steady_field_images,
+    save_unstructured_point_cloud_images,
 )
 
 
@@ -596,9 +598,46 @@ def test_steady_task(
         debug_nan_checks=debug_nan_checks,
         raise_on_nonfinite=raise_on_nonfinite,
     )
+    media_paths = {}
+    media_dir = output_dir / "test_media"
+    point_size = float((cfg.get("wandb_logging", {}) or {}).get("point_size", 24.0))
+    model.eval()
+    with torch.no_grad():
+        for batch in test_loader:
+            coords, fx, target = prepare_batch(batch, device=device)
+            out = forward_with_optional_aux(model, coords, fx)
+            pred_decoded = _decode_if_needed(y_normalizer, out["pred"])
+            target_decoded = _decode_if_needed(y_normalizer, target)
+            shapelist = tuple(meta.get("shapelist", ()))
+            if len(shapelist) == 2:
+                h, w = shapelist
+                image_coords = _decode_if_needed(x_normalizer, fx)
+                media_paths = save_steady_field_images(
+                    image_coords,
+                    pred_decoded,
+                    target_decoded,
+                    h,
+                    w,
+                    out_dir=media_dir,
+                    prefix="test",
+                    aux_tensors=out["aux_tensors"],
+                )
+            elif str(meta.get("geotype", "")) == "unstructured":
+                image_coords = _decode_if_needed(x_normalizer, coords)
+                media_paths = save_unstructured_point_cloud_images(
+                    image_coords,
+                    pred_decoded,
+                    target_decoded,
+                    out_dir=media_dir,
+                    prefix="test",
+                    aux_tensors=out["aux_tensors"],
+                    point_size=point_size,
+                )
+            break
     return {
         "checkpoint": str(Path(checkpoint_path).resolve()),
         "metrics": metrics,
+        "media": media_paths,
         "resolved_nsl_root": str(resolved_nsl_root),
         "model_args": vars(model_args),
     }

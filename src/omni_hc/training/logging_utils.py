@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from pathlib import Path
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/omni_hc_matplotlib")
 
@@ -97,10 +98,54 @@ def _to_red_blue_rgb(image):
     return (rgb * 255).astype("uint8")
 
 
+def _to_red_blue_rgb_with_scale(image, *, scale: float):
+    img = image.detach().cpu().numpy()
+    if scale <= 0:
+        scale = 1e-12
+    norm = np.clip(img / scale, -1.0, 1.0)
+    red = np.clip(norm, 0.0, 1.0)
+    blue = np.clip(-norm, 0.0, 1.0)
+    rgb = np.stack([red, np.zeros_like(red), blue], axis=-1)
+    return (rgb * 255).astype("uint8")
+
+
 def _figure_to_chw_frame(fig):
     fig.canvas.draw()
     rgb = np.asarray(fig.canvas.buffer_rgba())[..., :3].copy()
     return np.transpose(rgb, (2, 0, 1))
+
+
+def _save_rgb_image(path: Path, rgb: np.ndarray) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if Image is not None:
+        Image.fromarray(rgb).save(path)
+    elif plt is not None:
+        plt.imsave(path, rgb)
+    else:
+        raise RuntimeError("Saving images requires PIL or matplotlib.")
+    return path
+
+
+def _save_figure(path: Path, fig) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, bbox_inches="tight")
+    return path
+
+
+def _write_gif(frames, path: Path, *, fps: int) -> Path | None:
+    if Image is None or not frames:
+        return None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    duration_ms = max(int(1000 / max(int(fps), 1)), 1)
+    pil_frames = [Image.fromarray(frame) for frame in frames]
+    pil_frames[0].save(
+        path,
+        save_all=True,
+        append_images=pil_frames[1:],
+        duration=duration_ms,
+        loop=0,
+    )
+    return path
 
 
 def log_prediction_images(pred, target, fx, h, w, *, prefix, epoch, step=None):
@@ -124,6 +169,162 @@ def log_prediction_images(pred, target, fx, h, w, *, prefix, epoch, step=None):
         },
         step=step,
     )
+
+
+def save_prediction_images(pred, target, fx, h, w, *, out_dir, prefix="test"):
+    out_dir = Path(out_dir)
+    input_img = fx[0, :, 0].view(h, w)
+    pred_img = pred[0, :, 0].view(h, w)
+    target_img = target[0, :, 0].view(h, w)
+    diff_img = pred_img - target_img
+
+    pred_merge = torch.cat([input_img, pred_img], dim=1)
+    target_merge = torch.cat([input_img, target_img], dim=1)
+    return {
+        "pred": str(
+            _save_rgb_image(
+                out_dir / f"{prefix}_pred.png",
+                _to_grayscale_rgb(pred_merge),
+            )
+        ),
+        "target": str(
+            _save_rgb_image(
+                out_dir / f"{prefix}_target.png",
+                _to_grayscale_rgb(target_merge),
+            )
+        ),
+        "error": str(
+            _save_rgb_image(
+                out_dir / f"{prefix}_error.png",
+                _to_red_blue_rgb(diff_img),
+            )
+        ),
+    }
+
+
+def _make_rollout_video(frames, *, fps):
+    if Image is None or not hasattr(wandb, "Video"):
+        return None
+    if not frames:
+        return None
+
+    handle = tempfile.NamedTemporaryFile(
+        suffix=".gif",
+        prefix="omni_hc_ns_rollout_",
+        delete=False,
+    )
+    handle.close()
+    _write_gif(frames, Path(handle.name), fps=fps)
+    return wandb.Video(handle.name, fps=int(fps), format="gif")
+
+
+def _rollout_gif_frames(pred, target, h, w, *, out_dim):
+    pred_seq = pred[0].detach().cpu().reshape(h, w, -1, int(out_dim))
+    target_seq = target[0].detach().cpu().reshape(h, w, -1, int(out_dim))
+    pred_seq = pred_seq[..., 0]
+    target_seq = target_seq[..., 0]
+    error_seq = pred_seq - target_seq
+
+    value_min = float(min(pred_seq.min().item(), target_seq.min().item()))
+    value_max = float(max(pred_seq.max().item(), target_seq.max().item()))
+    err_abs = float(error_seq.abs().max().item())
+    if err_abs <= 0.0:
+        err_abs = 1e-12
+
+    rollout_frames = []
+    error_frames = []
+    for t_idx in range(pred_seq.shape[2]):
+        target_rgb = _to_grayscale_rgb(
+            target_seq[:, :, t_idx],
+            vmin=value_min,
+            vmax=value_max,
+        )
+        pred_rgb = _to_grayscale_rgb(
+            pred_seq[:, :, t_idx],
+            vmin=value_min,
+            vmax=value_max,
+        )
+        error_rgb = _to_red_blue_rgb_with_scale(error_seq[:, :, t_idx], scale=err_abs)
+        rollout_frames.append(np.concatenate([target_rgb, pred_rgb], axis=1))
+        error_frames.append(error_rgb)
+    return rollout_frames, error_frames
+
+
+def log_rollout_gifs(
+    pred,
+    target,
+    h,
+    w,
+    *,
+    out_dim,
+    prefix,
+    epoch,
+    step=None,
+    fps=4,
+):
+    if wandb is None or getattr(wandb, "run", None) is None:
+        return
+    if Image is None or not hasattr(wandb, "Video"):
+        return
+
+    rollout_frames, error_frames = _rollout_gif_frames(
+        pred,
+        target,
+        h,
+        w,
+        out_dim=out_dim,
+    )
+
+    payload = {"epoch": epoch + 1}
+    try:
+        rollout_video = _make_rollout_video(rollout_frames, fps=fps)
+        error_video = _make_rollout_video(error_frames, fps=fps)
+    except Exception as exc:
+        print(f"W&B rollout GIF logging skipped ({type(exc).__name__}: {exc}).")
+        return
+    if rollout_video is not None:
+        payload[f"{prefix}/rollout"] = rollout_video
+    if error_video is not None:
+        payload[f"{prefix}/rollout_error"] = error_video
+    if len(payload) > 1:
+        wandb.log(payload, step=step)
+
+
+def save_rollout_gifs(
+    pred,
+    target,
+    h,
+    w,
+    *,
+    out_dim,
+    out_dir,
+    prefix="test",
+    fps=4,
+):
+    rollout_frames, error_frames = _rollout_gif_frames(
+        pred,
+        target,
+        h,
+        w,
+        out_dim=out_dim,
+    )
+    out_dir = Path(out_dir)
+    paths = {}
+    rollout_path = _write_gif(
+        rollout_frames,
+        out_dir / f"{prefix}_rollout.gif",
+        fps=fps,
+    )
+    error_path = _write_gif(
+        error_frames,
+        out_dir / f"{prefix}_rollout_error.gif",
+        fps=fps,
+    )
+    if rollout_path is not None:
+        paths["rollout"] = str(rollout_path)
+    if error_path is not None:
+        paths["rollout_error"] = str(error_path)
+    return paths
 
 
 def _plot_grid_image(ax, image, *, title, cmap="viridis", vmin=None, vmax=None):
@@ -258,6 +459,81 @@ def log_steady_field_images(
         plt.close(fig)
 
     wandb.log(payload, step=step)
+
+
+def save_steady_field_images(
+    coeff,
+    pred,
+    target,
+    h,
+    w,
+    *,
+    out_dir,
+    prefix="test",
+    aux_tensors=None,
+):
+    if coeff.shape[-1] >= 2 and plt is not None:
+        return save_pipe_flow_images(
+            coeff,
+            pred,
+            target,
+            h,
+            w,
+            out_dir=out_dir,
+            prefix=prefix,
+            aux_tensors=aux_tensors,
+        )
+
+    out_dir = Path(out_dir)
+    coeff_img = coeff[0, :, 0].view(h, w)
+    pred_img = pred[0, :, 0].view(h, w)
+    target_img = target[0, :, 0].view(h, w)
+    error_signed = pred_img - target_img
+    error_abs = error_signed.abs()
+
+    pred_vmin = float(min(pred_img.min().item(), target_img.min().item()))
+    pred_vmax = float(max(pred_img.max().item(), target_img.max().item()))
+    abs_vmax = float(error_abs.max().item())
+    if abs_vmax <= 0.0:
+        abs_vmax = 1e-12
+
+    paths = {
+        "coeff": str(
+            _save_rgb_image(
+                out_dir / f"{prefix}_coeff.png",
+                _to_grayscale_rgb(coeff_img),
+            )
+        ),
+        "pred": str(
+            _save_rgb_image(
+                out_dir / f"{prefix}_pred.png",
+                _to_grayscale_rgb(pred_img, vmin=pred_vmin, vmax=pred_vmax),
+            )
+        ),
+        "target": str(
+            _save_rgb_image(
+                out_dir / f"{prefix}_target.png",
+                _to_grayscale_rgb(target_img, vmin=pred_vmin, vmax=pred_vmax),
+            )
+        ),
+        "error_signed": str(
+            _save_rgb_image(
+                out_dir / f"{prefix}_error_signed.png",
+                _to_red_blue_rgb(error_signed),
+            )
+        ),
+        "error_abs": str(
+            _save_rgb_image(
+                out_dir / f"{prefix}_error_abs.png",
+                _to_grayscale_rgb(error_abs, vmin=0.0, vmax=abs_vmax),
+            )
+        ),
+    }
+    if plt is not None:
+        fig = _make_scalar_field_comparison(coeff_img, pred_img, target_img)
+        paths["fields"] = str(_save_figure(out_dir / f"{prefix}_fields.png", fig))
+        plt.close(fig)
+    return paths
 
 
 def _plot_point_cloud_field(
@@ -435,6 +711,171 @@ def log_unstructured_point_cloud_images(
     wandb.log(payload, step=step)
 
 
+def _make_unstructured_point_cloud_figures(
+    coords,
+    pred,
+    target,
+    *,
+    aux_tensors=None,
+    point_size=24.0,
+):
+    coords_np = coords[0].detach().cpu().numpy()
+    pred_np = pred[0, :, 0].detach().cpu().numpy()
+    target_np = target[0, :, 0].detach().cpu().numpy()
+    error_np = pred_np - target_np
+
+    pred_vmin = float(min(pred_np.min(), target_np.min()))
+    pred_vmax = float(max(pred_np.max(), target_np.max()))
+    err_abs = float(np.abs(error_np).max())
+    if err_abs <= 0.0:
+        err_abs = 1e-12
+
+    fig, axes = plt.subplots(1, 3, figsize=(13.5, 4.2), dpi=150)
+    im0 = _plot_point_cloud_field(
+        axes[0],
+        coords_np,
+        target_np,
+        title="target sigma",
+        point_size=point_size,
+        vmin=pred_vmin,
+        vmax=pred_vmax,
+    )
+    im1 = _plot_point_cloud_field(
+        axes[1],
+        coords_np,
+        pred_np,
+        title="predicted sigma",
+        point_size=point_size,
+        vmin=pred_vmin,
+        vmax=pred_vmax,
+    )
+    im2 = _plot_point_cloud_field(
+        axes[2],
+        coords_np,
+        error_np,
+        title="pred - target",
+        point_size=point_size,
+        vmin=-err_abs,
+        vmax=err_abs,
+        cmap="coolwarm",
+    )
+    fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+    fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+    fig.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+    fig.tight_layout()
+
+    fig_aux = None
+    if aux_tensors is not None:
+        latent_keys = [
+            ("theta", "theta", "twilight"),
+            ("theta_raw", "theta raw", "coolwarm"),
+            ("log_lambda", "log lambda", "coolwarm"),
+            ("log_lambda_raw", "log lambda raw", "coolwarm"),
+            ("lambda", "lambda", "magma"),
+            ("det_c", "det C", "coolwarm"),
+            ("right_cauchy_green_c11", "C 11", "viridis"),
+            ("right_cauchy_green_c12", "C 12", "coolwarm"),
+            ("right_cauchy_green_c22", "C 22", "viridis"),
+            ("det_fhat", "det F hat", "coolwarm"),
+            ("i1", "I1", "plasma"),
+            ("i2", "I2", "plasma"),
+            ("stress_11", "stress 11", "viridis"),
+            ("stress_22", "stress 22", "viridis"),
+            ("stress_12", "stress 12", "coolwarm"),
+            ("stress_trace", "stress trace", "viridis"),
+            ("stress_dev_11", "dev stress 11", "coolwarm"),
+            ("stress_dev_22", "dev stress 22", "coolwarm"),
+            ("stress_dev_12", "dev stress 12", "coolwarm"),
+            ("stress_dev_inner", "dev stress inner", "plasma"),
+            ("fhat_11", "F hat 11", "coolwarm"),
+            ("fhat_12", "F hat 12", "coolwarm"),
+            ("fhat_21", "F hat 21", "coolwarm"),
+            ("fhat_22", "F hat 22", "coolwarm"),
+            ("deformation_f11", "F 11", "coolwarm"),
+            ("deformation_f12", "F 12", "coolwarm"),
+            ("deformation_f21", "F 21", "coolwarm"),
+            ("deformation_f22", "F 22", "coolwarm"),
+            ("stretch_raw", "stretch raw", "coolwarm"),
+            ("phi", "phi", "twilight"),
+            ("phi_raw", "phi raw", "coolwarm"),
+            ("amplitude_raw", "amplitude raw", "coolwarm"),
+            ("amplitude", "amplitude", "viridis"),
+            ("directional_stretch", "directional stretch", "plasma"),
+            ("det_f", "det F", "coolwarm"),
+        ]
+        available = [
+            (key, title, cmap)
+            for key, title, cmap in latent_keys
+            if key in aux_tensors
+        ]
+        if available:
+            ncols = min(3, len(available))
+            nrows = int(np.ceil(len(available) / ncols))
+            fig_aux, axes_aux = plt.subplots(
+                nrows,
+                ncols,
+                figsize=(4.5 * ncols, 4.0 * nrows),
+                dpi=150,
+                squeeze=False,
+            )
+            for ax, (key, title, cmap) in zip(axes_aux.ravel(), available):
+                values = aux_tensors[key][0, :, 0].detach().cpu().numpy()
+                vmin = vmax = None
+                if key in {"det_f", "det_c"}:
+                    spread = max(float(np.abs(values - 1.0).max()), 1e-12)
+                    vmin = 1.0 - spread
+                    vmax = 1.0 + spread
+                im = _plot_point_cloud_field(
+                    ax,
+                    coords_np,
+                    values,
+                    title=title,
+                    point_size=point_size,
+                    vmin=vmin,
+                    vmax=vmax,
+                    cmap=cmap,
+                )
+                fig_aux.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            for ax in axes_aux.ravel()[len(available) :]:
+                ax.axis("off")
+            fig_aux.tight_layout()
+    return fig, fig_aux
+
+
+def save_unstructured_point_cloud_images(
+    coords,
+    pred,
+    target,
+    *,
+    out_dir,
+    prefix="test",
+    aux_tensors=None,
+    point_size=24.0,
+):
+    if plt is None:
+        return {}
+    out_dir = Path(out_dir)
+    fig, fig_aux = _make_unstructured_point_cloud_figures(
+        coords,
+        pred,
+        target,
+        aux_tensors=aux_tensors,
+        point_size=point_size,
+    )
+    paths = {
+        "elasticity_sigma": str(
+            _save_figure(out_dir / f"{prefix}_elasticity_sigma.png", fig)
+        )
+    }
+    plt.close(fig)
+    if fig_aux is not None:
+        paths["elasticity_latents"] = str(
+            _save_figure(out_dir / f"{prefix}_elasticity_latents.png", fig_aux)
+        )
+        plt.close(fig_aux)
+    return paths
+
+
 def _reshape_plasticity_sequence(tensor, h, w, t_out, out_dim):
     return (
         tensor[0]
@@ -443,6 +884,20 @@ def _reshape_plasticity_sequence(tensor, h, w, t_out, out_dim):
         .reshape(h, w, int(t_out), int(out_dim))
         .numpy()
     )
+
+
+def _plasticity_material_from_target(target_seq):
+    return target_seq[..., :2] - target_seq[..., 2:4]
+
+
+def _plasticity_mesh_coords_from_channels(seq, *, material_seq=None):
+    xy_coords = seq[..., :2]
+    if seq.shape[-1] < 4:
+        return xy_coords
+    if material_seq is None:
+        material_seq = _plasticity_material_from_target(seq)
+    displacement_coords = material_seq + seq[..., 2:4]
+    return 0.5 * (xy_coords + displacement_coords)
 
 
 def _plasticity_signed_cell_areas(coords):
@@ -509,8 +964,17 @@ def _set_plasticity_mesh_limits(ax, *coord_sets):
 
 
 def _make_plasticity_final_mesh_figure(pred_seq, target_seq):
-    pred_final = pred_seq[:, :, -1, :2]
-    target_final = target_seq[:, :, -1, :2]
+    material_seq = _plasticity_material_from_target(target_seq)
+    pred_coords = _plasticity_mesh_coords_from_channels(
+        pred_seq,
+        material_seq=material_seq,
+    )
+    target_coords = _plasticity_mesh_coords_from_channels(
+        target_seq,
+        material_seq=material_seq,
+    )
+    pred_final = pred_coords[:, :, -1]
+    target_final = target_coords[:, :, -1]
     coord_error = np.linalg.norm(pred_final - target_final, axis=-1)
     err_max = max(float(np.nanmax(coord_error)), 1.0e-12)
 
@@ -561,8 +1025,13 @@ def _make_plasticity_final_mesh_figure(pred_seq, target_seq):
     return fig
 
 
-def _make_plasticity_consistency_figure(pred_seq, aux_tensors):
-    pred_final = pred_seq[:, :, -1, :2]
+def _make_plasticity_consistency_figure(pred_seq, target_seq, aux_tensors):
+    material_seq = _plasticity_material_from_target(target_seq)
+    pred_coords = _plasticity_mesh_coords_from_channels(
+        pred_seq,
+        material_seq=material_seq,
+    )
+    pred_final = pred_coords[:, :, -1]
     dx = aux_tensors.get("dx")
     dy = aux_tensors.get("dy")
     dx_np = None if dx is None else dx[0].detach().cpu().numpy()
@@ -608,9 +1077,18 @@ def _make_plasticity_rollout_video(pred_seq, target_seq, *, fps):
 
     frames = []
     t_out = int(pred_seq.shape[2])
+    material_seq = _plasticity_material_from_target(target_seq)
+    pred_coords = _plasticity_mesh_coords_from_channels(
+        pred_seq,
+        material_seq=material_seq,
+    )
+    target_coords = _plasticity_mesh_coords_from_channels(
+        target_seq,
+        material_seq=material_seq,
+    )
     for timestep in range(t_out):
-        pred_t = pred_seq[:, :, timestep, :2]
-        target_t = target_seq[:, :, timestep, :2]
+        pred_t = pred_coords[:, :, timestep]
+        target_t = target_coords[:, :, timestep]
         fig, ax = plt.subplots(figsize=(6.8, 4.6), dpi=120)
         _plot_plasticity_mesh(
             ax,
@@ -628,7 +1106,7 @@ def _make_plasticity_rollout_video(pred_seq, target_seq, *, fps):
             linewidth=0.28,
             alpha=0.72,
         )
-        _set_plasticity_mesh_limits(ax, pred_seq[..., :2], target_seq[..., :2])
+        _set_plasticity_mesh_limits(ax, pred_coords, target_coords)
         fig.tight_layout()
         frames.append(np.transpose(_figure_to_chw_frame(fig), (1, 2, 0)))
         plt.close(fig)
@@ -649,6 +1127,45 @@ def _make_plasticity_rollout_video(pred_seq, target_seq, *, fps):
         loop=0,
     )
     return wandb.Video(handle.name, fps=int(fps), format="gif")
+
+
+def _make_plasticity_rollout_frames(pred_seq, target_seq):
+    frames = []
+    t_out = int(pred_seq.shape[2])
+    material_seq = _plasticity_material_from_target(target_seq)
+    pred_coords = _plasticity_mesh_coords_from_channels(
+        pred_seq,
+        material_seq=material_seq,
+    )
+    target_coords = _plasticity_mesh_coords_from_channels(
+        target_seq,
+        material_seq=material_seq,
+    )
+    for timestep in range(t_out):
+        pred_t = pred_coords[:, :, timestep]
+        target_t = target_coords[:, :, timestep]
+        fig, ax = plt.subplots(figsize=(6.8, 4.6), dpi=120)
+        _plot_plasticity_mesh(
+            ax,
+            target_t,
+            title=f"mesh rollout t={timestep}",
+            color="#0f766e",
+            linewidth=0.24,
+            alpha=0.35,
+        )
+        _plot_plasticity_mesh(
+            ax,
+            pred_t,
+            title=f"mesh rollout t={timestep}",
+            color="#dc2626",
+            linewidth=0.28,
+            alpha=0.72,
+        )
+        _set_plasticity_mesh_limits(ax, pred_coords, target_coords)
+        fig.tight_layout()
+        frames.append(np.transpose(_figure_to_chw_frame(fig), (1, 2, 0)))
+        plt.close(fig)
+    return frames
 
 
 def log_plasticity_mesh_consistency_media(
@@ -677,7 +1194,11 @@ def log_plasticity_mesh_consistency_media(
     plt.close(fig_final)
 
     if aux_tensors is not None:
-        fig_consistency = _make_plasticity_consistency_figure(pred_seq, aux_tensors)
+        fig_consistency = _make_plasticity_consistency_figure(
+            pred_seq,
+            target_seq,
+            aux_tensors,
+        )
         payload[f"{prefix}/plasticity_mesh_consistency"] = wandb.Image(
             fig_consistency
         )
@@ -696,6 +1217,57 @@ def log_plasticity_mesh_consistency_media(
             payload[f"{prefix}/plasticity_mesh_rollout"] = video
 
     wandb.log(payload, step=step)
+
+
+def save_plasticity_mesh_consistency_media(
+    pred,
+    target,
+    h,
+    w,
+    *,
+    t_out,
+    out_dim,
+    out_dir,
+    prefix="test",
+    aux_tensors=None,
+    fps=4,
+):
+    if plt is None:
+        return {}
+
+    out_dir = Path(out_dir)
+    pred_seq = _reshape_plasticity_sequence(pred, h, w, int(t_out), int(out_dim))
+    target_seq = _reshape_plasticity_sequence(target, h, w, int(t_out), int(out_dim))
+
+    paths = {}
+    fig_final = _make_plasticity_final_mesh_figure(pred_seq, target_seq)
+    paths["plasticity_mesh_final"] = str(
+        _save_figure(out_dir / f"{prefix}_plasticity_mesh_final.png", fig_final)
+    )
+    plt.close(fig_final)
+
+    if aux_tensors is not None:
+        fig_consistency = _make_plasticity_consistency_figure(
+            pred_seq,
+            target_seq,
+            aux_tensors,
+        )
+        paths["plasticity_mesh_consistency"] = str(
+            _save_figure(
+                out_dir / f"{prefix}_plasticity_mesh_consistency.png",
+                fig_consistency,
+            )
+        )
+        plt.close(fig_consistency)
+
+    rollout_path = _write_gif(
+        _make_plasticity_rollout_frames(pred_seq, target_seq),
+        out_dir / f"{prefix}_plasticity_mesh_rollout.gif",
+        fps=fps,
+    )
+    if rollout_path is not None:
+        paths["plasticity_mesh_rollout"] = str(rollout_path)
+    return paths
 
 
 def _plot_pipe_field(ax, x, y, field, *, title, vmin=None, vmax=None, cmap="viridis"):
@@ -797,6 +1369,94 @@ def log_pipe_flow_images(
         )
 
 
+def _make_pipe_flow_figure(coords, pred, target, h, w):
+    x = coords[0, :, 0].detach().cpu().reshape(h, w).numpy()
+    y = coords[0, :, 1].detach().cpu().reshape(h, w).numpy()
+    pred_img = pred[0, :, 0].detach().cpu().reshape(h, w).numpy()
+    target_img = target[0, :, 0].detach().cpu().reshape(h, w).numpy()
+    error_img = pred_img - target_img
+
+    pred_vmin = float(min(pred_img.min(), target_img.min()))
+    pred_vmax = float(max(pred_img.max(), target_img.max()))
+    err_abs = float(np.abs(error_img).max())
+    if err_abs <= 0.0:
+        err_abs = 1e-12
+
+    fig, axes = plt.subplots(1, 3, figsize=(13, 3.5), dpi=140)
+    im0 = _plot_pipe_field(
+        axes[0],
+        x,
+        y,
+        pred_img,
+        title="pred ux",
+        vmin=pred_vmin,
+        vmax=pred_vmax,
+    )
+    im1 = _plot_pipe_field(
+        axes[1],
+        x,
+        y,
+        target_img,
+        title="target ux",
+        vmin=pred_vmin,
+        vmax=pred_vmax,
+    )
+    im2 = _plot_pipe_field(
+        axes[2],
+        x,
+        y,
+        error_img,
+        title="pred - target",
+        vmin=-err_abs,
+        vmax=err_abs,
+        cmap="coolwarm",
+    )
+    fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+    fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+    fig.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+    fig.tight_layout()
+    return fig
+
+
+def save_pipe_flow_images(
+    coords,
+    pred,
+    target,
+    h,
+    w,
+    *,
+    out_dir,
+    prefix="test",
+    aux_tensors=None,
+):
+    if plt is None:
+        return {}
+    out_dir = Path(out_dir)
+    fig = _make_pipe_flow_figure(coords, pred, target, h, w)
+    paths = {
+        "pipe_ux": str(_save_figure(out_dir / f"{prefix}_pipe_ux.png", fig))
+    }
+    plt.close(fig)
+
+    if aux_tensors is not None and all(
+        key in aux_tensors for key in ("stream_psi", "stream_uy", "stream_div")
+    ):
+        stream_paths = save_pipe_stream_images(
+            coords,
+            h,
+            w,
+            out_dir=out_dir,
+            prefix=prefix,
+            psi=aux_tensors["stream_psi"],
+            uy=aux_tensors["stream_uy"],
+            divergence=aux_tensors["stream_div"],
+            psi_bc=aux_tensors.get("stream_psi_bc"),
+            mask=aux_tensors.get("stream_mask"),
+        )
+        paths.update(stream_paths)
+    return paths
+
+
 def log_pipe_stream_images(
     coords,
     h,
@@ -872,6 +1532,99 @@ def log_pipe_stream_images(
         step=step,
     )
     plt.close(fig)
+
+
+def _make_pipe_stream_figure(
+    coords,
+    h,
+    w,
+    *,
+    psi,
+    uy,
+    divergence,
+    psi_bc=None,
+    mask=None,
+):
+    x = coords[0, :, 0].detach().cpu().reshape(h, w).numpy()
+    y = coords[0, :, 1].detach().cpu().reshape(h, w).numpy()
+    psi_img = psi[0, :, 0].detach().cpu().reshape(h, w).numpy()
+    uy_img = uy[0, :, 0].detach().cpu().reshape(h, w).numpy()
+    div_img = divergence[0, :, 0].detach().cpu().reshape(h - 1, w - 1).numpy()
+
+    ncols = 5 if psi_bc is not None and mask is not None else 3
+    fig, axes = plt.subplots(1, ncols, figsize=(4.2 * ncols, 3.5), dpi=140)
+    if ncols == 3:
+        axes_main = axes
+    else:
+        axes_main = axes[:3]
+    im0 = _plot_pipe_field(axes[0], x, y, psi_img, title="stream psi")
+    uy_scale = max(float(np.abs(uy_img).max()), 1e-12)
+    im1 = _plot_pipe_field(
+        axes_main[1],
+        x,
+        y,
+        uy_img,
+        title="recovered uy",
+        vmin=-uy_scale,
+        vmax=uy_scale,
+        cmap="coolwarm",
+    )
+    div_scale = max(float(np.abs(div_img).max()), 1e-12)
+    im2 = axes_main[2].pcolormesh(
+        x[:-1, :-1],
+        y[:-1, :-1],
+        div_img,
+        shading="nearest",
+        cmap="coolwarm",
+        vmin=-div_scale,
+        vmax=div_scale,
+    )
+    axes_main[2].set_title("stream div")
+    axes_main[2].set_aspect("equal", adjustable="box")
+    axes_main[2].set_xlabel("x")
+    axes_main[2].set_ylabel("y")
+    fig.colorbar(im0, ax=axes_main[0], fraction=0.046, pad=0.04)
+    fig.colorbar(im1, ax=axes_main[1], fraction=0.046, pad=0.04)
+    fig.colorbar(im2, ax=axes_main[2], fraction=0.046, pad=0.04)
+    if psi_bc is not None and mask is not None:
+        psi_bc_img = psi_bc[0, :, 0].detach().cpu().reshape(h, w).numpy()
+        mask_img = mask[0, :, 0].detach().cpu().reshape(h, w).numpy()
+        im3 = _plot_pipe_field(axes[3], x, y, psi_bc_img, title="psi bc")
+        im4 = _plot_pipe_field(axes[4], x, y, mask_img, title="stream mask")
+        fig.colorbar(im3, ax=axes[3], fraction=0.046, pad=0.04)
+        fig.colorbar(im4, ax=axes[4], fraction=0.046, pad=0.04)
+    fig.tight_layout()
+    return fig
+
+
+def save_pipe_stream_images(
+    coords,
+    h,
+    w,
+    *,
+    out_dir,
+    prefix="test",
+    psi,
+    uy,
+    divergence,
+    psi_bc=None,
+    mask=None,
+):
+    if plt is None:
+        return {}
+    fig = _make_pipe_stream_figure(
+        coords,
+        h,
+        w,
+        psi=psi,
+        uy=uy,
+        divergence=divergence,
+        psi_bc=psi_bc,
+        mask=mask,
+    )
+    path = _save_figure(Path(out_dir) / f"{prefix}_pipe_stream.png", fig)
+    plt.close(fig)
+    return {"pipe_stream": str(path)}
 
 
 def finish_wandb_if_active():
