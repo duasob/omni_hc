@@ -20,6 +20,10 @@ In essence, this means that the material stays consistent and does not fold upon
 - If point $p_{i,j}$ started at the left/right of $p_{i+1,j}$ it will stay at the left/right of $p_{i+1,j}$ for all $t$
 - If point $p_{i,j}$ started above/bellow of $p_{i,j+1}$ it will stay above/bellow of $p_{i,j+1}$ for all $t$
 
+For example, an unconstrained model might do well in terms of data accuracy, but can struggle with these underlying principles
+![mesh_rollout](../../figures/plasticity/sample_0100_constraint_failures.gif)
+
+
 ## Mechanism
 
 The unconstrained backbone emits:
