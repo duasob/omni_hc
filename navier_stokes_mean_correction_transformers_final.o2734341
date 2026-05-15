@@ -1,0 +1,60 @@
+Python: /rds/general/user/bd922/home/omni-hc-env/bin/python
+/rds/general/user/bd922/home/omni-hc-env/bin/python
+/rds/general/user/bd922/home/omni-hc-env
+Job started: 2026-05-11T23:16:33Z
+Host: cx3-20-4
+Job ID: 2734341.pbs-7
+Project dir: /rds/general/user/bd922/home/omni_hc
+Output dir: /rds/general/user/bd922/home/omni-hc-smoke-results/2734341.pbs-7
+Python: /rds/general/user/bd922/home/omni-hc-env/bin/python
+Python 3.10.8
+Data symlink: /rds/general/user/bd922/home/omni_hc/data -> /rds/general/user/bd922/ephemeral/data
+Tue May 12 00:16:33 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.82.07              Driver Version: 580.82.07      CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA L40S                    On  |   00000000:CD:00.0 Off |                    0 |
+| N/A   32C    P8             34W /  350W |       0MiB /  46068MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+Smoke test started for backbone=Galerkin_Transformer at 2026-05-11T23:16:33Z
+Using latent_module=blocks.-1.ln_3 for backbone=Galerkin_Transformer
+/rds/general/user/bd922/home/omni-hc-env/lib/python3.10/site-packages/timm/models/layers/__init__.py:49: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+Traceback (most recent call last):
+  File "/rds/general/user/bd922/home/omni_hc/scripts/train.py", line 90, in <module>
+    train_benchmark(
+  File "/rds/general/user/bd922/home/omni_hc/src/omni_hc/training/runner.py", line 22, in train_benchmark
+    return adapter.train(cfg, nsl_root=nsl_root, device=device)
+  File "/rds/general/user/bd922/home/omni_hc/src/omni_hc/benchmarks/base.py", line 33, in train
+    return self.train_fn(cfg, nsl_root=nsl_root, device=device)
+  File "/rds/general/user/bd922/home/omni_hc/src/omni_hc/benchmarks/navier_stokes/adapter.py", line 47, in train
+    return train_autoregressive_task(
+  File "/rds/general/user/bd922/home/omni_hc/src/omni_hc/training/tasks/autoregressive.py", line 149, in train_autoregressive_task
+    model, model_args, resolved_nsl_root = create_model(
+  File "/rds/general/user/bd922/home/omni_hc/src/omni_hc/integrations/nsl/modeling.py", line 338, in create_model
+    model = _build_constraint(backbone, args, cfg).to(device)
+  File "/rds/general/user/bd922/home/omni_hc/src/omni_hc/integrations/nsl/modeling.py", line 284, in _build_constraint
+    raise ValueError(
+ValueError: Unsupported constraint ''. Currently supported: mean_correction, dirichlet_ansatz, structured_wall_dirichlet, pipe_inlet_parabolic, pipe_ux_boundary, pipe_stream_function_ux, pipe_stream_function_boundary, darcy_flux_projection, elasticity_deviatoric_stress
+
+====================================
+CPU Time used: 00:00:04
+CPU Percent: 11%
+Memory usage: 418992kb
+Approx Power usage: 0.0
+Walltime usage: 00:01:35
+
+====================================

@@ -1,5 +1,5 @@
 #!/bin/bash
-#PBS -N navier_stokes_mean_correction_transformers_final
+#PBS -N darcy_dirichlet_ansatz_zero_Transolver_distance_power
 #PBS -l select=1:ncpus=4:mem=24gb:ngpus=1
 #PBS -l walltime=10:00:00
 #PBS -j oe

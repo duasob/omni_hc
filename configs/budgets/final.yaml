@@ -3,7 +3,8 @@ data:
     ntest: 200
 
 training:
-    val_size: 100
+    val_size: 0
+    num_epochs: 500
     seed: 42
 
 evaluation:
