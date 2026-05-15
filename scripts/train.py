@@ -66,7 +66,7 @@ if __name__ == "__main__":
         seed=args.seed,
         output_root=args.output_root,
         extra_overrides=parse_dotted_overrides(args.override),
-    )  # TODO: clean the internals of this function
+    )
     if args.checkpoint is not None:
         cfg.setdefault("training", {})["resume_checkpoint"] = args.checkpoint
     train_benchmark(cfg, device=resolve_device(args.device))
