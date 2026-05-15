@@ -29,6 +29,9 @@ from omni_hc.training.logging_utils import (
     init_wandb_if_enabled,
     log_metrics,
     log_prediction_images,
+    log_rollout_gifs,
+    save_prediction_images,
+    save_rollout_gifs,
 )
 
 
@@ -186,6 +189,7 @@ def train_autoregressive_task(
     wandb_cfg = cfg.get("wandb_logging", {}) or {}
     log_every = normalize_interval(wandb_cfg.get("log_every", 100))
     image_log_every = normalize_interval(wandb_cfg.get("image_log_every"))
+    rollout_gif_fps = int(wandb_cfg.get("rollout_gif_fps", 4))
 
     init_wandb_if_enabled(cfg)
     try:
@@ -321,6 +325,17 @@ def train_autoregressive_task(
                                 prefix="validation",
                                 epoch=epoch,
                                 step=epoch_step,
+                            )
+                            log_rollout_gifs(
+                                pred,
+                                target,
+                                h,
+                                w,
+                                out_dim=out_dim,
+                                prefix="validation",
+                                epoch=epoch,
+                                step=epoch_step,
+                                fps=rollout_gif_fps,
                             )
                         if (
                             log_every is not None
@@ -468,9 +483,56 @@ def test_autoregressive_task(
         t_out=int(meta["t_out"]),
         out_dim=int(meta["out_dim"]),
     )
+    media_paths = {}
+    media_dir = output_dir / "test_media"
+    h, w = tuple(meta["shapelist"])
+    out_dim = int(meta["out_dim"])
+    rollout_gif_fps = int((cfg.get("wandb_logging", {}) or {}).get("rollout_gif_fps", 4))
+    model.eval()
+    with torch.no_grad():
+        for batch in test_loader:
+            coords, fx, target = prepare_batch(
+                batch,
+                device=device,
+                task_state=task_state,
+            )
+            pred, _, _ = rollout_autoregressive(
+                model,
+                coords,
+                fx,
+                target,
+                t_out=int(meta["t_out"]),
+                out_dim=out_dim,
+                teacher_forcing=False,
+            )
+            media_paths.update(
+                save_prediction_images(
+                    pred[..., :out_dim],
+                    target[..., :out_dim],
+                    fx[..., -out_dim:],
+                    h,
+                    w,
+                    out_dir=media_dir,
+                    prefix="test",
+                )
+            )
+            media_paths.update(
+                save_rollout_gifs(
+                    pred,
+                    target,
+                    h,
+                    w,
+                    out_dim=out_dim,
+                    out_dir=media_dir,
+                    prefix="test",
+                    fps=rollout_gif_fps,
+                )
+            )
+            break
     return {
         "checkpoint": str(Path(checkpoint_path).resolve()),
         "metrics": metrics,
+        "media": media_paths,
         "resolved_nsl_root": str(resolved_nsl_root),
         "model_args": vars(model_args),
     }
