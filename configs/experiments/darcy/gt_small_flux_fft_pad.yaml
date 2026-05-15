@@ -1,7 +1,7 @@
 name: "darcy_galerkin_transformer_flux_fft_pad"
 benchmark: "darcy"
 backbone: "Galerkin_Transformer"
-constraint: "darcy_flux_fft_pad"
+constraint: "darcy_flux_constraint"
 budget: "debug"
 optuna: "darcy_flux_fft_pad"
 

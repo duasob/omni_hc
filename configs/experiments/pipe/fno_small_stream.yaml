@@ -1,7 +1,7 @@
 name: "pipe_fno_stream"
 benchmark: "pipe"
 backbone: "FNO"
-constraint: "pipe_stream_function"
+constraint: "pipe_stream_function_ux_constraint"
 budget: "debug"
 
 overrides:

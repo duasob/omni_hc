@@ -1,3 +1,0 @@
-constraint:
-  name: "pipe_stream_function_ux"
-  eps: 1.0e-12

@@ -1,7 +1,7 @@
 name: "pipe_fno_wall"
 benchmark: "pipe"
 backbone: "FNO"
-constraint: "pipe_wall_no_slip"
+constraint: "structured_wall_dirichlet_ansatz"
 budget: "debug"
 
 overrides:

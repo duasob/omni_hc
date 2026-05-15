@@ -1,7 +1,7 @@
 name: "elasticity_fno_deviatoric_stress"
 benchmark: "elasticity"
 backbone: "FNO"
-constraint: "elasticity_deviatoric_stress"
+constraint: "elasticity_deviatoric_stress_constraint"
 budget: "debug"
 
 overrides:

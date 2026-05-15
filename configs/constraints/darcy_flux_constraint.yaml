@@ -1,5 +1,5 @@
 constraint:
-  name: "darcy_flux_projection"
+  name: "darcy_flux_constraint"
   spectral_backend: "helmholtz_sine"
   pressure_out_dim: 1
   force_value: 1.0

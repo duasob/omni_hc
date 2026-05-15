@@ -1,7 +1,7 @@
 name: "darcy_fno_flux_fft_pad"
 benchmark: "darcy"
 backbone: "FNO"
-constraint: "darcy_flux_fft_pad"
+constraint: "darcy_flux_constraint"
 budget: "debug"
 optuna: "darcy_flux_fft_pad"
 
