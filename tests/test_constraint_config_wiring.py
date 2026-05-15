@@ -53,7 +53,7 @@ def test_darcy_flux_config_builds_pressure_with_dirichlet_boundary():
     height = width = 8
     pred = torch.randn(1, height * width, 1)
     permeability = torch.full((1, height * width, 1), 4.0)
-    cfg = load_yaml_file("configs/constraints/darcy_flux_fft_pad.yaml")
+    cfg = load_yaml_file("configs/constraints/darcy_flux_projection.yaml")
     cfg["constraint"]["padding"] = 2
 
     model = _build_constraint(DummyBackbone(pred), _args(shapelist=(height, width)), cfg)

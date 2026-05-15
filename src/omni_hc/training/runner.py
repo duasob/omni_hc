@@ -15,9 +15,7 @@ def get_benchmark_adapter(cfg: dict) -> BenchmarkAdapter:
     return BENCHMARKS.get(str(benchmark_name))
 
 
-def train_benchmark(
-    cfg: dict, *, nsl_root: str | Path | None, device: torch.device
-):
+def train_benchmark(cfg: dict, *, nsl_root: str | Path | None, device: torch.device):
     adapter = get_benchmark_adapter(cfg)
     return adapter.train(cfg, nsl_root=nsl_root, device=device)
 
@@ -38,11 +36,6 @@ def test_benchmark(
     )
 
 
-def tune_benchmark(
-    cfg: dict, *, nsl_root: str | Path | None, device: torch.device
-):
+def tune_benchmark(cfg: dict, *, nsl_root: str | Path | None, device: torch.device):
     adapter = get_benchmark_adapter(cfg)
     return adapter.tune(cfg, nsl_root=nsl_root, device=device)
-
-
-get_benchmark_runtime = get_benchmark_adapter

@@ -13,12 +13,6 @@ def parse_args():
         "--config",
         type=str,
         default=None,
-        help="Full resolved run YAML config. Alias for --experiment.",
-    )
-    parser.add_argument(
-        "--experiment",
-        type=str,
-        default=None,
         help="Full resolved run YAML config.",
     )
     parser.add_argument("--benchmark", type=str, default=None)
@@ -44,12 +38,6 @@ def parse_args():
         help="Defaults to <paths.output_dir>/best.pt",
     )
     parser.add_argument(
-        "--nsl-root",
-        type=str,
-        default=None,
-        help="Optional explicit path to Neural-Solver-Library.",
-    )
-    parser.add_argument(
         "--device",
         type=str,
         default="auto",
@@ -65,7 +53,7 @@ def resolve_device(device_arg: str):
 
 
 def load_test_config(args):
-    config_path = args.experiment or args.config
+    config_path = args.config
     if config_path is None:
         return compose_run_config(
             benchmark=args.benchmark,
@@ -97,7 +85,7 @@ if __name__ == "__main__":
     cfg = load_test_config(args)
     result = test_benchmark(
         cfg,
-        nsl_root=None if args.nsl_root is None else Path(args.nsl_root),
+        nsl_root=None,
         device=resolve_device(args.device),
         checkpoint_path=args.checkpoint,
     )

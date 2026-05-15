@@ -1,3 +1,4 @@
+import inspect
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,17 +15,17 @@ from omni_hc.constraints import (
     ForwardHookLatentExtractor,
     MeanConstraint,
     PipeInletParabolicAnsatz,
-    PlasticityMeshConsistencyConstraint,
     PipeStreamFunctionBoundaryAnsatz,
     PipeStreamFunctionUxConstraint,
     PipeUxBoundaryAnsatz,
+    PlasticityMeshConsistencyConstraint,
     StructuredWallDirichletAnsatz,
 )
 from omni_hc.core import load_yaml_file
 from omni_hc.integrations.nsl.defaults import get_nsl_default_args
 from omni_hc.integrations.nsl.paths import resolve_nsl_root
 
-MODEL_REQUIRED_ARGS = {
+MODEL_REQUIRED_ARGS = {  # TODO: This is a bit arbitrary. Should not have this here. There are other relevant models
     "Galerkin_Transformer": [
         "n_hidden",
         "n_heads",
@@ -39,6 +40,51 @@ MODEL_REQUIRED_ARGS = {
         "out_dim",
     ],
 }
+
+# Maps canonical constraint name → class. The YAML `constraint.name` field
+# (or its alias below) selects from this table.
+_CONSTRAINT_CLASSES: dict[str, type] = {
+    "dirichlet_ansatz": DirichletBoundaryAnsatz,
+    "structured_wall_dirichlet": StructuredWallDirichletAnsatz,
+    "pipe_inlet_parabolic": PipeInletParabolicAnsatz,
+    "pipe_ux_boundary": PipeUxBoundaryAnsatz,
+    "pipe_stream_function_ux": PipeStreamFunctionUxConstraint,
+    "pipe_stream_function_boundary": PipeStreamFunctionBoundaryAnsatz,
+    "darcy_flux_projection": DarcyFluxConstraint,
+    "darcy_defect_correction": DarcyDefectCorrectionConstraint,
+    "elasticity_deviatoric_stress": ElasticityDeviatoricStressConstraint,
+    "plasticity_mesh_consistency": PlasticityMeshConsistencyConstraint,
+}
+
+# TODO: Remove this. Only have the config names as truth
+# Legacy and convenience aliases → canonical name.
+_CONSTRAINT_ALIASES: dict[str, str] = {
+    "dirichlet_boundary_ansatz": "dirichlet_ansatz",
+    "pipe_wall_no_slip": "structured_wall_dirichlet",
+    "pipe_wall_no_slip_ansatz": "structured_wall_dirichlet",
+    "structured_wall_dirichlet_ansatz": "structured_wall_dirichlet",
+    "pipe_inlet_parabolic_ansatz": "pipe_inlet_parabolic",
+    "structured_inlet_parabolic": "pipe_inlet_parabolic",
+    "pipe_inlet_wall_ansatz": "pipe_ux_boundary",
+    "pipe_inlet_wall": "pipe_ux_boundary",
+    "pipe_ux_boundary_ansatz": "pipe_ux_boundary",
+    "pipe_stream_function": "pipe_stream_function_ux",
+    "stream_function_ux": "pipe_stream_function_ux",
+    "pipe_stream_function_boundary_ansatz": "pipe_stream_function_boundary",
+    "stream_function_boundary": "pipe_stream_function_boundary",
+    "darcy_flux_fft_pad": "darcy_flux_projection",
+    "darcy_helmholtz": "darcy_flux_projection",
+    "darcy_streamfunction": "darcy_flux_projection",
+    "plasticity_axis_order": "plasticity_mesh_consistency",
+    "plasticity_positive_spacings": "plasticity_mesh_consistency",
+    "plasticity_cell_axis_order": "plasticity_mesh_consistency",
+    "mean_correction": "mean_constraint",
+}
+
+# TODO: Revise this
+# Model-derived fields injected into constraint constructors when the
+# constructor declares them and the YAML does not already supply them.
+_META_KEYS = {"name", "freeze_base"}
 
 
 def ensure_nsl_path(nsl_root: str | Path | None, cfg: dict | None = None) -> Path:
@@ -98,248 +144,67 @@ def build_model_args(cfg: dict, runtime_overrides: dict[str, Any] | None = None)
     return SimpleNamespace(**args_dict)
 
 
-def _build_constraint(backbone: torch.nn.Module, args, cfg: dict):
-    constraint_cfg = cfg.get("constraint", {})
-    if not constraint_cfg:
-        return backbone
+def _model_context(args: SimpleNamespace) -> dict[str, Any]:
+    shapelist = getattr(args, "shapelist", None)
+    return {
+        "out_dim": int(args.out_dim),
+        "shapelist": shapelist,
+        "grid_shape": shapelist,  # boundary constraints use grid_shape instead of shapelist
+        "backbone_out_dim": int(args.out_dim),
+        "target_out_dim": int(getattr(args, "constraint_target_out_dim", 1)),
+    }
 
-    name = str(constraint_cfg.get("name", "")).strip().lower()
-    if name in {"dirichlet_ansatz", "dirichlet_boundary_ansatz"}:
-        constraint = DirichletBoundaryAnsatz(
-            out_dim=int(args.out_dim),
-            boundary_value=float(constraint_cfg.get("boundary_value", 0.0)),
-            lower=float(constraint_cfg.get("lower", 0.0)),
-            upper=float(constraint_cfg.get("upper", 1.0)),
-            distance_power=float(constraint_cfg.get("distance_power", 1.0)),
-            distance_reduce=str(constraint_cfg.get("distance_reduce", "product")),
-        )
-        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
-        if bool(constraint_cfg.get("freeze_base", False)):
-            for param in wrapped.backbone.parameters():
-                param.requires_grad = False
-        return wrapped
 
-    if name in {
-        "structured_wall_dirichlet",
-        "structured_wall_dirichlet_ansatz",
-        "pipe_wall_no_slip",
-        "pipe_wall_no_slip_ansatz",
-    }:
-        constraint = StructuredWallDirichletAnsatz(
-            out_dim=int(args.out_dim),
-            grid_shape=getattr(args, "shapelist", None),
-            boundary_value=float(constraint_cfg.get("boundary_value", 0.0)),
-            transverse_axis=int(constraint_cfg.get("transverse_axis", 1)),
-            distance_power=float(constraint_cfg.get("distance_power", 1.0)),
-            normalize_distance=bool(constraint_cfg.get("normalize_distance", True)),
-            channel_indices=constraint_cfg.get("channel_indices"),
-        )
-        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
-        if bool(constraint_cfg.get("freeze_base", False)):
-            for param in wrapped.backbone.parameters():
-                param.requires_grad = False
-        return wrapped
+def _wrap(
+    backbone: torch.nn.Module,
+    constraint: torch.nn.Module,
+    constraint_cfg: dict,
+    latent_extractor=None,
+) -> ConstrainedModel:
+    wrapped = ConstrainedModel(
+        backbone=backbone,
+        constraint=constraint,
+        latent_extractor=latent_extractor,
+    )
+    if constraint_cfg.get("freeze_base", False):
+        for param in wrapped.backbone.parameters():
+            param.requires_grad = False
+    return wrapped
 
-    if name in {
-        "pipe_inlet_parabolic",
-        "pipe_inlet_parabolic_ansatz",
-        "structured_inlet_parabolic",
-    }:
-        constraint = PipeInletParabolicAnsatz(
-            out_dim=int(args.out_dim),
-            grid_shape=getattr(args, "shapelist", None),
-            amplitude=float(constraint_cfg.get("amplitude", 0.25)),
-            inlet_axis=int(constraint_cfg.get("inlet_axis", 0)),
-            transverse_axis=int(constraint_cfg.get("transverse_axis", 1)),
-            decay_power=float(constraint_cfg.get("decay_power", 4.0)),
-            channel_indices=constraint_cfg.get("channel_indices"),
-            coordinate_channel=int(constraint_cfg.get("coordinate_channel", 1)),
-            eps=float(constraint_cfg.get("eps", 1e-12)),
-        )
-        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
-        if bool(constraint_cfg.get("freeze_base", False)):
-            for param in wrapped.backbone.parameters():
-                param.requires_grad = False
-        return wrapped
 
-    if name in {
-        "pipe_ux_boundary",
-        "pipe_ux_boundary_ansatz",
-        "pipe_inlet_wall",
-        "pipe_inlet_wall_ansatz",
-    }:
-        constraint = PipeUxBoundaryAnsatz(
-            out_dim=int(args.out_dim),
-            grid_shape=getattr(args, "shapelist", None),
-            amplitude=float(constraint_cfg.get("amplitude", 0.25)),
-            inlet_axis=int(constraint_cfg.get("inlet_axis", 0)),
-            transverse_axis=int(constraint_cfg.get("transverse_axis", 1)),
-            inlet_decay_power=float(constraint_cfg.get("inlet_decay_power", 4.0)),
-            wall_distance_power=float(constraint_cfg.get("wall_distance_power", 1.0)),
-            normalize_wall_distance=bool(
-                constraint_cfg.get("normalize_wall_distance", True)
-            ),
-            channel_indices=constraint_cfg.get("channel_indices"),
-            coordinate_channel=int(constraint_cfg.get("coordinate_channel", 1)),
-            eps=float(constraint_cfg.get("eps", 1e-12)),
-        )
-        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
-        if bool(constraint_cfg.get("freeze_base", False)):
-            for param in wrapped.backbone.parameters():
-                param.requires_grad = False
-        return wrapped
-
-    if name in {
-        "pipe_stream_function_ux",
-        "pipe_stream_function",
-        "stream_function_ux",
-    }:
-        constraint = PipeStreamFunctionUxConstraint(
-            shapelist=getattr(args, "shapelist", None),
-            eps=float(constraint_cfg.get("eps", 1e-12)),
-        )
-        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
-        if bool(constraint_cfg.get("freeze_base", False)):
-            for param in wrapped.backbone.parameters():
-                param.requires_grad = False
-        return wrapped
-
-    if name in {
-        "pipe_stream_function_boundary",
-        "pipe_stream_function_boundary_ansatz",
-        "stream_function_boundary",
-    }:
-        constraint = PipeStreamFunctionBoundaryAnsatz(
-            shapelist=getattr(args, "shapelist", None),
-            amplitude=float(constraint_cfg.get("amplitude", 0.25)),
-            inlet_axis=int(constraint_cfg.get("inlet_axis", 0)),
-            transverse_axis=int(constraint_cfg.get("transverse_axis", 1)),
-            coordinate_channel=int(constraint_cfg.get("coordinate_channel", 1)),
-            boundary_constant=float(constraint_cfg.get("boundary_constant", 0.0)),
-            decay_power=float(constraint_cfg.get("decay_power", 4.0)),
-            eps=float(constraint_cfg.get("eps", 1e-12)),
-        )
-        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
-        if bool(constraint_cfg.get("freeze_base", False)):
-            for param in wrapped.backbone.parameters():
-                param.requires_grad = False
-        return wrapped
-
-    if name in {
-        "darcy_flux_projection",
-        "darcy_flux_fft_pad",
-        "darcy_helmholtz",
-        "darcy_streamfunction",
-    }:
-        constraint = DarcyFluxConstraint(
-            spectral_backend=str(
-                constraint_cfg.get("spectral_backend", "helmholtz_sine")
-            ),
-            force_value=float(constraint_cfg.get("force_value", 1.0)),
-            permeability_eps=float(constraint_cfg.get("permeability_eps", 1e-6)),
-            padding=constraint_cfg.get("padding", 8),
-            padding_mode=str(constraint_cfg.get("padding_mode", "reflect")),
-            particular_field=str(constraint_cfg.get("particular_field", "y_only")),
-            pressure_out_dim=int(
-                constraint_cfg.get(
-                    "pressure_out_dim",
-                    1,
-                )
-            ),
-            enforce_boundary=bool(constraint_cfg.get("enforce_boundary", True)),
-            boundary_value=float(constraint_cfg.get("boundary_value", 0.0)),
-            shapelist=getattr(args, "shapelist", None),
-            lower=float(constraint_cfg.get("lower", 0.0)),
-            upper=float(constraint_cfg.get("upper", 1.0)),
-        )
-        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
-        if bool(constraint_cfg.get("freeze_base", False)):
-            for param in wrapped.backbone.parameters():
-                param.requires_grad = False
-        return wrapped
-
-    if name in {"darcy_defect_correction"}:
-        constraint = DarcyDefectCorrectionConstraint(
-            force_value=float(constraint_cfg.get("force_value", 1.0)),
-            n_correction_steps=int(constraint_cfg.get("n_correction_steps", 1)),
-            lower=float(constraint_cfg.get("lower", 0.0)),
-            upper=float(constraint_cfg.get("upper", 1.0)),
-            shapelist=getattr(args, "shapelist", None),
-            permeability_eps=float(constraint_cfg.get("permeability_eps", 1e-6)),
-        )
-        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
-        if bool(constraint_cfg.get("freeze_base", False)):
-            for param in wrapped.backbone.parameters():
-                param.requires_grad = False
-        return wrapped
-
-    if name == "elasticity_deviatoric_stress":
-        constraint = ElasticityDeviatoricStressConstraint(
-            backbone_out_dim=int(constraint_cfg.get("backbone_out_dim", args.out_dim)),
-            target_out_dim=int(
-                constraint_cfg.get(
-                    "target_out_dim",
-                    getattr(args, "constraint_target_out_dim", 1),
-                )
-            ),
-            c1=float(constraint_cfg.get("c1", 1.863e5)),
-            c2=float(constraint_cfg.get("c2", 9.79e3)),
-            max_log_lambda=float(constraint_cfg.get("max_log_lambda", 0.03)),
-            head_hidden_dim=int(constraint_cfg.get("head_hidden_dim", 32)),
-            head_layers=int(constraint_cfg.get("head_layers", 2)),
-            head_init_scale=float(constraint_cfg.get("head_init_scale", 1e-3)),
-            theta_bias=float(constraint_cfg.get("theta_bias", 0.0)),
-            log_lambda_bias=float(constraint_cfg.get("log_lambda_bias", 0.0)),
-        )
-        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
-        if bool(constraint_cfg.get("freeze_base", False)):
-            for param in wrapped.backbone.parameters():
-                param.requires_grad = False
-        return wrapped
-
-    if name in {
-        "plasticity_mesh_consistency",
-        "plasticity_axis_order",
-        "plasticity_positive_spacings",
-        "plasticity_cell_axis_order",
-    }:
-        constraint = PlasticityMeshConsistencyConstraint(
-            shapelist=getattr(args, "shapelist", None),
-            backbone_out_dim=int(constraint_cfg.get("backbone_out_dim", args.out_dim)),
-            target_out_dim=int(
-                constraint_cfg.get(
-                    "target_out_dim",
-                    getattr(args, "constraint_target_out_dim", 4),
-                )
-            ),
-            x_left=float(constraint_cfg.get("x_left", 0.35000038)),
-            x_right=float(constraint_cfg.get("x_right", -49.65)),
-            y_top=float(constraint_cfg.get("y_top", 14.9)),
-            y_bottom=float(constraint_cfg.get("y_bottom", -0.099999905)),
-            spacing_activation=str(
-                constraint_cfg.get("spacing_activation", "softplus")
-            ),
-            min_spacing=float(constraint_cfg.get("min_spacing", 1.0e-6)),
-        )
-        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
-        if bool(constraint_cfg.get("freeze_base", False)):
-            for param in wrapped.backbone.parameters():
-                param.requires_grad = False
-        return wrapped
-
-    if name not in {"mean_correction", "mean_constraint"}:
+def _build_generic_constraint(
+    backbone: torch.nn.Module,
+    cls: type,
+    constraint_cfg: dict,
+    args: SimpleNamespace,
+) -> ConstrainedModel:
+    params = {k: v for k, v in constraint_cfg.items() if k not in _META_KEYS}
+    sig = inspect.signature(cls.__init__)
+    for key, value in _model_context(args).items():
+        if key in sig.parameters and key not in params:
+            params[key] = value
+    try:
+        constraint = cls(**params)
+    except TypeError as exc:
         raise ValueError(
-            "Unsupported constraint "
-            f"'{name}'. Currently supported: mean_correction, dirichlet_ansatz, "
-            "structured_wall_dirichlet, pipe_inlet_parabolic, pipe_ux_boundary, "
-            "pipe_stream_function_ux, pipe_stream_function_boundary, "
-            "darcy_flux_projection, darcy_defect_correction, "
-            "elasticity_deviatoric_stress, plasticity_mesh_consistency"
-        )
+            f"Failed to construct {cls.__name__} — ensure all required parameters "
+            f"are present in the constraint YAML config. Detail: {exc}"
+        ) from exc
+    return _wrap(backbone, constraint, constraint_cfg)
 
+
+# TODO: bit hacky. maybe have special case within the constraint class
+def _build_mean_constraint(
+    backbone: torch.nn.Module,
+    args: SimpleNamespace,
+    constraint_cfg: dict,
+) -> ConstrainedModel:
     mode = str(constraint_cfg.get("mode", "post_output")).lower()
     latent_extractor = None
-    latent_dim = constraint_cfg.get("latent_dim")
+
+    params = {k: v for k, v in constraint_cfg.items() if k not in _META_KEYS}
+    params.setdefault("out_dim", int(args.out_dim))
+
     if mode == "latent_head":
         latent_module = constraint_cfg.get("latent_module")
         if not latent_module:
@@ -347,28 +212,38 @@ def _build_constraint(backbone: torch.nn.Module, args, cfg: dict):
                 "constraint.latent_module is required for latent_head mode"
             )
         latent_extractor = ForwardHookLatentExtractor(backbone, str(latent_module))
-        if latent_dim is None:
+        if "latent_dim" not in params:
             latent_dim = getattr(args, "n_hidden", None)
+            if latent_dim is not None:
+                params["latent_dim"] = int(latent_dim)
 
-    constraint = MeanConstraint(
-        mode=mode,
-        out_dim=int(args.out_dim),
-        hidden_dim=constraint_cfg.get("correction_hidden"),
-        n_layers=int(constraint_cfg.get("correction_layers", 0)),
-        act=constraint_cfg.get("correction_act", "gelu"),
-        latent_dim=None if latent_dim is None else int(latent_dim),
-        channel_dim=int(constraint_cfg.get("channel_dim", -1)),
-        reduce_dims=constraint_cfg.get("reduce_dims"),
+    constraint = MeanConstraint(**params)
+    return _wrap(
+        backbone, constraint, constraint_cfg, latent_extractor=latent_extractor
     )
-    wrapped = ConstrainedModel(
-        backbone=backbone,
-        constraint=constraint,
-        latent_extractor=latent_extractor,
-    )
-    if bool(constraint_cfg.get("freeze_base", False)):
-        for param in wrapped.backbone.parameters():
-            param.requires_grad = False
-    return wrapped
+
+
+def _build_constraint(backbone: torch.nn.Module, args: SimpleNamespace, cfg: dict):
+    constraint_cfg = cfg.get("constraint", {}) or {}
+    if not constraint_cfg:
+        return backbone
+
+    # TODO: simplify naming logic
+    raw_name = str(constraint_cfg.get("name", "")).strip().lower()
+    name = _CONSTRAINT_ALIASES.get(raw_name, raw_name)
+
+    if (
+        name == "mean_constraint"
+    ):  # TODO: why only mean constraint needs special handling? Can we unify this logic with the generic builder by adding some optional fields to the YAML schema?
+        return _build_mean_constraint(backbone, args, constraint_cfg)
+
+    cls = _CONSTRAINT_CLASSES.get(name)
+    if cls is None:
+        raise ValueError(
+            f"Unsupported constraint '{raw_name}'. "
+            f"Supported: {sorted(_CONSTRAINT_CLASSES) + sorted(_CONSTRAINT_ALIASES)}"
+        )
+    return _build_generic_constraint(backbone, cls, constraint_cfg, args)
 
 
 def create_model(
@@ -382,6 +257,6 @@ def create_model(
     from models.model_factory import get_model
 
     args = build_model_args(cfg, runtime_overrides=runtime_overrides)
-    backbone = get_model(args).to(device)
+    backbone = get_model(args).to(device)  # from NSL's model factory
     model = _build_constraint(backbone, args, cfg).to(device)
     return model, args, resolved_nsl_root

@@ -19,8 +19,8 @@ from omni_hc.training.common import (
     normalize_interval,
     prefix_metric_names,
     relative_l2_per_sample,
-    restore_training_checkpoint,
     resolve_output_dir,
+    restore_training_checkpoint,
     save_checkpoint_bundle,
     write_resolved_config,
 )
@@ -148,6 +148,7 @@ def train_steady_task(
     runtime_overrides,
     prepare_batch,
 ):
+    # TODO: remove this printing
     print("building train/validation loaders", flush=True)
     train_loader, val_loader = build_train_val_loaders(cfg)
     meta = get_meta(train_loader)
@@ -340,8 +341,8 @@ def train_steady_task(
                             "train/pred_mean": float(pred_decoded.mean().item()),
                         }
                         if deriv_loss_value is not None:
-                            payload["train/step_deriv_rel_l2"] = (
-                                deriv_loss_value / max(batch_size, 1)
+                            payload["train/step_deriv_rel_l2"] = deriv_loss_value / max(
+                                batch_size, 1
                             )
                         payload.update(
                             prefix_metric_names(
@@ -476,8 +477,7 @@ def train_steady_task(
                     f"train_rel_l2={train_metrics['rel_l2']:.6f}"
                 )
                 log_metrics(
-                    {"epoch": epoch + 1}
-                    | prefix_metric_names(train_metrics, "train"),
+                    {"epoch": epoch + 1} | prefix_metric_names(train_metrics, "train"),
                     step=epoch_step,
                 )
 

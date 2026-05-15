@@ -14,12 +14,6 @@ def parse_args():
         "--config",
         type=str,
         default=None,
-        help="Experiment YAML composition spec. Alias for --experiment.",
-    )
-    parser.add_argument(
-        "--experiment",
-        type=str,
-        default=None,
         help="Experiment YAML composition spec.",
     )
     parser.add_argument("--benchmark", type=str, default=None)
@@ -43,12 +37,6 @@ def parse_args():
         type=str,
         default=None,
         help="Root for generated output dirs when the config does not set one.",
-    )
-    parser.add_argument(
-        "--nsl-root",
-        type=str,
-        default=None,
-        help="Optional explicit path to Neural-Solver-Library.",
     )
     parser.add_argument(
         "--device",
@@ -79,7 +67,7 @@ if __name__ == "__main__":
         backbone=args.backbone,
         constraint=args.constraint,
         budget=args.budget,
-        experiment=args.experiment or args.config,
+        experiment=args.config,
         optuna=args.optuna,
         mode="tune",
         seed=args.seed,
@@ -88,7 +76,7 @@ if __name__ == "__main__":
     )
     study = tune_benchmark(
         cfg,
-        nsl_root=None if args.nsl_root is None else Path(args.nsl_root),
+        nsl_root=None,
         device=resolve_device(args.device),
     )
     print("best_trial_value", study.best_value)

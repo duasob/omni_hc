@@ -28,13 +28,7 @@ def repo_path(path: str | Path) -> Path:
 
 
 def safe_name(value: str) -> str:
-    return (
-        value.strip()
-        .lower()
-        .replace("/", "_")
-        .replace(" ", "_")
-        .replace("-", "_")
-    )
+    return value.strip().lower().replace("/", "_").replace(" ", "_").replace("-", "_")
 
 
 def default_output_root(mode: str) -> Path:
@@ -78,7 +72,10 @@ def _component_path(
             raise ValueError("backbone resolution requires a benchmark")
         candidates = [
             PROJECT_ROOT / "configs/backbones" / benchmark / f"{value_str}.yaml",
-            PROJECT_ROOT / "configs/backbones" / benchmark / f"{value_str.lower()}.yaml",
+            PROJECT_ROOT
+            / "configs/backbones"
+            / benchmark
+            / f"{value_str.lower()}.yaml",
         ]
     elif kind == "constraint":
         if benchmark is None:
@@ -88,7 +85,10 @@ def _component_path(
             PROJECT_ROOT / "configs/constraints" / f"{value_str}.yaml",
         ]
     elif kind == "budget":
-        candidates = [BUDGET_CONFIGS.get(value_str) or PROJECT_ROOT / "configs/budgets" / f"{value_str}.yaml"]
+        candidates = [
+            BUDGET_CONFIGS.get(value_str)
+            or PROJECT_ROOT / "configs/budgets" / f"{value_str}.yaml"
+        ]
     elif kind == "optuna":
         if benchmark is None:
             raise ValueError("optuna resolution requires a benchmark")
@@ -105,7 +105,9 @@ def _component_path(
 
     if required:
         searched = ", ".join(str(item) for item in candidates if item is not None)
-        raise FileNotFoundError(f"Could not resolve {kind}={value_str!r}. Searched: {searched}")
+        raise FileNotFoundError(
+            f"Could not resolve {kind}={value_str!r}. Searched: {searched}"
+        )
     return None
 
 
@@ -182,10 +184,13 @@ def _run_label(
     seed: int,
 ) -> str:
     constraint_name = constraint or "unconstrained"
-    return "_".join(safe_name(item) for item in [benchmark, backbone, constraint_name, budget, f"seed_{seed}"])
+    return "_".join(
+        safe_name(item)
+        for item in [benchmark, backbone, constraint_name, budget, f"seed_{seed}"]
+    )
 
 
-def compose_run_config(
+def compose_run_config(  # TODO: this function is getting unwieldy, consider refactoring into a class or separate functions
     *,
     benchmark: str | None = None,
     backbone: str | None = None,
@@ -282,19 +287,29 @@ def compose_run_config(
     seed_value = int(seed if seed is not None else cfg["training"].get("seed", 42))
     cfg["training"]["seed"] = seed_value
 
-    run_name = str(experiment_cfg.get("name") or _run_label(
-        benchmark=benchmark_name,
-        backbone=backbone_name,
-        constraint=constraint_name,
-        budget=budget_name,
-        seed=seed_value,
-    ))
+    run_name = str(
+        experiment_cfg.get("name")
+        or _run_label(
+            benchmark=benchmark_name,
+            backbone=backbone_name,
+            constraint=constraint_name,
+            budget=budget_name,
+            seed=seed_value,
+        )
+    )
 
     root = repo_path(output_root) if output_root else default_output_root(mode)
     cfg.setdefault("paths", {})
     cfg["paths"].setdefault(
         "output_dir",
-        str(root / safe_name(benchmark_name) / safe_name(constraint_name or "unconstrained") / safe_name(backbone_name) / safe_name(budget_name) / f"seed_{seed_value}"),
+        str(
+            root
+            / safe_name(benchmark_name)
+            / safe_name(constraint_name or "unconstrained")
+            / safe_name(backbone_name)
+            / safe_name(budget_name)
+            / f"seed_{seed_value}"
+        ),
     )
 
     cfg.setdefault("wandb_logging", {})

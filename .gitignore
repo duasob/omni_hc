@@ -8,8 +8,6 @@ __pycache__/
 .venv/
 venv/
 .env
-INTERNAL.md
-.obsidian
 tmp/
 
 build/
@@ -24,3 +22,4 @@ checkpoints/
 logs/
 
 .claude/
+.obsidian/
