@@ -7,6 +7,7 @@ from typing import Any, Protocol
 import torch
 import torch.nn as nn
 
+# TODO: revise this
 # Keys in constraint YAML blocks that are not constructor parameters.
 # Used by the default ConstraintModule.build classmethod.
 _BUILD_META_KEYS: frozenset[str] = frozenset({"name", "freeze_base"})
@@ -29,6 +30,16 @@ class ConstraintModule(nn.Module):
     """Base class for constraint operators applied around a backbone."""
 
     name = "constraint"
+
+    @classmethod
+    def log_media(cls, ctx) -> dict[str, str]:
+        """Override to emit constraint-specific W&B images or save files.
+
+        ctx is a MediaLogContext (omni_hc.benchmarks.base). Return a dict of
+        {key: saved_path} for any files written; return {} for W&B-only logging.
+        The default does nothing.
+        """
+        return {}
 
     @classmethod
     def build(
@@ -95,7 +106,8 @@ class ConstrainedModel(nn.Module):
         self,
         backbone: nn.Module,
         constraint: nn.Module | None = None,
-        latent_extractor: LatentExtractor | None = None,
+        latent_extractor: LatentExtractor
+        | None = None,  # TODO: revise if this is legacy. We have build class per constraint.
     ):
         super().__init__()
         self.backbone = backbone

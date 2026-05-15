@@ -24,12 +24,11 @@ from omni_hc.training.common import (
     save_checkpoint_bundle,
     write_resolved_config,
 )
+from omni_hc.benchmarks.base import MediaLogContext
 from omni_hc.training.logging_utils import (
     finish_wandb_if_active,
     init_wandb_if_enabled,
-    log_plasticity_mesh_consistency_media,
     log_metrics,
-    save_plasticity_mesh_consistency_media,
 )
 
 
@@ -182,6 +181,7 @@ def train_dynamic_conditional_task(
     get_meta,
     runtime_overrides,
     prepare_batch,
+    log_fn=None,
 ):
     print("building train/validation loaders", flush=True)
     train_loader, val_loader = build_train_val_loaders(cfg)
@@ -368,22 +368,24 @@ def train_dynamic_conditional_task(
                             )
                             pred_decoded = _decode_if_needed(y_normalizer, pred)
                             target_decoded = _decode_if_needed(y_normalizer, target)
-                            shapelist = tuple(meta.get("shapelist", ()))
-                            if len(shapelist) == 2:
-                                h, w = shapelist
-                                log_plasticity_mesh_consistency_media(
-                                    pred_decoded,
-                                    target_decoded,
-                                    h,
-                                    w,
-                                    t_out=t_out,
-                                    out_dim=out_dim,
+                            if log_fn is not None:
+                                ctx = MediaLogContext(
+                                    pred=pred_decoded,
+                                    target=target_decoded,
+                                    coords=coords,
+                                    fx=fx,
+                                    aux_tensors=final_out["aux_tensors"],
+                                    meta=meta,
+                                    cfg=cfg,
                                     prefix="validation",
                                     epoch=epoch,
-                                    aux_tensors=final_out["aux_tensors"],
                                     step=epoch_step,
-                                    fps=plasticity_video_fps,
+                                    out_dir=None,
                                 )
+                                log_fn(ctx)
+                                constraint = getattr(model, "constraint", None)
+                                if constraint is not None:
+                                    type(constraint).log_media(ctx)
                             break
                     model.train()
 
@@ -483,6 +485,7 @@ def test_dynamic_conditional_task(
     get_meta,
     runtime_overrides,
     prepare_batch,
+    log_fn=None,
 ):
     output_dir = resolve_output_dir(cfg)
     if checkpoint_path is None:
@@ -540,21 +543,24 @@ def test_dynamic_conditional_task(
                 )
                 pred_decoded = _decode_if_needed(y_normalizer, pred)
                 target_decoded = _decode_if_needed(y_normalizer, target)
-                shapelist = tuple(meta.get("shapelist", ()))
-                if len(shapelist) == 2:
-                    h, w = shapelist
-                    media_paths = save_plasticity_mesh_consistency_media(
-                        pred_decoded,
-                        target_decoded,
-                        h,
-                        w,
-                        t_out=t_out,
-                        out_dim=out_dim,
-                        out_dir=media_dir,
-                        prefix="test",
+                if log_fn is not None:
+                    ctx = MediaLogContext(
+                        pred=pred_decoded,
+                        target=target_decoded,
+                        coords=coords,
+                        fx=fx,
                         aux_tensors=final_out["aux_tensors"],
-                        fps=plasticity_video_fps,
+                        meta=meta,
+                        cfg=cfg,
+                        prefix="test",
+                        epoch=0,
+                        step=None,
+                        out_dir=media_dir,
                     )
+                    media_paths.update(log_fn(ctx))
+                    constraint = getattr(model, "constraint", None)
+                    if constraint is not None:
+                        media_paths.update(type(constraint).log_media(ctx))
                 break
     return {
         "checkpoint": str(Path(checkpoint_path).resolve()),

@@ -424,3 +424,26 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
                 diagnostics=diagnostics,
             )
         return ux_encoded
+
+    @classmethod
+    def log_media(cls, ctx) -> dict[str, str]:
+        aux = ctx.aux_tensors
+        if not all(k in aux for k in ("stream_psi", "stream_uy", "stream_div")):
+            return {}
+        h, w = ctx.meta["shapelist"]
+        if ctx.out_dir is None:
+            from omni_hc.training.logging_utils import log_pipe_stream_images
+            log_pipe_stream_images(
+                ctx.coords, h, w,
+                prefix=ctx.prefix, epoch=ctx.epoch, step=ctx.step,
+                psi=aux["stream_psi"], uy=aux["stream_uy"], divergence=aux["stream_div"],
+                psi_bc=aux.get("stream_psi_bc"), mask=aux.get("stream_mask"),
+            )
+            return {}
+        from omni_hc.training.logging_utils import save_pipe_stream_images
+        return save_pipe_stream_images(
+            ctx.coords, h, w,
+            out_dir=ctx.out_dir, prefix=ctx.prefix,
+            psi=aux["stream_psi"], uy=aux["stream_uy"], divergence=aux["stream_div"],
+            psi_bc=aux.get("stream_psi_bc"), mask=aux.get("stream_mask"),
+        )
