@@ -1,4 +1,3 @@
-import inspect
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -7,12 +6,10 @@ from typing import Any
 import torch
 
 from omni_hc.constraints import (
-    ConstrainedModel,
     DarcyDefectCorrectionConstraint,
     DarcyFluxConstraint,
     DirichletBoundaryAnsatz,
     ElasticityDeviatoricStressConstraint,
-    ForwardHookLatentExtractor,
     MeanConstraint,
     PipeInletParabolicAnsatz,
     PipeStreamFunctionBoundaryAnsatz,
@@ -41,50 +38,22 @@ MODEL_REQUIRED_ARGS = {  # TODO: This is a bit arbitrary. Should not have this h
     ],
 }
 
-# Maps canonical constraint name → class. The YAML `constraint.name` field
-# (or its alias below) selects from this table.
+# Maps constraint name → class. The name matches the constraint YAML filename
+# (without .yaml) and the snake_case form of the class name.
+# Matching is case-insensitive (normalised in _build_constraint).
 _CONSTRAINT_CLASSES: dict[str, type] = {
-    "dirichlet_ansatz": DirichletBoundaryAnsatz,
-    "structured_wall_dirichlet": StructuredWallDirichletAnsatz,
-    "pipe_inlet_parabolic": PipeInletParabolicAnsatz,
-    "pipe_ux_boundary": PipeUxBoundaryAnsatz,
-    "pipe_stream_function_ux": PipeStreamFunctionUxConstraint,
-    "pipe_stream_function_boundary": PipeStreamFunctionBoundaryAnsatz,
-    "darcy_flux_projection": DarcyFluxConstraint,
-    "darcy_defect_correction": DarcyDefectCorrectionConstraint,
-    "elasticity_deviatoric_stress": ElasticityDeviatoricStressConstraint,
-    "plasticity_mesh_consistency": PlasticityMeshConsistencyConstraint,
+    "dirichlet_boundary_ansatz": DirichletBoundaryAnsatz,
+    "structured_wall_dirichlet_ansatz": StructuredWallDirichletAnsatz,
+    "pipe_inlet_parabolic_ansatz": PipeInletParabolicAnsatz,
+    "pipe_ux_boundary_ansatz": PipeUxBoundaryAnsatz,
+    "pipe_stream_function_ux_constraint": PipeStreamFunctionUxConstraint,
+    "pipe_stream_function_boundary_ansatz": PipeStreamFunctionBoundaryAnsatz,
+    "darcy_flux_constraint": DarcyFluxConstraint,
+    "darcy_defect_correction_constraint": DarcyDefectCorrectionConstraint,
+    "elasticity_deviatoric_stress_constraint": ElasticityDeviatoricStressConstraint,
+    "plasticity_mesh_consistency_constraint": PlasticityMeshConsistencyConstraint,
+    "mean_constraint": MeanConstraint,
 }
-
-# TODO: Remove this. Only have the config names as truth
-# Legacy and convenience aliases → canonical name.
-_CONSTRAINT_ALIASES: dict[str, str] = {
-    "dirichlet_boundary_ansatz": "dirichlet_ansatz",
-    "pipe_wall_no_slip": "structured_wall_dirichlet",
-    "pipe_wall_no_slip_ansatz": "structured_wall_dirichlet",
-    "structured_wall_dirichlet_ansatz": "structured_wall_dirichlet",
-    "pipe_inlet_parabolic_ansatz": "pipe_inlet_parabolic",
-    "structured_inlet_parabolic": "pipe_inlet_parabolic",
-    "pipe_inlet_wall_ansatz": "pipe_ux_boundary",
-    "pipe_inlet_wall": "pipe_ux_boundary",
-    "pipe_ux_boundary_ansatz": "pipe_ux_boundary",
-    "pipe_stream_function": "pipe_stream_function_ux",
-    "stream_function_ux": "pipe_stream_function_ux",
-    "pipe_stream_function_boundary_ansatz": "pipe_stream_function_boundary",
-    "stream_function_boundary": "pipe_stream_function_boundary",
-    "darcy_flux_fft_pad": "darcy_flux_projection",
-    "darcy_helmholtz": "darcy_flux_projection",
-    "darcy_streamfunction": "darcy_flux_projection",
-    "plasticity_axis_order": "plasticity_mesh_consistency",
-    "plasticity_positive_spacings": "plasticity_mesh_consistency",
-    "plasticity_cell_axis_order": "plasticity_mesh_consistency",
-    "mean_correction": "mean_constraint",
-}
-
-# TODO: Revise this
-# Model-derived fields injected into constraint constructors when the
-# constructor declares them and the YAML does not already supply them.
-_META_KEYS = {"name", "freeze_base"}
 
 
 def ensure_nsl_path(cfg: dict | None = None) -> Path:
@@ -152,75 +121,8 @@ def _model_context(args: SimpleNamespace) -> dict[str, Any]:
         "grid_shape": shapelist,  # boundary constraints use grid_shape instead of shapelist
         "backbone_out_dim": int(args.out_dim),
         "target_out_dim": int(getattr(args, "constraint_target_out_dim", 1)),
+        "n_hidden": getattr(args, "n_hidden", None),
     }
-
-
-def _wrap(
-    backbone: torch.nn.Module,
-    constraint: torch.nn.Module,
-    constraint_cfg: dict,
-    latent_extractor=None,
-) -> ConstrainedModel:
-    wrapped = ConstrainedModel(
-        backbone=backbone,
-        constraint=constraint,
-        latent_extractor=latent_extractor,
-    )
-    if constraint_cfg.get("freeze_base", False):
-        for param in wrapped.backbone.parameters():
-            param.requires_grad = False
-    return wrapped
-
-
-def _build_generic_constraint(
-    backbone: torch.nn.Module,
-    cls: type,
-    constraint_cfg: dict,
-    args: SimpleNamespace,
-) -> ConstrainedModel:
-    params = {k: v for k, v in constraint_cfg.items() if k not in _META_KEYS}
-    sig = inspect.signature(cls.__init__)
-    for key, value in _model_context(args).items():
-        if key in sig.parameters and key not in params:
-            params[key] = value
-    try:
-        constraint = cls(**params)
-    except TypeError as exc:
-        raise ValueError(
-            f"Failed to construct {cls.__name__} — ensure all required parameters "
-            f"are present in the constraint YAML config. Detail: {exc}"
-        ) from exc
-    return _wrap(backbone, constraint, constraint_cfg)
-
-
-# TODO: bit hacky. maybe have special case within the constraint class
-def _build_mean_constraint(
-    backbone: torch.nn.Module,
-    args: SimpleNamespace,
-    constraint_cfg: dict,
-) -> ConstrainedModel:
-    mode = str(constraint_cfg.get("mode", "post_output")).lower()
-    latent_extractor = None
-
-    params = {k: v for k, v in constraint_cfg.items() if k not in _META_KEYS}
-    params.setdefault("out_dim", int(args.out_dim))
-
-    if mode == "latent_head":
-        latent_module = constraint_cfg.get("latent_module")
-        if not latent_module:
-            raise ValueError(
-                "constraint.latent_module is required for latent_head mode"
-            )
-        latent_extractor = ForwardHookLatentExtractor(backbone, str(latent_module))
-        if "latent_dim" not in params:
-            latent_dim = getattr(args, "n_hidden", None)
-            if latent_dim is not None:
-                params["latent_dim"] = int(latent_dim)
-
-    constraint = MeanConstraint(**params)
-    return _wrap(
-        backbone, constraint, constraint_cfg, latent_extractor=latent_extractor
-    )
 
 
 def _build_constraint(backbone: torch.nn.Module, args: SimpleNamespace, cfg: dict):
@@ -228,22 +130,14 @@ def _build_constraint(backbone: torch.nn.Module, args: SimpleNamespace, cfg: dic
     if not constraint_cfg:
         return backbone
 
-    # TODO: simplify naming logic
-    raw_name = str(constraint_cfg.get("name", "")).strip().lower()
-    name = _CONSTRAINT_ALIASES.get(raw_name, raw_name)
-
-    if (
-        name == "mean_constraint"
-    ):  # TODO: why only mean constraint needs special handling? Can we unify this logic with the generic builder by adding some optional fields to the YAML schema?
-        return _build_mean_constraint(backbone, args, constraint_cfg)
-
+    name = str(constraint_cfg.get("name", "")).strip().lower()
     cls = _CONSTRAINT_CLASSES.get(name)
     if cls is None:
         raise ValueError(
-            f"Unsupported constraint '{raw_name}'. "
-            f"Supported: {sorted(_CONSTRAINT_CLASSES) + sorted(_CONSTRAINT_ALIASES)}"
+            f"Unsupported constraint '{name}'. "
+            f"Supported: {sorted(_CONSTRAINT_CLASSES)}"
         )
-    return _build_generic_constraint(backbone, cls, constraint_cfg, args)
+    return cls.build(backbone, _model_context(args), constraint_cfg)
 
 
 def create_model(

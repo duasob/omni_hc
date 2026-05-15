@@ -24,7 +24,7 @@ def test_pipe_ux_boundary_config_builds_working_constraint():
     height, width = 4, 5
     pred = torch.randn(2, height * width, 1)
     coords = _structured_coords(height, width).expand(2, -1, -1)
-    cfg = load_yaml_file("configs/constraints/pipe_ux_boundary.yaml")
+    cfg = load_yaml_file("configs/constraints/pipe_ux_boundary_ansatz.yaml")
 
     model = _build_constraint(DummyBackbone(pred), _args(shapelist=(height, width)), cfg)
     out = model(coords)
@@ -39,7 +39,7 @@ def test_pipe_stream_boundary_config_builds_working_constraint():
     height, width = 8, 9
     pred = torch.zeros(1, height * width, 1)
     coords = _structured_coords(height, width)
-    cfg = load_yaml_file("configs/constraints/pipe_stream_function_boundary.yaml")
+    cfg = load_yaml_file("configs/constraints/pipe_stream_function_boundary_ansatz.yaml")
 
     model = _build_constraint(DummyBackbone(pred), _args(shapelist=(height, width)), cfg)
     out = model(coords, return_aux=True)
@@ -53,7 +53,7 @@ def test_darcy_flux_config_builds_pressure_with_dirichlet_boundary():
     height = width = 8
     pred = torch.randn(1, height * width, 1)
     permeability = torch.full((1, height * width, 1), 4.0)
-    cfg = load_yaml_file("configs/constraints/darcy_flux_projection.yaml")
+    cfg = load_yaml_file("configs/constraints/darcy_flux_constraint.yaml")
     cfg["constraint"]["padding"] = 2
 
     model = _build_constraint(DummyBackbone(pred), _args(shapelist=(height, width)), cfg)
@@ -76,7 +76,7 @@ def test_darcy_flux_config_builds_pressure_with_dirichlet_boundary():
 def test_elasticity_deviatoric_stress_config_builds_scalar_constraint():
     pred = torch.randn(2, 13, 1)
     coords = torch.rand(2, 13, 2)
-    cfg = load_yaml_file("configs/constraints/elasticity_deviatoric_stress.yaml")
+    cfg = load_yaml_file("configs/constraints/elasticity_deviatoric_stress_constraint.yaml")
 
     model = _build_constraint(DummyBackbone(pred), _args(out_dim=1), cfg)
     out = model(coords, return_aux=True)
@@ -89,7 +89,7 @@ def test_elasticity_deviatoric_stress_config_builds_scalar_constraint():
 def test_plasticity_mesh_consistency_config_builds_ordered_mesh():
     height, width = 4, 3
     pred = torch.zeros(2, height * width, 3)
-    cfg = load_yaml_file("configs/constraints/plasticity_mesh_consistency.yaml")
+    cfg = load_yaml_file("configs/constraints/plasticity_mesh_consistency_constraint.yaml")
     cfg["constraint"]["x_left"] = 0.35
     cfg["constraint"]["x_right"] = -1.15
     cfg["constraint"]["y_top"] = 0.9
@@ -119,7 +119,7 @@ def test_constraint_backbone_out_dim_overrides_backbone_output_only():
             },
         },
         "constraint": {
-            "name": "elasticity_deviatoric_stress",
+            "name": "elasticity_deviatoric_stress_constraint",
             "backbone_out_dim": 2,
         },
     }

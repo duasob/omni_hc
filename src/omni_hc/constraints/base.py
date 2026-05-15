@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 import torch
 import torch.nn as nn
+
+# Keys in constraint YAML blocks that are not constructor parameters.
+# Used by the default ConstraintModule.build classmethod.
+_BUILD_META_KEYS: frozenset[str] = frozenset({"name", "freeze_base"})
 
 
 @dataclass
@@ -24,6 +29,38 @@ class ConstraintModule(nn.Module):
     """Base class for constraint operators applied around a backbone."""
 
     name = "constraint"
+
+    @classmethod
+    def build(
+        cls,
+        backbone: nn.Module,
+        model_context: dict[str, Any],
+        constraint_cfg: dict[str, Any],
+    ) -> "ConstrainedModel":
+        """Construct a ConstrainedModel from a raw constraint config block.
+
+        Subclasses override this when construction requires extra logic (e.g.
+        wiring up a latent extractor). The default implementation injects
+        model-derived keys that appear in the subclass __init__ signature and
+        are absent from the YAML config.
+        """
+        params = {k: v for k, v in constraint_cfg.items() if k not in _BUILD_META_KEYS}
+        sig = inspect.signature(cls.__init__)
+        for key, value in model_context.items():
+            if key in sig.parameters and key not in params:
+                params[key] = value
+        try:
+            constraint = cls(**params)
+        except TypeError as exc:
+            raise ValueError(
+                f"Failed to construct {cls.__name__} — ensure all required parameters "
+                f"are present in the constraint YAML config. Detail: {exc}"
+            ) from exc
+        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
+        if constraint_cfg.get("freeze_base", False):
+            for param in wrapped.backbone.parameters():
+                param.requires_grad = False
+        return wrapped
 
     def as_output(
         self,
