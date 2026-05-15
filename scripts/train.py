@@ -69,8 +69,4 @@ if __name__ == "__main__":
     )  # TODO: clean the internals of this function
     if args.checkpoint is not None:
         cfg.setdefault("training", {})["resume_checkpoint"] = args.checkpoint
-    train_benchmark(
-        cfg,
-        nsl_root=None,
-        device=resolve_device(args.device),
-    )
+    train_benchmark(cfg, device=resolve_device(args.device))

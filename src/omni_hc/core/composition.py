@@ -10,16 +10,6 @@ from .config import deep_merge, load_composed_config, load_yaml_file
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
-BUDGET_CONFIGS = {
-    "debug": PROJECT_ROOT / "configs/budgets/debug.yaml",
-    "smoke": PROJECT_ROOT / "configs/budgets/smoke.yaml",
-    "search": PROJECT_ROOT / "configs/budgets/search.yaml",
-    "final": PROJECT_ROOT / "configs/budgets/final.yaml",
-    "tune_debug": PROJECT_ROOT / "configs/budgets/tune_debug.yaml",
-    "tune_colab": PROJECT_ROOT / "configs/budgets/tune_colab.yaml",
-}
-
-
 def repo_path(path: str | Path) -> Path:
     path = Path(path)
     if path.is_absolute():
@@ -43,6 +33,33 @@ def default_output_root(mode: str) -> Path:
     return PROJECT_ROOT / "outputs"
 
 
+# Search paths for each config component kind.
+# Each entry is a list of candidate paths, tried in order.
+# Callables receive (value, benchmark) and return a Path.
+_COMPONENT_CANDIDATES: dict[str, Any] = {
+    "benchmark": lambda v, b: [
+        PROJECT_ROOT / "configs/benchmarks" / v / "base.yaml",
+    ],
+    "backbone": lambda v, b: [
+        PROJECT_ROOT / "configs/backbones" / b / f"{v}.yaml",
+        PROJECT_ROOT / "configs/backbones" / b / f"{v.lower()}.yaml",
+    ],
+    "constraint": lambda v, b: [
+        PROJECT_ROOT / "configs/constraints" / b / f"{v}.yaml",
+        PROJECT_ROOT / "configs/constraints" / f"{v}.yaml",
+    ],
+    "budget": lambda v, b: [
+        PROJECT_ROOT / "configs/budgets" / f"{v}.yaml",
+    ],
+    "optuna": lambda v, b: [
+        PROJECT_ROOT / "configs/optuna" / b / f"{v}.yaml",
+        PROJECT_ROOT / "configs/optuna" / f"{v}.yaml",
+    ],
+}
+
+_REQUIRES_BENCHMARK = {"backbone", "constraint", "optuna"}
+
+
 def _component_path(
     value: str | Path | None,
     *,
@@ -50,61 +67,31 @@ def _component_path(
     benchmark: str | None = None,
     required: bool = True,
 ) -> Path | None:
-    if value is None:
+    if value is None or str(value).lower() in {"", "none", "null", "unconstrained"}:
         if required:
             raise ValueError(f"{kind} is required")
         return None
 
     value_str = str(value)
-    if value_str.lower() in {"", "none", "null", "unconstrained"}:
-        if required:
-            raise ValueError(f"{kind} is required")
-        return None
 
-    candidate = repo_path(value_str)
-    if candidate.exists():
-        return candidate
+    explicit = repo_path(value_str)
+    if explicit.exists():
+        return explicit
 
-    if kind == "benchmark":
-        candidates = [PROJECT_ROOT / "configs/benchmarks" / value_str / "base.yaml"]
-    elif kind == "backbone":
-        if benchmark is None:
-            raise ValueError("backbone resolution requires a benchmark")
-        candidates = [
-            PROJECT_ROOT / "configs/backbones" / benchmark / f"{value_str}.yaml",
-            PROJECT_ROOT
-            / "configs/backbones"
-            / benchmark
-            / f"{value_str.lower()}.yaml",
-        ]
-    elif kind == "constraint":
-        if benchmark is None:
-            raise ValueError("constraint resolution requires a benchmark")
-        candidates = [
-            PROJECT_ROOT / "configs/constraints" / benchmark / f"{value_str}.yaml",
-            PROJECT_ROOT / "configs/constraints" / f"{value_str}.yaml",
-        ]
-    elif kind == "budget":
-        candidates = [
-            BUDGET_CONFIGS.get(value_str)
-            or PROJECT_ROOT / "configs/budgets" / f"{value_str}.yaml"
-        ]
-    elif kind == "optuna":
-        if benchmark is None:
-            raise ValueError("optuna resolution requires a benchmark")
-        candidates = [
-            PROJECT_ROOT / "configs/optuna" / benchmark / f"{value_str}.yaml",
-            PROJECT_ROOT / "configs/optuna" / f"{value_str}.yaml",
-        ]
-    else:
-        raise ValueError(f"Unknown config component kind: {kind}")
+    if kind in _REQUIRES_BENCHMARK and benchmark is None:
+        raise ValueError(f"{kind} resolution requires a benchmark")
 
+    factory = _COMPONENT_CANDIDATES.get(kind)
+    if factory is None:
+        raise ValueError(f"Unknown config component kind: {kind!r}")
+
+    candidates: list[Path] = factory(value_str, benchmark)
     for candidate in candidates:
-        if candidate is not None and candidate.exists():
+        if candidate.exists():
             return candidate
 
     if required:
-        searched = ", ".join(str(item) for item in candidates if item is not None)
+        searched = ", ".join(str(c) for c in candidates)
         raise FileNotFoundError(
             f"Could not resolve {kind}={value_str!r}. Searched: {searched}"
         )
@@ -123,17 +110,11 @@ def _load_experiment(path: str | Path | None) -> dict[str, Any]:
     return load_yaml_file(repo_path(path))
 
 
-def _experiment_value(
-    experiment: dict[str, Any],
-    key: str,
-    cli_value: str | None,
-) -> str | None:
+def _experiment_value(experiment: dict[str, Any], key: str, cli_value: str | None) -> str | None:
     if cli_value is not None:
         return cli_value
     value = experiment.get(key)
-    if value is None:
-        return None
-    return str(value)
+    return str(value) if value is not None else None
 
 
 def _has_component_value(value: str | None) -> bool:
@@ -152,45 +133,128 @@ def _is_resolved_run_config(cfg: dict[str, Any]) -> bool:
     )
 
 
-def _default_optuna_name(
-    *,
-    benchmark: str,
-    constraint: str | None,
-    backbone: str,
-) -> str | None:
+def _default_optuna_name(*, benchmark: str, constraint: str | None, backbone: str) -> str | None:
     names = []
     if constraint and constraint.lower() not in {"none", "unconstrained"}:
         names.append(constraint)
     names.append(backbone)
-
     for name in names:
-        path = _component_path(
-            name,
-            kind="optuna",
-            benchmark=benchmark,
-            required=False,
-        )
-        if path is not None:
+        if _component_path(name, kind="optuna", benchmark=benchmark, required=False) is not None:
             return name
     return None
 
 
-def _run_label(
+def _run_label(*, benchmark: str, backbone: str, constraint: str | None, budget: str, seed: int) -> str:
+    return "_".join(
+        safe_name(item)
+        for item in [benchmark, backbone, constraint or "unconstrained", budget, f"seed_{seed}"]
+    )
+
+
+def _load_components(
+    benchmark: str,
+    backbone: str,
+    constraint: str | None,
+    budget: str,
+    optuna: str | None,
+    mode: str,
+) -> tuple[dict[str, Any], list[str], str | None]:
+    """Load and merge all component configs. Returns (cfg, source_configs, resolved_optuna_name)."""
+    cfg: dict[str, Any] = {}
+    source_configs: list[str] = []
+
+    paths = [
+        _component_path(benchmark, kind="benchmark"),
+        _component_path(backbone, kind="backbone", benchmark=benchmark),
+        _component_path(
+            constraint,
+            kind="constraint",
+            benchmark=benchmark,
+            required=_has_component_value(constraint),
+        ),
+    ]
+
+    if mode == "tune":
+        if optuna is None:
+            optuna = _default_optuna_name(
+                benchmark=benchmark, constraint=constraint, backbone=backbone
+            )
+        paths.append(
+            _component_path(optuna, kind="optuna", benchmark=benchmark, required=optuna is not None)
+        )
+
+    paths.append(_component_path(budget, kind="budget"))
+
+    for path in paths:
+        if path is None:
+            continue
+        cfg = deep_merge(cfg, _load_component(path))
+        source_configs.append(str(path.relative_to(PROJECT_ROOT)))
+
+    return cfg, source_configs, optuna
+
+
+def _apply_run_metadata(
+    cfg: dict[str, Any],
     *,
     benchmark: str,
     backbone: str,
     constraint: str | None,
     budget: str,
+    optuna: str | None,
     seed: int,
-) -> str:
-    constraint_name = constraint or "unconstrained"
-    return "_".join(
-        safe_name(item)
-        for item in [benchmark, backbone, constraint_name, budget, f"seed_{seed}"]
+    mode: str,
+    run_name: str,
+    output_root: str | Path | None,
+    source_configs: list[str],
+) -> None:
+    root = repo_path(output_root) if output_root else default_output_root(mode)
+    cfg.setdefault("paths", {}).setdefault(
+        "output_dir",
+        str(
+            root
+            / safe_name(benchmark)
+            / safe_name(constraint or "unconstrained")
+            / safe_name(backbone)
+            / safe_name(budget)
+            / f"seed_{seed}"
+        ),
     )
 
+    cfg.setdefault("wandb_logging", {})
+    cfg["wandb_logging"].setdefault("project", "omni_hc")
+    cfg["wandb_logging"].setdefault("run_name", run_name)
+    cfg["wandb_logging"].setdefault("tags", [
+        safe_name(benchmark),
+        safe_name(backbone),
+        safe_name(constraint or "unconstrained"),
+        safe_name(budget),
+    ])
 
-def compose_run_config(  # TODO: this function is getting unwieldy, consider refactoring into a class or separate functions
+    if mode == "tune":
+        cfg.setdefault("optuna", {})
+        cfg["optuna"].setdefault("save_dir", str(Path(cfg["paths"]["output_dir"]) / "trials"))
+        cfg["optuna"].setdefault("run_name", run_name)
+
+    ntest = cfg.get("data", {}).get("ntest", 200)
+    cfg["experiment"] = {
+        "mode": mode,
+        "benchmark": benchmark,
+        "backbone": backbone,
+        "constraint": constraint or "unconstrained",
+        "budget": budget,
+        "optuna": optuna,
+        "seed": seed,
+        "source_configs": source_configs,
+        "split_policy": (
+            "Training and tuning use train/validation data. "
+            f"The canonical test split is data.ntest={ntest} and should only "
+            "be evaluated with scripts/test.py after final model selection."
+        ),
+    }
+
+
+def compose_run_config(
     *,
     benchmark: str | None = None,
     backbone: str | None = None,
@@ -203,31 +267,32 @@ def compose_run_config(  # TODO: this function is getting unwieldy, consider ref
     output_root: str | Path | None = None,
     extra_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Compose a runnable config from named config components.
+    """Compose a runnable config from named components or a previously-resolved config file.
 
-    Experiment files are composition specs. They may set benchmark, backbone,
-    constraint, budget, optuna, and an overrides mapping.
+    Two entry paths:
+
+    A. ``experiment`` points to a fully-resolved run config (has ``benchmark.name`` and
+       ``model.backbone`` as dicts) — load it as-is, apply seed/mode/overrides, return.
+
+    C. Named component composition — resolve benchmark, backbone, constraint, budget (and
+       optuna for tune mode) to their YAML files, merge them in order, then apply any
+       experiment-spec overrides and extra_overrides.  An experiment spec YAML (e.g.
+       ``configs/experiments/darcy/fno_small.yaml``) may supply the component names and
+       an ``overrides`` block instead of passing them all as CLI args.
     """
-
     experiment_cfg = _load_experiment(experiment)
+
+    # Path A: already-resolved run config → pass through with overrides/mode applied.
     if experiment is not None and _is_resolved_run_config(experiment_cfg):
         cfg = deepcopy(experiment_cfg)
         if extra_overrides:
             cfg = deep_merge(cfg, extra_overrides)
         if seed is not None:
-            cfg.setdefault("training", {})
-            cfg["training"]["seed"] = int(seed)
-        cfg.setdefault("experiment", {})
-        cfg["experiment"]["mode"] = mode
+            cfg.setdefault("training", {})["seed"] = int(seed)
+        cfg.setdefault("experiment", {})["mode"] = mode
         return cfg
 
-    if "extends" in experiment_cfg:
-        cfg = load_composed_config(repo_path(experiment))
-        cfg = deep_merge(cfg, deepcopy(experiment_cfg.get("overrides", {}) or {}))
-        if extra_overrides:
-            cfg = deep_merge(cfg, extra_overrides)
-        return cfg
-
+    # Path C: named component composition.
     benchmark_name = _experiment_value(experiment_cfg, "benchmark", benchmark)
     backbone_name = _experiment_value(experiment_cfg, "backbone", backbone)
     constraint_name = _experiment_value(experiment_cfg, "constraint", constraint)
@@ -237,48 +302,13 @@ def compose_run_config(  # TODO: this function is getting unwieldy, consider ref
     optuna_name = _experiment_value(experiment_cfg, "optuna", optuna)
 
     if benchmark_name is None:
-        raise ValueError("benchmark is required when no legacy extends config is used")
+        raise ValueError("benchmark is required")
     if backbone_name is None:
-        raise ValueError("backbone is required when no legacy extends config is used")
+        raise ValueError("backbone is required")
 
-    cfg: dict[str, Any] = {}
-    source_configs: list[str] = []
-    constraint_required = _has_component_value(constraint_name)
-    component_paths = [
-        _component_path(benchmark_name, kind="benchmark"),
-        _component_path(backbone_name, kind="backbone", benchmark=benchmark_name),
-        _component_path(
-            constraint_name,
-            kind="constraint",
-            benchmark=benchmark_name,
-            required=constraint_required,
-        ),
-    ]
-
-    if mode == "tune":
-        if optuna_name is None:
-            optuna_name = _default_optuna_name(
-                benchmark=benchmark_name,
-                constraint=constraint_name,
-                backbone=backbone_name,
-            )
-        component_paths.append(
-            _component_path(
-                optuna_name,
-                kind="optuna",
-                benchmark=benchmark_name,
-                required=optuna_name is not None,
-            )
-        )
-
-    component_paths.append(_component_path(budget_name, kind="budget"))
-
-    for path in component_paths:
-        if path is None:
-            continue
-        cfg = deep_merge(cfg, _load_component(path))
-        source_configs.append(str(path.relative_to(PROJECT_ROOT)))
-
+    cfg, source_configs, optuna_name = _load_components(
+        benchmark_name, backbone_name, constraint_name, budget_name, optuna_name, mode
+    )
     cfg = deep_merge(cfg, deepcopy(experiment_cfg.get("overrides", {}) or {}))
     if extra_overrides:
         cfg = deep_merge(cfg, extra_overrides)
@@ -298,55 +328,17 @@ def compose_run_config(  # TODO: this function is getting unwieldy, consider ref
         )
     )
 
-    root = repo_path(output_root) if output_root else default_output_root(mode)
-    cfg.setdefault("paths", {})
-    cfg["paths"].setdefault(
-        "output_dir",
-        str(
-            root
-            / safe_name(benchmark_name)
-            / safe_name(constraint_name or "unconstrained")
-            / safe_name(backbone_name)
-            / safe_name(budget_name)
-            / f"seed_{seed_value}"
-        ),
+    _apply_run_metadata(
+        cfg,
+        benchmark=benchmark_name,
+        backbone=backbone_name,
+        constraint=constraint_name,
+        budget=budget_name,
+        optuna=optuna_name,
+        seed=seed_value,
+        mode=mode,
+        run_name=run_name,
+        output_root=output_root,
+        source_configs=source_configs,
     )
-
-    cfg.setdefault("wandb_logging", {})
-    cfg["wandb_logging"].setdefault("project", "omni_hc")
-    cfg["wandb_logging"].setdefault("run_name", run_name)
-    cfg["wandb_logging"].setdefault(
-        "tags",
-        [
-            safe_name(benchmark_name),
-            safe_name(backbone_name),
-            safe_name(constraint_name or "unconstrained"),
-            safe_name(budget_name),
-        ],
-    )
-
-    if mode == "tune":
-        cfg.setdefault("optuna", {})
-        cfg["optuna"].setdefault(
-            "save_dir",
-            str(Path(cfg["paths"]["output_dir"]) / "trials"),
-        )
-        cfg["optuna"].setdefault("run_name", run_name)
-
-    ntest = cfg.get("data", {}).get("ntest", 200)
-    cfg["experiment"] = {
-        "mode": mode,
-        "benchmark": benchmark_name,
-        "backbone": backbone_name,
-        "constraint": constraint_name or "unconstrained",
-        "budget": budget_name,
-        "optuna": optuna_name,
-        "seed": seed_value,
-        "source_configs": source_configs,
-        "split_policy": (
-            "Training and tuning use train/validation data. "
-            f"The canonical test split is data.ntest={ntest} and should only "
-            "be evaluated with scripts/test.py after final model selection."
-        ),
-    }
     return cfg
