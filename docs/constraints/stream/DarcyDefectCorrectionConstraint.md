@@ -102,9 +102,8 @@ giving a convergence factor of $|1 - 4.8/3| = 0.6$ or $|1 - 4.8/12| = 0.6$
 — both the same by symmetry. Two or three steps reduce the interface residual
 to ~14% of its initial value.
 
-**Boundary condition:** The correction $\delta u$ is solved with zero Dirichlet
-BCs, so $u_{\mathrm{hard}}|_{\partial\Omega} = u_{\mathrm{ansatz}}|_{\partial\Omega}
-= 0$ exactly after every step.
+**Boundary condition:** The correction `delta_u` is solved with zero Dirichlet
+BCs, so `u_hard` remains exactly zero on the boundary after every step.
 
 ---
 
