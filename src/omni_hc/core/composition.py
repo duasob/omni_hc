@@ -110,7 +110,9 @@ def _load_experiment(path: str | Path | None) -> dict[str, Any]:
     return load_yaml_file(repo_path(path))
 
 
-def _experiment_value(experiment: dict[str, Any], key: str, cli_value: str | None) -> str | None:
+def _experiment_value(
+    experiment: dict[str, Any], key: str, cli_value: str | None
+) -> str | None:
     if cli_value is not None:
         return cli_value
     value = experiment.get(key)
@@ -133,21 +135,34 @@ def _is_resolved_run_config(cfg: dict[str, Any]) -> bool:
     )
 
 
-def _default_optuna_name(*, benchmark: str, constraint: str | None, backbone: str) -> str | None:
+def _default_optuna_name(
+    *, benchmark: str, constraint: str | None, backbone: str
+) -> str | None:
     names = []
     if constraint and constraint.lower() not in {"none", "unconstrained"}:
         names.append(constraint)
     names.append(backbone)
     for name in names:
-        if _component_path(name, kind="optuna", benchmark=benchmark, required=False) is not None:
+        if (
+            _component_path(name, kind="optuna", benchmark=benchmark, required=False)
+            is not None
+        ):
             return name
     return None
 
 
-def _run_label(*, benchmark: str, backbone: str, constraint: str | None, budget: str, seed: int) -> str:
+def _run_label(
+    *, benchmark: str, backbone: str, constraint: str | None, budget: str, seed: int
+) -> str:
     return "_".join(
         safe_name(item)
-        for item in [benchmark, backbone, constraint or "unconstrained", budget, f"seed_{seed}"]
+        for item in [
+            benchmark,
+            backbone,
+            constraint or "unconstrained",
+            budget,
+            f"seed_{seed}",
+        ]
     )
 
 
@@ -180,7 +195,9 @@ def _load_components(
                 benchmark=benchmark, constraint=constraint, backbone=backbone
             )
         paths.append(
-            _component_path(optuna, kind="optuna", benchmark=benchmark, required=optuna is not None)
+            _component_path(
+                optuna, kind="optuna", benchmark=benchmark, required=optuna is not None
+            )
         )
 
     paths.append(_component_path(budget, kind="budget"))
@@ -224,16 +241,21 @@ def _apply_run_metadata(
     cfg.setdefault("wandb_logging", {})
     cfg["wandb_logging"].setdefault("project", "omni_hc")
     cfg["wandb_logging"].setdefault("run_name", run_name)
-    cfg["wandb_logging"].setdefault("tags", [
-        safe_name(benchmark),
-        safe_name(backbone),
-        safe_name(constraint or "unconstrained"),
-        safe_name(budget),
-    ])
+    cfg["wandb_logging"].setdefault(
+        "tags",
+        [
+            safe_name(benchmark),
+            safe_name(backbone),
+            safe_name(constraint or "unconstrained"),
+            safe_name(budget),
+        ],
+    )
 
     if mode == "tune":
         cfg.setdefault("optuna", {})
-        cfg["optuna"].setdefault("save_dir", str(Path(cfg["paths"]["output_dir"]) / "trials"))
+        cfg["optuna"].setdefault(
+            "save_dir", str(Path(cfg["paths"]["output_dir"]) / "trials")
+        )
         cfg["optuna"].setdefault("run_name", run_name)
 
     ntest = cfg.get("data", {}).get("ntest", 200)
@@ -274,7 +296,7 @@ def compose_run_config(
     A. ``experiment`` points to a fully-resolved run config (has ``benchmark.name`` and
        ``model.backbone`` as dicts) — load it as-is, apply seed/mode/overrides, return.
 
-    C. Named component composition — resolve benchmark, backbone, constraint, budget (and
+    B. Named component composition — resolve benchmark, backbone, constraint, budget (and
        optuna for tune mode) to their YAML files, merge them in order, then apply any
        experiment-spec overrides and extra_overrides.  An experiment spec YAML (e.g.
        ``configs/experiments/darcy/fno_small.yaml``) may supply the component names and
@@ -292,7 +314,7 @@ def compose_run_config(
         cfg.setdefault("experiment", {})["mode"] = mode
         return cfg
 
-    # Path C: named component composition.
+    # Path B: named component composition.
     benchmark_name = _experiment_value(experiment_cfg, "benchmark", benchmark)
     backbone_name = _experiment_value(experiment_cfg, "backbone", backbone)
     constraint_name = _experiment_value(experiment_cfg, "constraint", constraint)
