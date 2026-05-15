@@ -106,3 +106,8 @@ if __name__ == "__main__":
         f"test_mse={metrics['mse']:.6f} "
         f"test_rel_l2={metrics['rel_l2']:.6f}"
     )
+    media = result.get("media") or {}
+    if media:
+        print("test_media:")
+        for name, path in media.items():
+            print(f"  {name}: {path}")

@@ -1,5 +1,6 @@
 import torch
 import pytest
+import numpy as np
 from pathlib import Path
 
 import omni_hc.training.logging_utils as logging_utils
@@ -81,6 +82,94 @@ def test_steady_field_logging_adds_shared_comparison_panel(monkeypatch):
     assert "validation/pred" in fake_wandb.logged
     assert "validation/target" in fake_wandb.logged
     assert "validation/error_signed" in fake_wandb.logged
+
+
+def test_rollout_gif_logging_logs_rollout_and_error(monkeypatch):
+    fake_wandb = FakeWandb()
+    fake_wandb.run = object()
+    monkeypatch.setattr(logging_utils, "wandb", fake_wandb)
+
+    h, w, t_out, out_dim = 4, 4, 3, 1
+    base = torch.linspace(0.0, 1.0, h * w).view(1, h * w, 1)
+    target = torch.cat([base + 0.1 * step for step in range(t_out)], dim=-1)
+    pred = target + 0.05
+
+    logging_utils.log_rollout_gifs(
+        pred,
+        target,
+        h,
+        w,
+        out_dim=out_dim,
+        prefix="validation",
+        epoch=1,
+        step=5,
+        fps=2,
+    )
+
+    assert fake_wandb.logged_step == 5
+    assert fake_wandb.logged["epoch"] == 2
+    assert "validation/rollout" in fake_wandb.logged
+    assert "validation/rollout_error" in fake_wandb.logged
+    rollout = fake_wandb.logged["validation/rollout"]
+    error = fake_wandb.logged["validation/rollout_error"]
+    assert rollout.format == "gif"
+    assert rollout.fps == 2
+    assert error.format == "gif"
+    assert error.fps == 2
+    assert Path(rollout.value).suffix == ".gif"
+    assert Path(error.value).suffix == ".gif"
+    assert Path(rollout.value).exists()
+    assert Path(error.value).exists()
+
+
+def test_rollout_gif_saving_writes_rollout_and_error(tmp_path):
+    h, w, t_out, out_dim = 4, 4, 3, 1
+    base = torch.linspace(0.0, 1.0, h * w).view(1, h * w, 1)
+    target = torch.cat([base + 0.1 * step for step in range(t_out)], dim=-1)
+    pred = target + 0.05
+
+    paths = logging_utils.save_rollout_gifs(
+        pred,
+        target,
+        h,
+        w,
+        out_dim=out_dim,
+        out_dir=tmp_path,
+        prefix="test",
+        fps=2,
+    )
+
+    if logging_utils.Image is None:
+        assert paths == {}
+        return
+    assert Path(paths["rollout"]).exists()
+    assert Path(paths["rollout_error"]).exists()
+    assert Path(paths["rollout"]).suffix == ".gif"
+    assert Path(paths["rollout_error"]).suffix == ".gif"
+
+
+def test_plasticity_mesh_coords_average_xy_and_displacement_channels():
+    material = np.array(
+        [
+            [[[10.0, 20.0]], [[11.0, 20.0]]],
+            [[[10.0, 19.0]], [[11.0, 19.0]]],
+        ],
+        dtype=np.float32,
+    )
+    xy = material + np.array([[[[2.0, 4.0]]]], dtype=np.float32)
+    displacement = np.broadcast_to(
+        np.array([[[[6.0, 8.0]]]], dtype=np.float32),
+        material.shape,
+    )
+    seq = np.concatenate((xy, displacement), axis=-1)
+
+    coords = logging_utils._plasticity_mesh_coords_from_channels(
+        seq,
+        material_seq=material,
+    )
+
+    expected = 0.5 * (xy + material + displacement)
+    np.testing.assert_allclose(coords, expected)
 
 
 def test_plasticity_mesh_media_logs_images_and_gif(monkeypatch):

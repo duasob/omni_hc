@@ -7,6 +7,7 @@ import torch
 
 from omni_hc.constraints import (
     ConstrainedModel,
+    DarcyDefectCorrectionConstraint,
     DarcyFluxConstraint,
     DirichletBoundaryAnsatz,
     ElasticityDeviatoricStressConstraint,
@@ -257,6 +258,21 @@ def _build_constraint(backbone: torch.nn.Module, args, cfg: dict):
                 param.requires_grad = False
         return wrapped
 
+    if name in {"darcy_defect_correction"}:
+        constraint = DarcyDefectCorrectionConstraint(
+            force_value=float(constraint_cfg.get("force_value", 1.0)),
+            n_correction_steps=int(constraint_cfg.get("n_correction_steps", 1)),
+            lower=float(constraint_cfg.get("lower", 0.0)),
+            upper=float(constraint_cfg.get("upper", 1.0)),
+            shapelist=getattr(args, "shapelist", None),
+            permeability_eps=float(constraint_cfg.get("permeability_eps", 1e-6)),
+        )
+        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
+        if bool(constraint_cfg.get("freeze_base", False)):
+            for param in wrapped.backbone.parameters():
+                param.requires_grad = False
+        return wrapped
+
     if name == "elasticity_deviatoric_stress":
         constraint = ElasticityDeviatoricStressConstraint(
             backbone_out_dim=int(constraint_cfg.get("backbone_out_dim", args.out_dim)),
@@ -317,8 +333,8 @@ def _build_constraint(backbone: torch.nn.Module, args, cfg: dict):
             f"'{name}'. Currently supported: mean_correction, dirichlet_ansatz, "
             "structured_wall_dirichlet, pipe_inlet_parabolic, pipe_ux_boundary, "
             "pipe_stream_function_ux, pipe_stream_function_boundary, "
-            "darcy_flux_projection, elasticity_deviatoric_stress, "
-            "plasticity_mesh_consistency"
+            "darcy_flux_projection, darcy_defect_correction, "
+            "elasticity_deviatoric_stress, plasticity_mesh_consistency"
         )
 
     mode = str(constraint_cfg.get("mode", "post_output")).lower()
