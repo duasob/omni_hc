@@ -40,12 +40,9 @@ export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-$OMP_NUM_THREADS}"
 export NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-$OMP_NUM_THREADS}"
 
 RUNS=(
-    "--benchmark darcy --backbone Transolver --constraint dirichlet_ansatz_zero --budget smoke --override constraint.distance_power=0.01"
-    "--benchmark darcy --backbone Transolver --constraint dirichlet_ansatz_zero --budget smoke --override constraint.distance_power=0.05"
-    "--benchmark darcy --backbone Transolver --constraint dirichlet_ansatz_zero --budget smoke --override constraint.distance_power=0.1"
-    "--benchmark darcy --backbone Transolver --constraint dirichlet_ansatz_zero --budget smoke --override constraint.distance_power=0.5"
-    "--benchmark darcy --backbone Transolver --constraint dirichlet_ansatz_zero --budget smoke --override constraint.distance_power=1.0"
-    "--benchmark darcy --backbone Transolver --constraint dirichlet_ansatz_zero --budget smoke --override constraint.distance_power=5.0"
+    "--benchmark darcy --backbone Transolver --constraint darcy_defect_correction --budget final"
+    "--benchmark darcy --backbone Transolver --constraint darcy_flux_projection --budget final"
+
 )
 
 timestamp() {

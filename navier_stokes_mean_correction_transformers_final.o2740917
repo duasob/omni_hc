@@ -1,0 +1,133 @@
+Resume job started: 2026-05-12T21:27:27+01:00
+Host: cx3-20-1
+Job ID: 2740917.pbs-7
+Project dir: /rds/general/user/bd922/home/omni_hc
+Output dir: /rds/general/user/bd922/home/omni-hc-resume-results/2740917.pbs-7
+Python: /rds/general/user/bd922/home/omni-hc-env/bin/python
+/rds/general/user/bd922/home/omni-hc-env/bin/python
+/rds/general/user/bd922/home/omni-hc-env
+Python 3.10.8
+Data symlink: /rds/general/user/bd922/home/omni_hc/data -> /rds/general/user/bd922/ephemeral/data
+Tue May 12 21:27:28 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.82.07              Driver Version: 580.82.07      CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA L40S                    On  |   00000000:33:00.0 Off |                    0 |
+| N/A   35C    P8             33W /  350W |       0MiB /  46068MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+/rds/general/user/bd922/home/omni-hc-env/lib/python3.10/site-packages/timm/models/layers/__init__.py:49: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from /rds/general/user/bd922/home/.netrc.
+wandb: Currently logged in as: bd922 (bd922-imperial-college-london) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: WARNING Using a boolean value for 'reinit' is deprecated. Use 'return_previous' or 'finish_previous' instead.
+wandb: setting up run ul7dgdz1
+wandb: Tracking run with wandb version 0.26.1
+wandb: Run data is saved locally in /rds/general/user/bd922/home/omni_hc/wandb/run-20260512_212911-ul7dgdz1
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run navier_stokes_factformer_mean_correction_final_seed_42
+wandb: ⭐️ View project at https://wandb.ai/bd922-imperial-college-london/omni_hc
+wandb: 🚀 View run at https://wandb.ai/bd922-imperial-college-london/omni_hc/runs/ul7dgdz1
+wandb: updating run metadata
+wandb: updating run metadata; uploading history steps 218-219, summary, console lines 43-43
+wandb: uploading config.yaml; uploading output.log; uploading wandb-summary.json
+wandb: uploading data
+wandb: 
+wandb: Run history:
+wandb:                           epoch ▁▁▁▁▁▂▂▂▂▂▃▃▃▃▃▄▄▄▄▄▅▅▅▅▅▅▆▆▆▆▆▇▇▇▇█████
+wandb:                     global_step ▁▁▁▁▂▂▂▂▂▃▃▃▃▃▃▄▄▄▄▅▅▅▅▅▅▆▆▆▆▆▆▆▇▇▇▇████
+wandb:      train/constraint/corr_mean ▅▄▂█▁▇▄▄▁▃▃▃▇▄▆▄█▄▃▄▄▃▄▂▁▆▃▃▃▄▃▂▅▄▆▃▅▂▃▄
+wandb: train/constraint/pred_base_mean ▃▃▂▅▆▄▇▄▃▄▄▄▆▇▃█▆█▅▄▄▄▅▄▁▂▃▄▄▄▆▃▅▂▄▄▄▃▄▃
+wandb:                      train/loss █▆▆▅▅▅▄▄▄▃▃▃▃▃▂▂▂▂▂▂▂▂▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:                       train/mse █▇▆▆▅▅▄▄▃▃▃▃▃▃▂▂▂▂▂▂▂▂▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:                 train/pred_mean ▅▇▄▃▄▃▄▆▄▅▄▅▅▄▁▃▃▅▆██▂▁▄▂▄▄▆▅▃▅▃▄▅▂▇▅▄▇▃
+wandb:                    train/rel_l2 █▇▆▆▅▅▄▄▄▃▃▃▃▃▂▂▂▂▂▂▂▂▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:            train/rollout_rel_l2 ▅▂▄▆▆▂▂▃█▄█▂▄▅▄▄▅▇▅▃▄▇▅▄▄▃▃▃▅▅▃▄▃▆▆▁▆▄▂▆
+wandb:                 train/step_loss ▅▅▃▆██▂▅▅▃▄▃▅▅▂▄▃▂▂▃▂▄▄▄▂▃▃█▂▃▄▅▂▁▂▃▄▃▄▆
+wandb:                              +2 ...
+wandb: 
+wandb: Run summary:
+wandb:                           epoch 500
+wandb:                     global_step 250000
+wandb:      train/constraint/corr_mean -0.02454
+wandb: train/constraint/pred_base_mean -0.02454
+wandb:                      train/loss 0.0195
+wandb:                       train/mse 0.00094
+wandb:                 train/pred_mean -0.0
+wandb:                    train/rel_l2 0.02063
+wandb:            train/rollout_rel_l2 0.02491
+wandb:                 train/step_loss 0.02333
+wandb:                              +2 ...
+wandb: 
+wandb: 🚀 View run navier_stokes_factformer_mean_correction_final_seed_42 at: https://wandb.ai/bd922-imperial-college-london/omni_hc/runs/ul7dgdz1
+wandb: ⭐️ View project at: https://wandb.ai/bd922-imperial-college-london/omni_hc
+wandb: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+wandb: Find logs at: ./wandb/run-20260512_212911-ul7dgdz1/logs
+resuming training from /rds/general/user/bd922/home/omni_hc/outputs/navier_stokes/mean_correction/factformer/final/seed_42/latest.pt at epoch 456
+epoch 457/500 train_loss=0.020613 train_mse=0.001040 train_rel_l2=0.021745
+epoch 458/500 train_loss=0.020361 train_mse=0.001023 train_rel_l2=0.021517
+epoch 459/500 train_loss=0.020277 train_mse=0.001017 train_rel_l2=0.021433
+epoch 460/500 train_loss=0.020211 train_mse=0.001007 train_rel_l2=0.021366
+epoch 461/500 train_loss=0.020087 train_mse=0.000994 train_rel_l2=0.021226
+epoch 462/500 train_loss=0.020089 train_mse=0.000994 train_rel_l2=0.021233
+epoch 463/500 train_loss=0.020009 train_mse=0.000985 train_rel_l2=0.021136
+epoch 464/500 train_loss=0.019953 train_mse=0.000979 train_rel_l2=0.021080
+epoch 465/500 train_loss=0.019910 train_mse=0.000975 train_rel_l2=0.021035
+epoch 466/500 train_loss=0.019884 train_mse=0.000973 train_rel_l2=0.021011
+epoch 467/500 train_loss=0.019862 train_mse=0.000971 train_rel_l2=0.020993
+epoch 468/500 train_loss=0.019824 train_mse=0.000968 train_rel_l2=0.020954
+epoch 469/500 train_loss=0.019792 train_mse=0.000965 train_rel_l2=0.020924
+epoch 470/500 train_loss=0.019770 train_mse=0.000963 train_rel_l2=0.020902
+epoch 471/500 train_loss=0.019745 train_mse=0.000961 train_rel_l2=0.020878
+epoch 472/500 train_loss=0.019726 train_mse=0.000959 train_rel_l2=0.020860
+epoch 473/500 train_loss=0.019705 train_mse=0.000957 train_rel_l2=0.020840
+epoch 474/500 train_loss=0.019686 train_mse=0.000956 train_rel_l2=0.020821
+epoch 475/500 train_loss=0.019669 train_mse=0.000954 train_rel_l2=0.020804
+epoch 476/500 train_loss=0.019654 train_mse=0.000953 train_rel_l2=0.020790
+epoch 477/500 train_loss=0.019637 train_mse=0.000951 train_rel_l2=0.020774
+epoch 478/500 train_loss=0.019624 train_mse=0.000950 train_rel_l2=0.020760
+epoch 479/500 train_loss=0.019610 train_mse=0.000949 train_rel_l2=0.020747
+epoch 480/500 train_loss=0.019598 train_mse=0.000948 train_rel_l2=0.020735
+epoch 481/500 train_loss=0.019585 train_mse=0.000947 train_rel_l2=0.020723
+epoch 482/500 train_loss=0.019575 train_mse=0.000946 train_rel_l2=0.020713
+epoch 483/500 train_loss=0.019565 train_mse=0.000945 train_rel_l2=0.020703
+epoch 484/500 train_loss=0.019557 train_mse=0.000944 train_rel_l2=0.020695
+epoch 485/500 train_loss=0.019547 train_mse=0.000944 train_rel_l2=0.020686
+epoch 486/500 train_loss=0.019541 train_mse=0.000943 train_rel_l2=0.020679
+epoch 487/500 train_loss=0.019534 train_mse=0.000942 train_rel_l2=0.020673
+epoch 488/500 train_loss=0.019528 train_mse=0.000942 train_rel_l2=0.020667
+epoch 489/500 train_loss=0.019522 train_mse=0.000941 train_rel_l2=0.020662
+epoch 490/500 train_loss=0.019518 train_mse=0.000941 train_rel_l2=0.020657
+epoch 491/500 train_loss=0.019514 train_mse=0.000941 train_rel_l2=0.020653
+epoch 492/500 train_loss=0.019510 train_mse=0.000940 train_rel_l2=0.020649
+epoch 493/500 train_loss=0.019507 train_mse=0.000940 train_rel_l2=0.020645
+epoch 494/500 train_loss=0.019504 train_mse=0.000940 train_rel_l2=0.020643
+epoch 495/500 train_loss=0.019502 train_mse=0.000939 train_rel_l2=0.020640
+epoch 496/500 train_loss=0.019500 train_mse=0.000939 train_rel_l2=0.020638
+epoch 497/500 train_loss=0.019498 train_mse=0.000939 train_rel_l2=0.020637
+epoch 498/500 train_loss=0.019497 train_mse=0.000939 train_rel_l2=0.020636
+epoch 499/500 train_loss=0.019497 train_mse=0.000939 train_rel_l2=0.020635
+epoch 500/500 train_loss=0.019496 train_mse=0.000939 train_rel_l2=0.020634
+Resume job finished: 2026-05-12T23:36:35+01:00
+Resume log and sentinel: /rds/general/user/bd922/home/omni-hc-resume-results/2740917.pbs-7
+
+====================================
+CPU Time used: 02:05:11
+CPU Percent: 99%
+Memory usage: 1758240kb
+Approx Power usage: 0.025
+Walltime usage: 02:09:16
+
+====================================
