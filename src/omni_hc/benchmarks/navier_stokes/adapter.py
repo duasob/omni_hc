@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 import yaml
 
@@ -43,7 +44,52 @@ def _prepare_batch(batch, *, device, task_state):
     return coords, fx, target
 
 
-def train(cfg: dict, *, device):
+def log_ns(ctx) -> dict[str, str]:
+    from omni_hc.training.logging_utils import (
+        log_prediction_images,
+        log_rollout_gifs,
+        save_prediction_images,
+        save_rollout_gifs,
+    )
+
+    h, w = ctx.meta["shapelist"]
+    out_dim = int(ctx.meta["out_dim"])
+    fps = int((ctx.cfg.get("wandb_logging") or {}).get("rollout_gif_fps", 4))
+
+    if ctx.out_dir is None:
+        log_prediction_images(
+            ctx.pred[..., :out_dim],
+            ctx.target[..., :out_dim],
+            ctx.fx[..., -out_dim:],
+            h, w,
+            prefix=ctx.prefix, epoch=ctx.epoch, step=ctx.step,
+        )
+        log_rollout_gifs(
+            ctx.pred, ctx.target, h, w,
+            out_dim=out_dim, prefix=ctx.prefix,
+            epoch=ctx.epoch, step=ctx.step, fps=fps,
+        )
+        return {}
+    paths = {}
+    paths.update(
+        save_prediction_images(
+            ctx.pred[..., :out_dim],
+            ctx.target[..., :out_dim],
+            ctx.fx[..., -out_dim:],
+            h, w,
+            out_dir=ctx.out_dir, prefix=ctx.prefix,
+        )
+    )
+    paths.update(
+        save_rollout_gifs(
+            ctx.pred, ctx.target, h, w,
+            out_dim=out_dim, out_dir=ctx.out_dir, prefix=ctx.prefix, fps=fps,
+        )
+    )
+    return paths
+
+
+def train(cfg: dict, *, device, log_fn: Callable | None = None):
     return train_autoregressive_task(
         cfg,
         device=device,
@@ -52,6 +98,7 @@ def train(cfg: dict, *, device):
         runtime_overrides=_runtime_overrides,
         init_task_state=_init_task_state,
         prepare_batch=_prepare_batch,
+        log_fn=log_fn,
     )
 
 
@@ -60,6 +107,7 @@ def test(
     *,
     device,
     checkpoint_path: str | Path | None = None,
+    log_fn: Callable | None = None,
 ):
     payload = test_autoregressive_task(
         cfg,
@@ -70,6 +118,7 @@ def test(
         runtime_overrides=_runtime_overrides,
         init_task_state=_init_task_state,
         prepare_batch=_prepare_batch,
+        log_fn=log_fn,
     )
     output_dir = Path(cfg["paths"]["output_dir"])
     with open(output_dir / "test_metrics.yaml", "w", encoding="utf-8") as handle:
@@ -78,8 +127,4 @@ def test(
 
 
 def tune(cfg: dict, *, device):
-    return run_optuna_search(
-        cfg,
-        device=device,
-        train_fn=train,
-    )
+    return run_optuna_search(cfg, device=device, train_fn=train)

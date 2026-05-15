@@ -28,11 +28,8 @@ from omni_hc.training.logging_utils import (
     finish_wandb_if_active,
     init_wandb_if_enabled,
     log_metrics,
-    log_prediction_images,
-    log_rollout_gifs,
-    save_prediction_images,
-    save_rollout_gifs,
 )
+from omni_hc.benchmarks.base import MediaLogContext
 
 
 def _build_nsl_l2_loss():
@@ -145,6 +142,7 @@ def train_autoregressive_task(
     runtime_overrides,
     init_task_state,
     prepare_batch,
+    log_fn=None,
 ):
     train_loader, val_loader = build_train_val_loaders(cfg)
     meta = get_meta(train_loader)
@@ -309,32 +307,26 @@ def train_autoregressive_task(
                             teacher_forcing=False,
                         )
                         if (
-                            image_log_every is not None
+                            log_fn is not None
+                            and image_log_every is not None
                             and image_log_every > 0
                             and epoch % image_log_every == 0
                             and val_step == sampled_idx
                         ):
-                            log_prediction_images(
-                                pred[..., :out_dim],
-                                target[..., :out_dim],
-                                fx[..., -out_dim:],
-                                h,
-                                w,
+                            ctx = MediaLogContext(
+                                pred=pred,
+                                target=target,
+                                coords=coords,
+                                fx=fx,
+                                aux_tensors={},
+                                meta=meta,
+                                cfg=cfg,
                                 prefix="validation",
                                 epoch=epoch,
                                 step=epoch_step,
+                                out_dir=None,
                             )
-                            log_rollout_gifs(
-                                pred,
-                                target,
-                                h,
-                                w,
-                                out_dim=out_dim,
-                                prefix="validation",
-                                epoch=epoch,
-                                step=epoch_step,
-                                fps=rollout_gif_fps,
-                            )
+                            log_fn(ctx)
                         if (
                             log_every is not None
                             and log_every > 0
@@ -455,6 +447,7 @@ def test_autoregressive_task(
     runtime_overrides,
     init_task_state,
     prepare_batch,
+    log_fn=None,
 ):
     output_dir = resolve_output_dir(cfg)
     if checkpoint_path is None:
@@ -501,29 +494,21 @@ def test_autoregressive_task(
                 out_dim=out_dim,
                 teacher_forcing=False,
             )
-            media_paths.update(
-                save_prediction_images(
-                    pred[..., :out_dim],
-                    target[..., :out_dim],
-                    fx[..., -out_dim:],
-                    h,
-                    w,
-                    out_dir=media_dir,
+            if log_fn is not None:
+                ctx = MediaLogContext(
+                    pred=pred,
+                    target=target,
+                    coords=coords,
+                    fx=fx,
+                    aux_tensors={},
+                    meta=meta,
+                    cfg=cfg,
                     prefix="test",
-                )
-            )
-            media_paths.update(
-                save_rollout_gifs(
-                    pred,
-                    target,
-                    h,
-                    w,
-                    out_dim=out_dim,
+                    epoch=0,
+                    step=None,
                     out_dir=media_dir,
-                    prefix="test",
-                    fps=rollout_gif_fps,
                 )
-            )
+                media_paths.update(log_fn(ctx))
             break
     return {
         "checkpoint": str(Path(checkpoint_path).resolve()),
