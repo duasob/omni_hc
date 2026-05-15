@@ -1,0 +1,11 @@
+name: "darcy_comparison_fno_baseline"
+benchmark: "darcy"
+backbone: "FNO"
+budget: "comparison"
+
+overrides:
+  paths:
+    output_dir: "outputs/darcy/comparison/baseline"
+  wandb_logging:
+    run_name: "darcy_fno_baseline"
+    wandb_group: "darcy_comparison"

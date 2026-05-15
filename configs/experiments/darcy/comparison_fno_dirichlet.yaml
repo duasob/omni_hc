@@ -1,0 +1,12 @@
+name: "darcy_comparison_fno_dirichlet"
+benchmark: "darcy"
+backbone: "FNO"
+constraint: "dirichlet_ansatz_zero"
+budget: "comparison"
+
+overrides:
+  paths:
+    output_dir: "outputs/darcy/comparison/dirichlet"
+  wandb_logging:
+    run_name: "darcy_fno_dirichlet"
+    wandb_group: "darcy_comparison"
