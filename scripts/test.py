@@ -85,7 +85,6 @@ if __name__ == "__main__":
     cfg = load_test_config(args)
     result = test_benchmark(
         cfg,
-        nsl_root=None,
         device=resolve_device(args.device),
         checkpoint_path=args.checkpoint,
     )

@@ -16,12 +16,7 @@ def parse_args():
     )
     parser.add_argument("--benchmark", type=str, default=None)
     parser.add_argument("--backbone", type=str, default=None)
-    parser.add_argument(
-        "--constraint",
-        type=str,
-        default=None,
-        help="Constraint name/path. Use none or unconstrained to skip.",
-    )
+    parser.add_argument("--constraint", type=str, default=None)
     parser.add_argument("--budget", type=str, default=None)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument(

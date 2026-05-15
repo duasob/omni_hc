@@ -40,10 +40,9 @@ def _prepare_batch(batch, *, device):
     )
 
 
-def train(cfg: dict, *, nsl_root: str | Path | None, device):
+def train(cfg: dict, *, device):
     return train_dynamic_conditional_task(
         cfg,
-        nsl_root=nsl_root,
         device=device,
         build_train_val_loaders=build_train_val_loaders,
         get_meta=_get_meta,
@@ -55,13 +54,11 @@ def train(cfg: dict, *, nsl_root: str | Path | None, device):
 def test(
     cfg: dict,
     *,
-    nsl_root: str | Path | None,
     device,
     checkpoint_path: str | Path | None = None,
 ):
     payload = test_dynamic_conditional_task(
         cfg,
-        nsl_root=nsl_root,
         device=device,
         checkpoint_path=checkpoint_path,
         build_test_loader=build_test_loader,
@@ -75,10 +72,9 @@ def test(
     return payload
 
 
-def tune(cfg: dict, *, nsl_root: str | Path | None, device):
+def tune(cfg: dict, *, device):
     return run_optuna_search(
         cfg,
-        nsl_root=nsl_root,
         device=device,
         train_fn=train,
     )

@@ -76,7 +76,6 @@ if __name__ == "__main__":
     )
     study = tune_benchmark(
         cfg,
-        nsl_root=None,
         device=resolve_device(args.device),
     )
     print("best_trial_value", study.best_value)

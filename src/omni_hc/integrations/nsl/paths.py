@@ -8,10 +8,8 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
-def resolve_nsl_root(explicit: str | Path | None = None, cfg: dict | None = None) -> Path:
+def resolve_nsl_root(cfg: dict | None = None) -> Path:
     candidates: list[Path] = []
-    if explicit is not None:
-        candidates.append(Path(explicit))
 
     backend_cfg = (cfg or {}).get("backend", {})
     if isinstance(backend_cfg, dict) and backend_cfg.get("nsl_root"):
@@ -34,7 +32,7 @@ def resolve_nsl_root(explicit: str | Path | None = None, cfg: dict | None = None
     formatted = "\n".join(f"- {path}" for path in checked)
     raise FileNotFoundError(
         "Could not resolve Neural-Solver-Library.\n"
-        "Provide --nsl-root, set OMNI_HC_NSL_ROOT, set backend.nsl_root in the config, "
+        "Set OMNI_HC_NSL_ROOT, set backend.nsl_root in the config, "
         "or place the checkout at external/Neural-Solver-Library.\n"
         f"Checked:\n{formatted}"
     )

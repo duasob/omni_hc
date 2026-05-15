@@ -139,7 +139,6 @@ def evaluate_autoregressive(
 def train_autoregressive_task(
     cfg: dict,
     *,
-    nsl_root: str | Path | None,
     device: torch.device,
     build_train_val_loaders,
     get_meta,
@@ -151,7 +150,6 @@ def train_autoregressive_task(
     meta = get_meta(train_loader)
     model, model_args, resolved_nsl_root = create_model(
         cfg,
-        nsl_root=nsl_root,
         device=device,
         runtime_overrides=runtime_overrides(meta),
     )
@@ -450,7 +448,6 @@ def train_autoregressive_task(
 def test_autoregressive_task(
     cfg: dict,
     *,
-    nsl_root: str | Path | None,
     device: torch.device,
     checkpoint_path: str | Path | None,
     build_test_loader,
@@ -466,7 +463,6 @@ def test_autoregressive_task(
     meta = get_meta(test_loader)
     model, model_args, resolved_nsl_root = create_model(
         cfg,
-        nsl_root=nsl_root,
         device=device,
         runtime_overrides=runtime_overrides(meta),
     )
