@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from typing import Sequence
 
 import torch
 import torch.nn as nn
@@ -28,9 +28,7 @@ def _get_activation(act):
             raise ValueError(f"Unknown activation: {act}")
         factory = _ACTIVATIONS[key]
         return factory if isinstance(factory, type) else factory
-    if issubclass(act, nn.Module):
-        return act
-    raise TypeError("act must be a string or nn.Module class")
+    raise TypeError("act must be a string or nn.Module subclass")
 
 
 def build_mlp(in_dim, hidden_dim, out_dim, *, n_layers=0, act="gelu"):
@@ -82,12 +80,12 @@ class MeanConstraint(ConstraintModule):
         *,
         mode: str,
         out_dim: int,
-        hidden_dim: Optional[int] = None,
+        hidden_dim: int | None = None,
         n_layers: int = 0,
         act: str = "gelu",
-        latent_dim: Optional[int] = None,
+        latent_dim: int | None = None,
         channel_dim: int = -1,
-        reduce_dims: Optional[Sequence[int]] = None,
+        reduce_dims: Sequence[int] | None = None,
     ):
         super().__init__()
         self.mode = mode

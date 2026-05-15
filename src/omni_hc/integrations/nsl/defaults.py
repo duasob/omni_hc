@@ -1,70 +1,59 @@
-import argparse
 from typing import Any
 
+# ── NSL CLI plumbing ─────────────────────────────────────────────────────────
+# Static values that satisfy NSL's argument namespace but are never configured
+# through omni_hc. These are overridden by nothing and should never need to
+# change.
+_NSL_PLUMBING: dict[str, Any] = {
+    "gpu": "0",
+    "eval": 0,
+    "save_name": "omni_hc_checkpoint",
+    "vis_num": 0,
+    "vis_bound": None,
+    "data_path": "/data/fno/",
+    "train_ratio": 0.8,
+    "ntrain": 1000,
+    "ntest": 200,
+    "downsamplex": 1,
+    "downsampley": 1,
+    "downsamplez": 1,
+    "radius": 0.2,
+    # NSL declares these training hyperparams on its arg namespace; our system
+    # reads training config from the training: YAML section instead.
+    "lr": 1e-3,
+    "epochs": 500,
+    "weight_decay": 1e-5,
+    "pct_start": 0.3,
+    "batch_size": 8,
+    "optimizer": "AdamW",
+    "scheduler": "OneCycleLR",
+    "step_size": 100,
+    "gamma": 0.5,
+    "max_grad_norm": None,
+}
 
-def build_nsl_default_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser("Neural Solver Library Defaults")
-
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--epochs", type=int, default=500)
-    parser.add_argument("--weight_decay", type=float, default=1e-5)
-    parser.add_argument("--pct_start", type=float, default=0.3)
-    parser.add_argument("--batch-size", dest="batch_size", type=int, default=8)
-    parser.add_argument("--gpu", type=str, default="0")
-    parser.add_argument("--max_grad_norm", type=float, default=None)
-    parser.add_argument("--derivloss", type=bool, default=False)
-    parser.add_argument("--teacher_forcing", type=int, default=1)
-    parser.add_argument("--optimizer", type=str, default="AdamW")
-    parser.add_argument("--scheduler", type=str, default="OneCycleLR")
-    parser.add_argument("--step_size", type=int, default=100)
-    parser.add_argument("--gamma", type=float, default=0.5)
-
-    parser.add_argument("--data_path", type=str, default="/data/fno/")
-    parser.add_argument("--loader", type=str, default="airfoil")
-    parser.add_argument("--train_ratio", type=float, default=0.8)
-    parser.add_argument("--ntrain", type=int, default=1000)
-    parser.add_argument("--ntest", type=int, default=200)
-    parser.add_argument("--normalize", type=bool, default=False)
-    parser.add_argument("--norm_type", type=str, default="UnitTransformer")
-    parser.add_argument("--geotype", type=str, default="unstructured")
-    parser.add_argument("--time_input", type=bool, default=False)
-    parser.add_argument("--space_dim", type=int, default=2)
-    parser.add_argument("--fun_dim", type=int, default=0)
-    parser.add_argument("--out_dim", type=int, default=1)
-    parser.add_argument("--shapelist", type=list, default=None)
-    parser.add_argument("--downsamplex", type=int, default=1)
-    parser.add_argument("--downsampley", type=int, default=1)
-    parser.add_argument("--downsamplez", type=int, default=1)
-    parser.add_argument("--radius", type=float, default=0.2)
-
-    parser.add_argument("--task", type=str, default="steady")
-    parser.add_argument("--T_in", type=int, default=10)
-    parser.add_argument("--T_out", type=int, default=10)
-
-    parser.add_argument("--model", type=str, default="Transolver")
-    parser.add_argument("--n_hidden", type=int, default=64)
-    parser.add_argument("--n_layers", type=int, default=3)
-    parser.add_argument("--n_heads", type=int, default=4)
-    parser.add_argument("--act", type=str, default="gelu")
-    parser.add_argument("--mlp_ratio", type=int, default=1)
-    parser.add_argument("--dropout", type=float, default=0.0)
-    parser.add_argument("--unified_pos", type=int, default=0)
-    parser.add_argument("--ref", type=int, default=8)
-
-    parser.add_argument("--slice_num", type=int, default=32)
-    parser.add_argument("--modes", type=int, default=12)
-    parser.add_argument("--psi_dim", type=int, default=8)
-    parser.add_argument("--attn_type", type=str, default="nystrom")
-    parser.add_argument("--mwt_k", type=int, default=3)
-
-    parser.add_argument("--eval", type=int, default=0)
-    parser.add_argument("--save_name", type=str, default="Transolver_check")
-    parser.add_argument("--vis_num", type=int, default=10)
-    parser.add_argument("--vis_bound", type=int, nargs="+", default=None)
-    return parser
+# ── Cross-backbone optional model defaults ───────────────────────────────────
+# These are meaningful model params, but backbone-specific: a backbone that
+# doesn't use a param simply ignores it. Backbone YAMLs should override these
+# for any param they actually care about.
+#
+# If a param here affects a backbone you're using and is NOT in that backbone's
+# YAML, add it to the YAML — don't silently rely on this default.
+_MODEL_OPTIONAL_DEFAULTS: dict[str, Any] = {
+    "dropout": 0.0,
+    "act": "gelu",
+    "mlp_ratio": 1,
+    "slice_num": 32,
+    "T_in": 10,         # time steps in; add explicitly to backbone YAMLs for time-series models
+    "T_out": 10,
+    "teacher_forcing": 1,
+    "time_input": False,
+    "psi_dim": 8,
+    "attn_type": "nystrom",
+    "mwt_k": 3,
+    "shapelist": None,
+}
 
 
 def get_nsl_default_args() -> dict[str, Any]:
-    parser = build_nsl_default_parser()
-    return vars(parser.parse_args([]))
-
+    return {**_NSL_PLUMBING, **_MODEL_OPTIONAL_DEFAULTS}

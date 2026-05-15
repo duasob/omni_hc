@@ -1,5 +1,4 @@
 import argparse
-from pathlib import Path
 
 import torch
 
@@ -11,12 +10,6 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--config",
-        type=str,
-        default=None,
-        help="Experiment YAML composition spec. Alias for --experiment.",
-    )
-    parser.add_argument(
-        "--experiment",
         type=str,
         default=None,
         help="Experiment YAML composition spec.",
@@ -36,12 +29,6 @@ def parse_args():
         type=str,
         default=None,
         help="Root for generated output dirs when the config does not set one.",
-    )
-    parser.add_argument(  # TODO: Remove this argument and assume NSL installed in external/
-        "--nsl-root",
-        type=str,
-        default=None,
-        help="Optional explicit path to Neural-Solver-Library.",
     )
     parser.add_argument(
         "--device",
@@ -79,16 +66,16 @@ if __name__ == "__main__":
         backbone=args.backbone,
         constraint=args.constraint,
         budget=args.budget,
-        experiment=args.experiment or args.config,
+        experiment=args.config,
         mode="train",
         seed=args.seed,
         output_root=args.output_root,
         extra_overrides=parse_dotted_overrides(args.override),
-    )
+    )  # TODO: clean the internals of this function
     if args.checkpoint is not None:
         cfg.setdefault("training", {})["resume_checkpoint"] = args.checkpoint
     train_benchmark(
         cfg,
-        nsl_root=None if args.nsl_root is None else Path(args.nsl_root),
+        nsl_root=None,
         device=resolve_device(args.device),
     )
