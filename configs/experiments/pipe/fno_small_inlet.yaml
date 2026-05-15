@@ -1,7 +1,7 @@
 name: "pipe_fno_inlet"
 benchmark: "pipe"
 backbone: "FNO"
-constraint: "pipe_inlet_parabolic"
+constraint: "pipe_inlet_parabolic_ansatz"
 budget: "debug"
 
 overrides:

@@ -1,7 +1,7 @@
 name: "pipe_fno_ux_boundary"
 benchmark: "pipe"
 backbone: "FNO"
-constraint: "pipe_ux_boundary"
+constraint: "pipe_ux_boundary_ansatz"
 budget: "debug"
 
 overrides:

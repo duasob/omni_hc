@@ -1,5 +1,5 @@
 constraint:
-  name: "darcy_defect_correction"
+  name: "darcy_defect_correction_constraint"
   force_value: 1.0
   n_correction_steps: 1
   lower: 0.0

@@ -1,7 +1,7 @@
 name: "darcy_comparison_fno_defect_correction"
 benchmark: "darcy"
 backbone: "FNO"
-constraint: "darcy_defect_correction"
+constraint: "darcy_defect_correction_constraint"
 budget: "comparison"
 
 overrides:

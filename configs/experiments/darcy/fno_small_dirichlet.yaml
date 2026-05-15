@@ -1,7 +1,7 @@
 name: "darcy_fno_dirichlet"
 benchmark: "darcy"
 backbone: "FNO"
-constraint: "dirichlet_ansatz_zero"
+constraint: "dirichlet_boundary_ansatz"
 budget: "debug"
 optuna: "dirichlet_ansatz_zero"
 
