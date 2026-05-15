@@ -44,6 +44,7 @@ def init_wandb_if_enabled(cfg: dict):
         wandb.init(
             project=project,
             name=run_name,
+            group=wandb_cfg.get("wandb_group") or None,
             config=cfg,
             reinit=True,
         )
