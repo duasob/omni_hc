@@ -22,3 +22,5 @@ outputs
 wandb/
 checkpoints/
 logs/
+
+.claude/
