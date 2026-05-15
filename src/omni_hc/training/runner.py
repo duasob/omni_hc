@@ -8,11 +8,13 @@ from omni_hc.benchmarks import BENCHMARKS, BenchmarkAdapter
 
 
 def get_benchmark_adapter(cfg: dict) -> BenchmarkAdapter:
-    benchmark_cfg = cfg.get("benchmark", {}) or {}
-    benchmark_name = benchmark_cfg.get("name")
+    benchmark_name = str((cfg.get("benchmark") or {}).get("name") or "")
     if not benchmark_name:
         raise KeyError("Config must define benchmark.name for runtime dispatch.")
-    return BENCHMARKS.get(str(benchmark_name))
+    if benchmark_name not in BENCHMARKS:
+        available = ", ".join(sorted(BENCHMARKS))
+        raise KeyError(f"Unknown benchmark '{benchmark_name}'. Available: {available}")
+    return BENCHMARKS[benchmark_name]
 
 
 def train_benchmark(cfg: dict, *, device: torch.device):

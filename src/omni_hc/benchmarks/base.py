@@ -8,24 +8,12 @@ import torch
 
 
 @dataclass(frozen=True)
-class BenchmarkSpec:
+class BenchmarkAdapter:
     name: str
     domain: str
-    dataset_family: str
-    primary_invariant: str
-    example_config: str
-    notes: str = ""
-
-
-BenchmarkHandler = Callable[..., Any]
-
-
-@dataclass(frozen=True)
-class BenchmarkAdapter:
-    spec: BenchmarkSpec
-    train_fn: BenchmarkHandler
-    test_fn: BenchmarkHandler
-    tune_fn: BenchmarkHandler | None = None
+    train_fn: Callable[..., Any]
+    test_fn: Callable[..., Any]
+    tune_fn: Callable[..., Any] | None = None
 
     def train(self, cfg: dict, *, device: torch.device) -> Any:
         return self.train_fn(cfg, device=device)
@@ -42,9 +30,6 @@ class BenchmarkAdapter:
     def tune(self, cfg: dict, *, device: torch.device) -> Any:
         if self.tune_fn is None:
             raise NotImplementedError(
-                f"Benchmark '{self.spec.name}' does not define a tuning entrypoint."
+                f"Benchmark '{self.name}' does not define a tuning entrypoint."
             )
         return self.tune_fn(cfg, device=device)
-
-
-BenchmarkRuntime = BenchmarkAdapter
