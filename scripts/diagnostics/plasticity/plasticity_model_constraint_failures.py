@@ -65,7 +65,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--budget", type=str, default="debug")
     parser.add_argument("--checkpoint", type=Path, default=None)
-    parser.add_argument("--nsl-root", type=Path, default=NSL_ROOT)
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--sample", type=int, default=0)
     parser.add_argument(
@@ -604,7 +603,6 @@ def main() -> None:
 
     model, _, _ = create_model(
         cfg,
-        nsl_root=args.nsl_root,
         device=device,
         runtime_overrides=runtime_overrides(meta),
     )

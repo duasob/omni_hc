@@ -87,8 +87,8 @@ _CONSTRAINT_ALIASES: dict[str, str] = {
 _META_KEYS = {"name", "freeze_base"}
 
 
-def ensure_nsl_path(nsl_root: str | Path | None, cfg: dict | None = None) -> Path:
-    path = resolve_nsl_root(nsl_root, cfg=cfg)
+def ensure_nsl_path(cfg: dict | None = None) -> Path:
+    path = resolve_nsl_root(cfg=cfg)
     if not path.exists():
         raise FileNotFoundError(f"Neural-Solver-Library root does not exist: {path}")
     if str(path) not in sys.path:
@@ -249,11 +249,10 @@ def _build_constraint(backbone: torch.nn.Module, args: SimpleNamespace, cfg: dic
 def create_model(
     cfg: dict,
     *,
-    nsl_root: str | Path | None,
     device: torch.device,
     runtime_overrides: dict[str, Any] | None = None,
 ):
-    resolved_nsl_root = ensure_nsl_path(nsl_root, cfg=cfg)
+    resolved_nsl_root = ensure_nsl_path(cfg)
     from models.model_factory import get_model
 
     args = build_model_args(cfg, runtime_overrides=runtime_overrides)

@@ -141,7 +141,6 @@ def evaluate_steady(
 def train_steady_task(
     cfg: dict,
     *,
-    nsl_root: str | Path | None,
     device: torch.device,
     build_train_val_loaders,
     get_meta,
@@ -165,7 +164,6 @@ def train_steady_task(
     )
     model, model_args, resolved_nsl_root = create_model(
         cfg,
-        nsl_root=nsl_root,
         device=device,
         runtime_overrides=runtime_overrides(meta),
     )
@@ -536,7 +534,6 @@ def train_steady_task(
 def test_steady_task(
     cfg: dict,
     *,
-    nsl_root: str | Path | None,
     device: torch.device,
     checkpoint_path: str | Path | None,
     build_test_loader,
@@ -560,7 +557,6 @@ def test_steady_task(
         y_normalizer = y_normalizer.to(device)
     model, model_args, resolved_nsl_root = create_model(
         cfg,
-        nsl_root=nsl_root,
         device=device,
         runtime_overrides=runtime_overrides(meta),
     )

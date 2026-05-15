@@ -8,7 +8,6 @@ from omni_hc.training.optuna_utils import apply_optuna_search_space
 def run_optuna_search(
     cfg: dict,
     *,
-    nsl_root: str | Path | None,
     device,
     train_fn,
 ):
@@ -41,7 +40,7 @@ def run_optuna_search(
                     f"{optuna_cfg.get('run_name', 'optuna')}_trial_{trial.number:03d}"
                 ),
             }
-        result = train_fn(trial_cfg, nsl_root=nsl_root, device=device)
+        result = train_fn(trial_cfg, device=device)
         if "best_score" in result:
             return float(result["best_score"])
         return float(result["best_val_rel_l2"])
