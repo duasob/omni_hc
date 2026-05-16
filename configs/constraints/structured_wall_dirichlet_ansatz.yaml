@@ -1,5 +1,5 @@
 constraint:
-  name: "pipe_wall_no_slip"
+  name: "structured_wall_dirichlet_ansatz"
   boundary_value: 0.0
   transverse_axis: 1
   distance_power: 1.0

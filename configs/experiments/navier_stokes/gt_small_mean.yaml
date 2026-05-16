@@ -1,7 +1,7 @@
 name: "navier_stokes_galerkin_transformer_mean"
 benchmark: "navier_stokes"
 backbone: "Galerkin_Transformer"
-constraint: "mean_correction"
+constraint: "mean_constraint"
 budget: "debug"
 optuna: "mean_correction"
 

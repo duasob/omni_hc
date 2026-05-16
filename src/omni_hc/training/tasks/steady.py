@@ -24,14 +24,11 @@ from omni_hc.training.common import (
     save_checkpoint_bundle,
     write_resolved_config,
 )
+from omni_hc.benchmarks.base import MediaLogContext
 from omni_hc.training.logging_utils import (
     finish_wandb_if_active,
     init_wandb_if_enabled,
     log_metrics,
-    log_steady_field_images,
-    log_unstructured_point_cloud_images,
-    save_steady_field_images,
-    save_unstructured_point_cloud_images,
 )
 
 
@@ -146,6 +143,7 @@ def train_steady_task(
     get_meta,
     runtime_overrides,
     prepare_batch,
+    log_fn=None,
 ):
     # TODO: remove this printing
     print("building train/validation loaders", flush=True)
@@ -238,7 +236,6 @@ def train_steady_task(
     wandb_cfg = cfg.get("wandb_logging", {}) or {}
     log_every = normalize_interval(wandb_cfg.get("log_every", 100))
     image_log_every = normalize_interval(wandb_cfg.get("image_log_every"))
-    point_size = float(wandb_cfg.get("point_size", 24.0))
 
     init_wandb_if_enabled(cfg)
     try:
@@ -375,16 +372,10 @@ def train_steady_task(
                 with torch.no_grad():
                     max_val_idx = max(len(val_loader) - 1, 0)
                     sampled_idx = random.randint(0, max_val_idx)
-                    shapelist = tuple(meta.get("shapelist", ()))
-                    can_log_field_image = (
-                        image_log_every is not None
+                    can_log_image = (
+                        log_fn is not None
+                        and image_log_every is not None
                         and image_log_every > 0
-                        and len(shapelist) == 2
-                    )
-                    can_log_point_cloud_image = (
-                        image_log_every is not None
-                        and image_log_every > 0
-                        and str(meta.get("geotype", "")) == "unstructured"
                     )
                     for val_step, batch in enumerate(val_loader):
                         coords, fx, target = prepare_batch(batch, device=device)
@@ -392,39 +383,27 @@ def train_steady_task(
                         pred_decoded = _decode_if_needed(y_normalizer, out["pred"])
                         target_decoded = _decode_if_needed(y_normalizer, target)
                         if (
-                            can_log_field_image
+                            can_log_image
                             and epoch % image_log_every == 0
                             and val_step == sampled_idx
                         ):
-                            h, w = shapelist
-                            image_coords = _decode_if_needed(x_normalizer, fx)
-                            log_steady_field_images(
-                                image_coords,
-                                pred_decoded,
-                                target_decoded,
-                                h,
-                                w,
+                            ctx = MediaLogContext(
+                                pred=pred_decoded,
+                                target=target_decoded,
+                                coords=_decode_if_needed(x_normalizer, coords),
+                                fx=_decode_if_needed(x_normalizer, fx) if fx is not None else None,
+                                aux_tensors=out["aux_tensors"],
+                                meta=meta,
+                                cfg=cfg,
                                 prefix="validation",
                                 epoch=epoch,
-                                aux_tensors=out["aux_tensors"],
                                 step=epoch_step,
+                                out_dir=None,
                             )
-                        if (
-                            can_log_point_cloud_image
-                            and epoch % image_log_every == 0
-                            and val_step == sampled_idx
-                        ):
-                            image_coords = _decode_if_needed(x_normalizer, coords)
-                            log_unstructured_point_cloud_images(
-                                image_coords,
-                                pred_decoded,
-                                target_decoded,
-                                prefix="validation",
-                                epoch=epoch,
-                                aux_tensors=out["aux_tensors"],
-                                point_size=point_size,
-                                step=epoch_step,
-                            )
+                            log_fn(ctx)
+                            constraint = getattr(model, "constraint", None)
+                            if constraint is not None:
+                                type(constraint).log_media(ctx)
                         if (
                             log_every is not None
                             and log_every > 0
@@ -540,6 +519,7 @@ def test_steady_task(
     get_meta,
     runtime_overrides,
     prepare_batch,
+    log_fn=None,
 ):
     output_dir = resolve_output_dir(cfg)
     if checkpoint_path is None:
@@ -596,7 +576,6 @@ def test_steady_task(
     )
     media_paths = {}
     media_dir = output_dir / "test_media"
-    point_size = float((cfg.get("wandb_logging", {}) or {}).get("point_size", 24.0))
     model.eval()
     with torch.no_grad():
         for batch in test_loader:
@@ -604,31 +583,24 @@ def test_steady_task(
             out = forward_with_optional_aux(model, coords, fx)
             pred_decoded = _decode_if_needed(y_normalizer, out["pred"])
             target_decoded = _decode_if_needed(y_normalizer, target)
-            shapelist = tuple(meta.get("shapelist", ()))
-            if len(shapelist) == 2:
-                h, w = shapelist
-                image_coords = _decode_if_needed(x_normalizer, fx)
-                media_paths = save_steady_field_images(
-                    image_coords,
-                    pred_decoded,
-                    target_decoded,
-                    h,
-                    w,
-                    out_dir=media_dir,
-                    prefix="test",
+            if log_fn is not None:
+                ctx = MediaLogContext(
+                    pred=pred_decoded,
+                    target=target_decoded,
+                    coords=_decode_if_needed(x_normalizer, coords),
+                    fx=_decode_if_needed(x_normalizer, fx) if fx is not None else None,
                     aux_tensors=out["aux_tensors"],
-                )
-            elif str(meta.get("geotype", "")) == "unstructured":
-                image_coords = _decode_if_needed(x_normalizer, coords)
-                media_paths = save_unstructured_point_cloud_images(
-                    image_coords,
-                    pred_decoded,
-                    target_decoded,
-                    out_dir=media_dir,
+                    meta=meta,
+                    cfg=cfg,
                     prefix="test",
-                    aux_tensors=out["aux_tensors"],
-                    point_size=point_size,
+                    epoch=0,
+                    step=None,
+                    out_dir=media_dir,
                 )
+                media_paths.update(log_fn(ctx))
+                constraint = getattr(model, "constraint", None)
+                if constraint is not None:
+                    media_paths.update(type(constraint).log_media(ctx))
             break
     return {
         "checkpoint": str(Path(checkpoint_path).resolve()),

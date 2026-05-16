@@ -1,7 +1,0 @@
-constraint:
-    name: "darcy_defect_correction"
-    force_value: 1.0
-    n_correction_steps: 10
-    lower: 0.0
-    upper: 1.0
-    permeability_eps: 1.0e-6

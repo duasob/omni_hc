@@ -30,24 +30,21 @@ I have done my best to document things extensively but this is still a work in p
 | [**Elasticity**](docs/benchmarks/elasticity.md) | Solid Mechanics (Point Cloud) | [geo-fno](https://drive.google.com/drive/folders/1YBuaoTdOSr_qzaow-G-iwvbUI7fiUzu8) | [ElasticityDeviatoricStressConstraint](docs/constraints/elasticity/ElasticityDeviatoricStressConstraint.md): deviatoric von Mises stress from a 2D incompressible Right Cauchy-Green tensor | Implemented |
 | [**Plasticity**](docs/benchmarks/plasticity.md) | Time-dependent Deformation | [geo-fno](https://drive.google.com/drive/folders/1YBuaoTdOSr_qzaow-G-iwvbUI7fiUzu8) | [PlasticityMeshConsistencyConstraint](docs/constraints/plasticity/PlasticityMeshConsistencyConstraint.md): ordered deformation mesh reconstruction from positive learned spacings with consistent `[x, y, u_x, u_y]` channels. | Implemented |
 
-
-Some example configs for Navier-Stokes flow are:
-
-- [fno_small_mean.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/navier_stokes/fno_small_mean.yaml)
-- [gt_small_mean.yaml](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/navier_stokes/gt_small_mean.yaml)
-
-All benchmarks share the same entrypoints for training, testing, and tuning. To change the benchmark or hard constraint, simply switch the config. For example, to run the Navier-Stokes FNO example with mean correction, use:
+All benchmarks share the same entrypoints for training, testing, and tuning. Experiments can be specified in two equivalent ways.
 
 ```bash
+# Option 1: compose from individual components
 python scripts/train.py \
-  --config configs/experiments/navier_stokes/fno_small_mean.yaml \
+  --benchmark navier_stokes \
+  --backbone Galerkin_Transformer \
+  --constraint mean_constraint \
+  --budget final
 
-python scripts/test.py \
-  --config configs/experiments/navier_stokes/fno_small_mean.yaml \
-
-python scripts/tune.py \
-  --config configs/experiments/navier_stokes/fno_small_mean.yaml \
+# Option 2: use a pre-composed config for a specific experiment
+python scripts/train.py --config configs/experiments/navier_stokes/fno_small_mean.yaml
 ```
+
+Both options accept `--override KEY=VALUE` for dotted config overrides (repeatable), `--seed`, `--device`, and `--output-root`. 
 
 Both Optuna and W&B are optional and controlled by the `wandb_logging` and `optuna` sections in each experiment config.
 The benchmark adapter is selected from `benchmark.name`, so the same entrypoints can be reused as additional datasets are added.

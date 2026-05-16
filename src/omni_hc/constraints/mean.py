@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Any, Sequence
 
 import torch
 import torch.nn as nn
 
-from .base import ConstraintDiagnostic, ConstraintModule
+from .base import ConstrainedModel, ConstraintDiagnostic, ConstraintModule, _BUILD_META_KEYS
+from .utils.hooks import ForwardHookLatentExtractor
 
 _ACTIVATIONS = {
     "gelu": nn.GELU,
@@ -111,6 +112,36 @@ class MeanConstraint(ConstraintModule):
                 f"Unknown mean constraint mode '{mode}'. "
                 "Use one of: post_output, post_output_learned, latent_head."
             )
+
+    @classmethod
+    def build(
+        cls,
+        backbone: torch.nn.Module,
+        model_context: dict[str, Any],
+        constraint_cfg: dict[str, Any],
+    ) -> ConstrainedModel:
+        _MEAN_META = _BUILD_META_KEYS | {"latent_module"}
+        params = {k: v for k, v in constraint_cfg.items() if k not in _MEAN_META}
+        params.setdefault("out_dim", int(model_context.get("out_dim", 1)))
+
+        mode = str(params.get("mode", "post_output")).lower()
+        latent_extractor = None
+        if mode == "latent_head":
+            latent_module = constraint_cfg.get("latent_module")
+            if not latent_module:
+                raise ValueError("constraint.latent_module is required for latent_head mode")
+            latent_extractor = ForwardHookLatentExtractor(backbone, str(latent_module))
+            if "latent_dim" not in params:
+                n_hidden = model_context.get("n_hidden")
+                if n_hidden is not None:
+                    params["latent_dim"] = int(n_hidden)
+
+        constraint = cls(**params)
+        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint, latent_extractor=latent_extractor)
+        if constraint_cfg.get("freeze_base", False):
+            for param in wrapped.backbone.parameters():
+                param.requires_grad = False
+        return wrapped
 
     def forward(self, *, pred, latent=None, return_aux=False, **_unused):
         reduce_dims = _resolve_reduce_dims(pred, self.channel_dim, self.reduce_dims)
