@@ -1,5 +1,5 @@
 constraint:
-  name: "mean_correction"
+  name: "mean_constraint"
   mode: "latent_head"
   correction_hidden: 192
   correction_layers: 2

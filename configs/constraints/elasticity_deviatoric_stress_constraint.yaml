@@ -1,5 +1,5 @@
 constraint:
-  name: "elasticity_deviatoric_stress"
+  name: "elasticity_deviatoric_stress_constraint"
   backbone_out_dim: 1
   target_out_dim: 1
   c1: 1.863e5

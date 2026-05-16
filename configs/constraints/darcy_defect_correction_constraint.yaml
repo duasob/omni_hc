@@ -1,0 +1,16 @@
+constraint:
+<<<<<<< HEAD:configs/constraints/darcy_defect_correction.yaml
+    name: "darcy_defect_correction"
+    force_value: 1.0
+    n_correction_steps: 10
+    lower: 0.0
+    upper: 1.0
+    permeability_eps: 1.0e-6
+=======
+  name: "darcy_defect_correction_constraint"
+  force_value: 1.0
+  n_correction_steps: 1
+  lower: 0.0
+  upper: 1.0
+  permeability_eps: 1.0e-6
+>>>>>>> 14d2b021edf2bb2f47bd925be7cb7c211f55de20:configs/constraints/darcy_defect_correction_constraint.yaml

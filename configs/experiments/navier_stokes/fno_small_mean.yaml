@@ -1,7 +1,7 @@
 name: "navier_stokes_fno_mean"
 benchmark: "navier_stokes"
 backbone: "FNO"
-constraint: "mean_correction"
+constraint: "mean_constraint"
 budget: "debug"
 optuna: "mean_correction"
 

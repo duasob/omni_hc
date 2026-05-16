@@ -1,7 +1,7 @@
 name: "navier_stokes_demo"
 benchmark: "navier_stokes"
 backbone: "Galerkin_Transformer"
-constraint: "mean_correction"
+constraint: "mean_constraint"
 budget: "smoke"
 
 overrides:

@@ -331,3 +331,23 @@ class ElasticityDeviatoricStressConstraint(ConstraintModule):
                 diagnostics=self._diagnostics(sigma_physical, aux),
             )
         return sigma
+
+    @classmethod
+    def log_media(cls, ctx) -> dict[str, str]:
+        aux = ctx.aux_tensors
+        if not aux:
+            return {}
+        if ctx.out_dir is None:
+            from omni_hc.training.logging_utils import log_elasticity_latent_panels
+            log_elasticity_latent_panels(
+                ctx.coords, aux,
+                prefix=ctx.prefix, epoch=ctx.epoch, step=ctx.step,
+                point_size=float((ctx.cfg.get("wandb_logging") or {}).get("point_size", 24.0)),
+            )
+            return {}
+        from omni_hc.training.logging_utils import save_elasticity_latent_panels
+        return save_elasticity_latent_panels(
+            ctx.coords, aux,
+            out_dir=ctx.out_dir, prefix=ctx.prefix,
+            point_size=float((ctx.cfg.get("wandb_logging") or {}).get("point_size", 24.0)),
+        )

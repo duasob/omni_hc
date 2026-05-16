@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 import yaml
 
@@ -30,7 +31,28 @@ def _prepare_batch(batch, *, device):
     return batch["coords"].to(device), None, batch["y"].to(device)
 
 
-def train(cfg: dict, *, device):
+def log_elasticity(ctx) -> dict[str, str]:
+    from omni_hc.training.logging_utils import (
+        log_unstructured_point_cloud_images,
+        save_unstructured_point_cloud_images,
+    )
+
+    point_size = float((ctx.cfg.get("wandb_logging") or {}).get("point_size", 24.0))
+    if ctx.out_dir is None:
+        log_unstructured_point_cloud_images(
+            ctx.coords, ctx.pred, ctx.target,
+            prefix=ctx.prefix, epoch=ctx.epoch, step=ctx.step,
+            point_size=point_size,
+        )
+        return {}
+    return save_unstructured_point_cloud_images(
+        ctx.coords, ctx.pred, ctx.target,
+        out_dir=ctx.out_dir, prefix=ctx.prefix,
+        point_size=point_size,
+    )
+
+
+def train(cfg: dict, *, device, log_fn: Callable | None = None):
     return train_steady_task(
         cfg,
         device=device,
@@ -38,6 +60,7 @@ def train(cfg: dict, *, device):
         get_meta=_get_meta,
         runtime_overrides=_runtime_overrides,
         prepare_batch=_prepare_batch,
+        log_fn=log_fn,
     )
 
 
@@ -46,6 +69,7 @@ def test(
     *,
     device,
     checkpoint_path: str | Path | None = None,
+    log_fn: Callable | None = None,
 ):
     payload = test_steady_task(
         cfg,
@@ -55,6 +79,7 @@ def test(
         get_meta=_get_meta,
         runtime_overrides=_runtime_overrides,
         prepare_batch=_prepare_batch,
+        log_fn=log_fn,
     )
     output_dir = Path(cfg["paths"]["output_dir"])
     with open(output_dir / "test_metrics.yaml", "w", encoding="utf-8") as handle:
@@ -63,8 +88,4 @@ def test(
 
 
 def tune(cfg: dict, *, device):
-    return run_optuna_search(
-        cfg,
-        device=device,
-        train_fn=train,
-    )
+    return run_optuna_search(cfg, device=device, train_fn=train)

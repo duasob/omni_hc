@@ -1,7 +1,7 @@
 name: "pipe_fno_stream_boundary"
 benchmark: "pipe"
 backbone: "FNO"
-constraint: "pipe_stream_function_boundary"
+constraint: "pipe_stream_function_boundary_ansatz"
 budget: "debug"
 
 overrides:
