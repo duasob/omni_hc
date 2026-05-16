@@ -40,10 +40,9 @@ export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-$OMP_NUM_THREADS}"
 export NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-$OMP_NUM_THREADS}"
 
 RUNS=(
-    "--benchmark darcy --backbone Transolver --constraint darcy_defect_correction --budget final"
-    "--benchmark darcy --backbone Transolver --constraint darcy_flux_projection --budget final"
-
+    "--benchmark darcy --config Transolver --constraint darcy_defect_correction --budget final"
 )
+
 
 timestamp() {
     date -u +"%Y-%m-%dT%H:%M:%SZ"
