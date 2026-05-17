@@ -7,3 +7,4 @@ constraints, and runnable configs
 - [Pipe](pipe.md)
 - [Elasticity](elasticity.md)
 - [Plasticity](plasticity.md)
+- [Airfoil](airfoil.md)
