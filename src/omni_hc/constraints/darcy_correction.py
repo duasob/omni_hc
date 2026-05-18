@@ -14,17 +14,19 @@ from .utils.spectral import (
 
 class DarcyDefectCorrectionConstraint(ConstraintModule):
     """
-    Hard Darcy pressure constraint via coordinate ansatz + defect correction.
+    Hard Darcy interior constraint via defect correction (no boundary enforcement).
 
     Steps:
     1. Decode backbone output to physical pressure space.
-    2. Enforce homogeneous Dirichlet BCs: u_ansatz = phi * u_pred_phys,
-       where phi = x(1-x)y(1-y) vanishes on the boundary.
-    3. Compute the discrete Darcy residual r = -div_h(a_hm ∇_h u) - f using
+    2. Compute the discrete Darcy residual r = -div_h(a_hm ∇_h u) - f using
        harmonic-mean face permeabilities for the variable-coefficient operator.
-    4. Correct: delta_u solves Δ(delta_u) = r/a with Dirichlet BCs; u += delta_u.
+    3. Correct: delta_u solves Δ(delta_u) = r/a with Dirichlet BCs; u += delta_u.
        Repeat n_correction_steps times.
-    5. Re-encode and return.
+    4. Re-encode and return.
+
+    Boundary values are left as predicted by the backbone. The correction delta_u
+    uses zero Dirichlet BCs, so it does not alter whatever the backbone placed on
+    the boundary.
 
     The correction is exact inside uniform-permeability regions. For binary {3, 12}
     permeability, the interface convergence factor is |1 - a_hm/a_local| ≈ 0.6 per step.
@@ -90,11 +92,6 @@ class DarcyDefectCorrectionConstraint(ConstraintModule):
     def _encode_pressure(self, u: torch.Tensor) -> torch.Tensor:
         return u if self.target_normalizer is None else self.target_normalizer.encode(u)
 
-    def _dirichlet_phi(self, coords: torch.Tensor) -> torch.Tensor:
-        """phi = prod_d (x_d - lower)(upper - x_d); vanishes on [lower,upper]^d boundary."""
-        lo, hi = self.lower, self.upper
-        return ((coords - lo) * (hi - coords)).clamp_min(0.0).prod(dim=-1, keepdim=True)
-
     def _darcy_residual(
         self,
         u: torch.Tensor,  # (B, 1, H, W) physical
@@ -146,8 +143,6 @@ class DarcyDefectCorrectionConstraint(ConstraintModule):
     def forward(self, *, pred, coords=None, fx=None, return_aux=False, **_unused):
         if fx is None:
             raise ValueError("fx (permeability) is required for DarcyDefectCorrectionConstraint")
-        if coords is None:
-            raise ValueError("coords is required for DarcyDefectCorrectionConstraint")
         if pred.ndim != 3 or pred.shape[-1] != 1:
             raise ValueError(
                 f"Expected backbone output (B, N, 1), got {tuple(pred.shape)!r}"
@@ -165,10 +160,9 @@ class DarcyDefectCorrectionConstraint(ConstraintModule):
             self._decode_permeability(fx), shapelist=(height, width)
         )  # (B, 1, H, W)
 
-        # Dirichlet ansatz in physical space: u_ansatz = phi * decode(pred)
-        phi = self._dirichlet_phi(coords)                  # (B, N, 1)
-        u_ansatz_phys = phi * self._decode_pressure(pred)  # (B, N, 1)
-        u = reshape_channels_last_to_grid(u_ansatz_phys, shapelist=(height, width))  # (B,1,H,W)
+        # Decode backbone prediction and reshape to grid (no boundary ansatz)
+        u_phys = self._decode_pressure(pred)                                          # (B, N, 1)
+        u = reshape_channels_last_to_grid(u_phys, shapelist=(height, width))          # (B,1,H,W)
 
         # Iterative defect correction
         delta_u_last = None
@@ -194,13 +188,6 @@ class DarcyDefectCorrectionConstraint(ConstraintModule):
         r_bulk_mean = (r_abs * bulk_mask.float()).sum() / n_bulk
         r_intf_mean = (r_abs * is_intf.float()).sum() / n_intf
 
-        boundary_abs = torch.cat([
-            u[:, :, 0, :].abs().reshape(u.shape[0], -1),
-            u[:, :, -1, :].abs().reshape(u.shape[0], -1),
-            u[:, :, :, 0].abs().reshape(u.shape[0], -1),
-            u[:, :, :, -1].abs().reshape(u.shape[0], -1),
-        ], dim=1)
-
         diagnostics: dict[str, ConstraintDiagnostic] = {
             "constraint/darcy_res_abs_mean": ConstraintDiagnostic(
                 value=r_abs.mean(), reduce="mean"
@@ -214,12 +201,6 @@ class DarcyDefectCorrectionConstraint(ConstraintModule):
             "constraint/darcy_res_intf_abs_mean": ConstraintDiagnostic(
                 value=r_intf_mean, reduce="mean"
             ),
-            "constraint/boundary_abs_mean": ConstraintDiagnostic(
-                value=boundary_abs.mean(), reduce="mean"
-            ),
-            "constraint/boundary_abs_max": ConstraintDiagnostic(
-                value=boundary_abs.max(), reduce="max"
-            ),
         }
         if delta_u_last is not None:
             diagnostics["constraint/correction_norm_mean"] = ConstraintDiagnostic(
@@ -228,6 +209,6 @@ class DarcyDefectCorrectionConstraint(ConstraintModule):
 
         return self.as_output(
             u_encoded,
-            aux={"pred_ansatz": u_ansatz_phys},
+            aux={"pred_base": u_phys},
             diagnostics=diagnostics,
         )
