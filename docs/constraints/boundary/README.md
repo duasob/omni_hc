@@ -27,3 +27,4 @@ More examples:
 - [StructuredWallDirichletAnsatz](StructuredWallDirichletAnsatz.md)
 - [PipeInletParabolicAnsatz](PipeInletParabolicAnsatz.md)
 - [PipeUxBoundaryAnsatz](PipeUxBoundaryAnsatz.md)
+- [SineBoundaryConstraint](SineBoundaryConstraint.md)
