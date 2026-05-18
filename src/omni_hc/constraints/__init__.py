@@ -29,6 +29,7 @@ from .darcy_correction import DarcyDefectCorrectionConstraint
 from .darcy_flux import DarcyFluxConstraint
 from .elasticity import ElasticityDeviatoricStressConstraint
 from .mean import MeanConstraint, MeanCorrection, build_mlp, match_mean
+from .sine_boundary import SineBoundaryConstraint
 from .plasticity import PlasticityMeshConsistencyConstraint
 from .stream import PipeStreamFunctionBoundaryAnsatz, PipeStreamFunctionUxConstraint
 from .utils.hooks import ForwardHookLatentExtractor
@@ -57,6 +58,7 @@ __all__ = [
     "PipeStreamFunctionUxConstraint",
     "PipeUxBoundaryAnsatz",
     "StructuredWallDirichletAnsatz",
+    "SineBoundaryConstraint",
     "boundary_residual",
     "boundary_stats",
     "build_mlp",
