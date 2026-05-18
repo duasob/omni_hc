@@ -93,6 +93,57 @@ plt.show()
 print(f"Saved image to {FIGURES_DIR / 'ns_dataset_sample.pdf'}")
 
 
+# %% Spatial-mean vorticity statistics across timesteps
+# Left:  spatial mean of ω  — should hover near zero (conservation law).
+# Right: spatial mean of |ω| — captures the growing magnitude of the field.
+u_flat = u.reshape(N, H * W, T_FULL)
+
+spatial_mean = u_flat.mean(axis=1)       # (N, T)
+spatial_mag  = np.abs(u_flat).mean(axis=1)  # (N, T)
+
+def _band(arr):
+    m   = arr.mean(axis=0)
+    p5  = np.percentile(arr, 5,  axis=0)
+    p95 = np.percentile(arr, 95, axis=0)
+    return m, p5, p95
+
+mean_t, mean_p5, mean_p95       = _band(spatial_mean)
+mag_mean_t, mag_p5, mag_p95     = _band(spatial_mag)
+
+t_idx = np.arange(1, T_FULL + 1)
+
+c_mean = plt.get_cmap(CMAP)(0.3)
+c_mag  = plt.get_cmap(CMAP)(0.75)
+
+fig, (ax_mean, ax_mag) = plt.subplots(1, 2, figsize=(12, 3.5))
+
+# --- left: signed mean ---
+ax_mean.fill_between(t_idx, mean_p5, mean_p95,
+                     alpha=0.25, color=c_mean, label="5–95th percentile")
+ax_mean.plot(t_idx, mean_t, color=c_mean, lw=1.8, label="Mean")
+ax_mean.axhline(0, color="0.4", lw=0.9, ls="--", label=r"$\bar\omega = 0$")
+ax_mean.set_xlabel("Timestep")
+ax_mean.set_ylabel(r"Spatial mean $\bar\omega$")
+ax_mean.set_title("Signed mean vorticity")
+ax_mean.xaxis.set_major_locator(mticker.MultipleLocator(2))
+ax_mean.legend(frameon=False)
+
+# --- right: magnitude mean ---
+ax_mag.fill_between(t_idx, mag_p5, mag_p95,
+                    alpha=0.25, color=c_mag, label="5–95th percentile")
+ax_mag.plot(t_idx, mag_mean_t, color=c_mag, lw=1.8, label="Mean")
+ax_mag.set_xlabel("Timestep")
+ax_mag.set_ylabel(r"Spatial mean $|\bar\omega|$")
+ax_mag.set_title("Vorticity magnitude")
+ax_mag.xaxis.set_major_locator(mticker.MultipleLocator(2))
+ax_mag.legend(frameon=False)
+
+fig.tight_layout()
+fig.savefig(FIGURES_DIR / "ns_mean_vorticity.png", bbox_inches="tight")
+plt.show()
+print(f"Saved to {FIGURES_DIR / 'ns_mean_vorticity.png'}")
+
+
 # %% Training curves
 TRAINING_MODELS = {
     "Factformer": OUTPUTS_ROOT / "factformer/final/seed_42",
