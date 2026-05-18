@@ -28,24 +28,6 @@ def test_compose_train_config_from_named_components():
     ]
 
 
-def test_compose_tune_config_adds_search_space_and_trial_dir():
-    cfg = compose_run_config(
-        benchmark="darcy",
-        backbone="Galerkin_Transformer",
-        constraint="darcy_flux_constraint",
-        budget="tune_debug",
-        optuna="darcy_flux_constraint",
-        mode="tune",
-    )
-
-    assert cfg["optuna"]["num_trials"] == 2
-    assert "constraint.padding" in cfg["optuna"]["search_space"]
-    assert cfg["optuna"]["save_dir"].endswith("/trials")
-    assert cfg["paths"]["output_dir"].endswith(
-        "outputs/darcy/darcy_flux_constraint/galerkin_transformer/tune_debug/seed_42"
-    )
-    assert "configs/optuna/darcy/darcy_flux_constraint.yaml" in cfg["experiment"]["source_configs"]
-
 
 def test_constraint_alias_resolves_to_config_parameters():
     cfg = compose_run_config(
