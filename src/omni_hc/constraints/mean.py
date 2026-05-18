@@ -87,11 +87,13 @@ class MeanConstraint(ConstraintModule):
         latent_dim: int | None = None,
         channel_dim: int = -1,
         reduce_dims: Sequence[int] | None = None,
+        extractor=None,
     ):
         super().__init__()
         self.mode = mode
         self.channel_dim = channel_dim
         self.reduce_dims = tuple(reduce_dims) if reduce_dims is not None else None
+        self.extractor = extractor
 
         if mode == "post_output":
             self.corr_head = None
@@ -125,12 +127,13 @@ class MeanConstraint(ConstraintModule):
         params.setdefault("out_dim", int(model_context.get("out_dim", 1)))
 
         mode = str(params.get("mode", "post_output")).lower()
-        latent_extractor = None
+        extractor = None
         if mode == "latent_head":
             latent_module = constraint_cfg.get("latent_module")
             if not latent_module:
                 raise ValueError("constraint.latent_module is required for latent_head mode")
-            latent_extractor = ForwardHookLatentExtractor(backbone, latent_module)
+            extractor = ForwardHookLatentExtractor(backbone, latent_module)
+            backbone.register_forward_pre_hook(lambda *_: extractor.reset())
             if "latent_dim" not in params:
                 n_hidden = model_context.get("n_hidden")
                 if n_hidden is not None:
@@ -138,14 +141,14 @@ class MeanConstraint(ConstraintModule):
             elif isinstance(params["latent_dim"], (list, tuple)):
                 params["latent_dim"] = sum(int(d) for d in params["latent_dim"])
 
-        constraint = cls(**params)
-        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint, latent_extractor=latent_extractor)
+        constraint = cls(**params, extractor=extractor)
+        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
         if constraint_cfg.get("freeze_base", False):
             for param in wrapped.backbone.parameters():
                 param.requires_grad = False
         return wrapped
 
-    def forward(self, *, pred, latent=None, return_aux=False, **_unused):
+    def forward(self, *, pred, return_aux=False, **_unused):
         reduce_dims = _resolve_reduce_dims(pred, self.channel_dim, self.reduce_dims)
 
         if self.mode == "post_output":
@@ -155,8 +158,9 @@ class MeanConstraint(ConstraintModule):
             if self.mode == "post_output_learned":
                 corr_raw = self.corr_head(pred)
             else:
+                latent = self.extractor.get()
                 if latent is None:
-                    raise ValueError("latent is required for mode='latent_head'")
+                    raise ValueError("latent not captured — ensure backbone ran before constraint")
                 corr_raw = self.corr_head(latent)
             corr = match_mean(
                 corr_raw,

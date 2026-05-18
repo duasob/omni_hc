@@ -16,6 +16,7 @@ from omni_hc.constraints import (
     PipeStreamFunctionUxConstraint,
     PipeUxBoundaryAnsatz,
     PlasticityMeshConsistencyConstraint,
+    SineBoundaryConstraint,
     StructuredWallDirichletAnsatz,
 )
 from omni_hc.core import load_yaml_file
@@ -53,6 +54,7 @@ _CONSTRAINT_CLASSES: dict[str, type] = {
     "elasticity_deviatoric_stress_constraint": ElasticityDeviatoricStressConstraint,
     "plasticity_mesh_consistency_constraint": PlasticityMeshConsistencyConstraint,
     "mean_constraint": MeanConstraint,
+    "sine_boundary_constraint": SineBoundaryConstraint,
 }
 
 
