@@ -81,9 +81,9 @@ class MeanConstraint(ConstraintModule):
         *,
         mode: str,
         out_dim: int,
-        hidden_dim: int | None = None,
-        n_layers: int = 0,
-        act: str = "gelu",
+        correction_hidden: int | None = None,
+        correction_layers: int = 0,
+        correction_act: str = "gelu",
         latent_dim: int | None = None,
         channel_dim: int = -1,
         reduce_dims: Sequence[int] | None = None,
@@ -96,16 +96,16 @@ class MeanConstraint(ConstraintModule):
         if mode == "post_output":
             self.corr_head = None
         elif mode == "post_output_learned":
-            head_hidden = hidden_dim if hidden_dim is not None else max(2 * out_dim, 8)
+            head_hidden = correction_hidden if correction_hidden is not None else max(2 * out_dim, 8)
             self.corr_head = build_mlp(
-                out_dim, head_hidden, out_dim, n_layers=n_layers, act=act
+                out_dim, head_hidden, out_dim, n_layers=correction_layers, act=correction_act
             )
         elif mode == "latent_head":
             if latent_dim is None:
                 raise ValueError("latent_dim is required for mode='latent_head'")
-            head_hidden = hidden_dim if hidden_dim is not None else latent_dim
+            head_hidden = correction_hidden if correction_hidden is not None else latent_dim
             self.corr_head = build_mlp(
-                latent_dim, head_hidden, out_dim, n_layers=n_layers, act=act
+                latent_dim, head_hidden, out_dim, n_layers=correction_layers, act=correction_act
             )
         else:
             raise ValueError(
@@ -130,11 +130,13 @@ class MeanConstraint(ConstraintModule):
             latent_module = constraint_cfg.get("latent_module")
             if not latent_module:
                 raise ValueError("constraint.latent_module is required for latent_head mode")
-            latent_extractor = ForwardHookLatentExtractor(backbone, str(latent_module))
+            latent_extractor = ForwardHookLatentExtractor(backbone, latent_module)
             if "latent_dim" not in params:
                 n_hidden = model_context.get("n_hidden")
                 if n_hidden is not None:
                     params["latent_dim"] = int(n_hidden)
+            elif isinstance(params["latent_dim"], (list, tuple)):
+                params["latent_dim"] = sum(int(d) for d in params["latent_dim"])
 
         constraint = cls(**params)
         wrapped = ConstrainedModel(backbone=backbone, constraint=constraint, latent_extractor=latent_extractor)

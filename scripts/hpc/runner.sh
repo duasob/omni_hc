@@ -40,13 +40,14 @@ export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-$OMP_NUM_THREADS}"
 export NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-$OMP_NUM_THREADS}"
 
 RUNS=(
-<<<<<<< HEAD
-    "--benchmark darcy --config Transolver --constraint darcy_defect_correction --budget final"
-=======
     "--benchmark darcy --backbone Transolver --constraint darcy_defect_correction_constraint --budget final"
     "--benchmark darcy --backbone Transolver --constraint darcy_flux_constraint --budget final"
 
->>>>>>> 14d2b021edf2bb2f47bd925be7cb7c211f55de20
+    # Transolver mean constraint ablation — navier_stokes
+    "--benchmark navier_stokes --backbone Transolver --constraint mean_constraint --budget final --override constraint.mode=post_output"
+    "--benchmark navier_stokes --backbone Transolver --constraint mean_constraint --budget final --override constraint.mode=post_output_learned"
+    "--benchmark navier_stokes --backbone Transolver --constraint mean_constraint --budget final --override constraint.mode=latent_head --override constraint.latent_module=blocks.-1.ln_3"
+    "--config configs/experiments/navier_stokes/transolver_mean_latent_engineered.yaml"
 )
 
 

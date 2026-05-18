@@ -1,3 +1,10 @@
+from .airfoil import (
+    FREESTREAM_FULL,
+    FREESTREAM_MACH,
+    FREESTREAM_PRIMITIVE,
+    AirfoilFarFieldAnsatz,
+    derived_mach,
+)
 from .base import (
     ConstrainedModel,
     ConstraintDiagnostic,
@@ -28,11 +35,16 @@ from .utils.hooks import ForwardHookLatentExtractor
 from .utils.spectral import fft_leray_project_2d, spectral_divergence_2d
 
 __all__ = [
+    "AirfoilFarFieldAnsatz",
     "ConstrainedModel",
     "ConstraintDiagnostic",
     "ConstraintModule",
     "ConstraintOutput",
     "DarcyDefectCorrectionConstraint",
+    "FREESTREAM_FULL",
+    "FREESTREAM_MACH",
+    "FREESTREAM_PRIMITIVE",
+    "derived_mach",
     "DarcyFluxConstraint",
     "DirichletBoundaryAnsatz",
     "ElasticityDeviatoricStressConstraint",

@@ -1,0 +1,19 @@
+name: "navier_stokes_transolver_mean_latent_engineered"
+benchmark: "navier_stokes"
+backbone: "Transolver"
+constraint: "mean_constraint"
+budget: "final"
+
+overrides:
+  constraint:
+    mode: "latent_head"
+    latent_module:
+      - "blocks.-2"        # penultimate block output
+      - "blocks.-1.Attn"   # physics-aware attention output (slice mechanism)
+      - "blocks.-1.ln_3"   # final representation before projection
+    latent_dim: 768
+    correction_hidden: 512
+    correction_layers: 2
+    correction_act: "gelu"
+  wandb_logging:
+    run_name: "navier_stokes_transolver_mean_latent_engineered"
