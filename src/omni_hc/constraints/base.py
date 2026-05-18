@@ -87,48 +87,34 @@ class ConstraintModule(nn.Module):
         )
 
 
-class LatentExtractor(Protocol):
-    def reset(self) -> None: ...
-
-    def get(self) -> torch.Tensor | None: ...
-
-
 class ConstrainedModel(nn.Module):
     """
     Wraps a backbone and applies a constraint to its prediction.
 
-    The wrapper keeps backbone construction separate from constraint logic. If
-    a latent extractor is supplied, it is reset before the backbone forward pass
-    and its captured tensor is passed to the constraint.
+    The wrapper keeps backbone construction separate from constraint logic.
+    Constraints that require latent features (e.g. latent_head mode) own their
+    extractor directly and register their own hooks on the backbone.
     """
 
     def __init__(
         self,
         backbone: nn.Module,
         constraint: nn.Module | None = None,
-        latent_extractor: LatentExtractor
-        | None = None,  # TODO: revise if this is legacy. We have build class per constraint.
     ):
         super().__init__()
         self.backbone = backbone
         self.constraint = constraint
-        self.latent_extractor = latent_extractor
         self.supports_aux = constraint is not None
 
     def forward(self, *args, return_aux=False, **kwargs):
         if self.constraint is None:
             return self.backbone(*args, **kwargs)
 
-        if self.latent_extractor is not None:
-            self.latent_extractor.reset()
-
         pred = self.backbone(*args, **kwargs)
-        latent = None if self.latent_extractor is None else self.latent_extractor.get()
         coords = args[0] if len(args) > 0 else kwargs.get("coords")
         fx = args[1] if len(args) > 1 else kwargs.get("fx")
         return self.constraint(
             pred=pred,
-            latent=latent,
             coords=coords,
             fx=fx,
             return_aux=return_aux,
