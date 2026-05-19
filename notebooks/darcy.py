@@ -390,3 +390,188 @@ out_path = FIGURES_DIR / "darcy_distance_power_ablation.png"
 fig.savefig(out_path, bbox_inches="tight")
 plt.show()
 print(f"Saved to {out_path}")
+
+# %% Corner-value diagnostic — what is u at the 4 corners, full-res vs downsampled?
+# The sine basis pins corners to exactly 0. Before trusting that, measure the
+# actual corner values. NOTE: STRIDE=5 on a 421-grid samples indices 0,5,…,420,
+# and 420 == 421-1 is the true last index, so the corner PIXELS coincide in both
+# modes — only the interior sampling differs. We expect identical corner stats.
+_sol_ds = sol[:, ::STRIDE, ::STRIDE]
+_corner_modes = {
+    f"full ({sol.shape[1]})": sol,
+    f"downsampled ({_sol_ds.shape[1]})": _sol_ds,
+}
+_corner_defs = {
+    "BL (0,0)": (0, 0),
+    "BR (0,-1)": (0, -1),
+    "TL (-1,0)": (-1, 0),
+    "TR (-1,-1)": (-1, -1),
+}
+
+print("--- Corner u values (over all samples) ---")
+print(f"{'mode':<18}{'corner':<12}{'mean':>14}{'std':>14}{'mean|u|':>14}")
+corner_stats = {}  # (mode, corner) -> (mean, std)
+for mname, arr in _corner_modes.items():
+    for cname, (ci, cj) in _corner_defs.items():
+        vals = arr[:, ci, cj].astype(np.float64)
+        m, s, ma = vals.mean(), vals.std(), np.abs(vals).mean()
+        corner_stats[(mname, cname)] = (m, s)
+        print(f"{mname:<18}{cname:<12}{m:>14.4e}{s:>14.4e}{ma:>14.4e}")
+
+mode_names = list(_corner_modes)
+corner_names = list(_corner_defs)
+x = np.arange(len(corner_names))
+width = 0.36
+bar_colors = [plt.cm.magma(0.4), plt.cm.magma(0.7)]
+
+fig, ax = plt.subplots(figsize=(8, 4), constrained_layout=True)
+for mi, mname in enumerate(mode_names):
+    means = [corner_stats[(mname, c)][0] for c in corner_names]
+    stds = [corner_stats[(mname, c)][1] for c in corner_names]
+    ax.bar(
+        x + (mi - 0.5) * width,
+        means,
+        width,
+        yerr=stds,
+        capsize=3,
+        color=bar_colors[mi],
+        edgecolor="white",
+        linewidth=0.4,
+        label=mname,
+    )
+ax.axhline(0, color="0.4", linewidth=0.8, linestyle="--")
+ax.set_xticks(x)
+ax.set_xticklabels(corner_names)
+ax.set_ylabel("Corner $u$  (mean ± std)")
+ax.set_title("Corner values: full-res vs downsampled")
+ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0), useMathText=True)
+ax.legend(fontsize=8, frameon=False)
+
+out_path = FIGURES_DIR / "darcy_corner_values.png"
+fig.savefig(out_path, bbox_inches="tight")
+plt.show()
+print(f"Saved to {out_path}")
+
+# %% Sine-mode order — helpers
+# SineBoundaryConstraint represents each edge as u(x_j) = sum_k c_k sin(kπ j/(L-1)),
+# i.e. a truncated DST-I. The right `n_modes` is set by the spectral decay of the
+# TRUE Darcy boundary profiles, not guessed. Corners are taken to be exactly 0, so
+# the sine basis (which vanishes at the endpoints) is the exact representation —
+# no endpoint lift needed. These helpers run the analysis on any grid resolution.
+TOL = 0.01
+
+
+def pool_edges(sol3d):
+    """Pool the 4 boundary edges of (N, H, W) into (4N, L) float64 profiles."""
+    return np.concatenate(
+        [
+            sol3d[:, 0, :],   # bottom  (N, W)
+            sol3d[:, -1, :],  # top     (N, W)
+            sol3d[:, :, 0],   # left    (N, H)
+            sol3d[:, :, -1],  # right   (N, H)
+        ],
+        axis=0,
+    ).astype(np.float64)  # float64 for stable projection
+
+
+def corner_report(edges, label):
+    """Sanity-check the corners-are-zero assumption vs profile amplitude.
+
+    Uses mean/p99, not max: a few outlier samples make max unrepresentative.
+    """
+    cv = np.abs(edges[:, [0, -1]])
+    rms = np.sqrt((edges**2).mean())
+    print(
+        f"[{label}] corner |u|: mean={cv.mean():.2e}  p99={np.percentile(cv, 99):.2e}"
+        f"  vs  profile RMS = {rms:.2e}"
+    )
+
+
+def sine_spectrum(edges):
+    """Project pooled edges onto the DST-I sine basis (identical to
+    SineBoundaryConstraint._sine_basis) and return spectral diagnostics."""
+    M, L = edges.shape
+    K_MAX = L - 2  # max independent interior DST-I modes
+    j = np.arange(L)
+    k = np.arange(1, K_MAX + 1)
+    B = np.sin(np.pi * np.outer(j, k) / (L - 1))  # (L, K_MAX)
+    PROJ = 2.0 / (L - 1)  # DST-I orthogonality constant
+
+    C = PROJ * (edges @ B)  # (M, K_MAX) sine coefficients per profile
+    e_unit = (L - 1) / 2.0  # per-mode energy weight (Parseval)
+    tot_energy = (edges**2).sum(axis=1)  # (M,) full-profile energy
+
+    # Global rel-L2 vs number of modes K (energy-pooled over samples/edges)
+    cum = np.cumsum(C**2 * e_unit, axis=1)
+    res = np.clip(tot_energy[:, None] - cum, 0, None)
+    relL2 = np.sqrt(res.sum(axis=0) / tot_energy.sum())
+
+    mean_pow = (C**2).mean(axis=0)
+    mean_pow = mean_pow / mean_pow[0]
+    return {
+        "L": L,
+        "M": M,
+        "K_MAX": K_MAX,
+        "Ks": np.arange(1, K_MAX + 1),
+        "relL2": relL2,
+        "mean_pow": mean_pow,
+    }
+
+
+def report_modes(spec, label, tol=TOL):
+    """Print the recommended n_modes and return K_REC (or None)."""
+    relL2, Ks, K_MAX = spec["relL2"], spec["Ks"], spec["K_MAX"]
+    hit = np.where(relL2 < tol)[0]
+    K_REC = int(Ks[hit[0]]) if hit.size else None
+    print(f"--- Sine-mode order ({label} L={spec['L']}, edges pooled, M={spec['M']}) ---")
+    if K_REC is not None:
+        print(f"  reaches {tol:.0%} rel-L2 at K = {K_REC}")
+    else:
+        print(f"  never reaches {tol:.0%} rel-L2 within K_MAX={K_MAX}")
+    if K_MAX >= 16:
+        print(f"  constraint default n_modes=16  ->  rel-L2 = {relL2[15]:.3%}")
+    print(f"  >> recommended n_modes ≈ {K_REC}")
+    return K_REC
+
+
+def plot_sine_order(spec, out_path):
+    c_spec = plt.cm.magma(0.45)
+    c_rec = plt.cm.plasma(0.35)
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4), constrained_layout=True)
+
+    # (1) Mean power spectrum — the intrinsic decay
+    axes[0].semilogy(spec["Ks"], spec["mean_pow"], color=c_spec, linewidth=1.6)
+    axes[0].set_xlabel("Sine mode $k$")
+    axes[0].set_ylabel("Mean power $|c_k|^2$ (normalised)")
+    axes[0].set_title("Boundary sine spectrum")
+    axes[0].set_xlim(1, spec["K_MAX"])
+
+    # (2) Reconstruction rel-L2 vs number of modes
+    axes[1].semilogy(spec["Ks"], spec["relL2"], color=c_rec, linewidth=1.8)
+    axes[1].set_xlabel("Number of sine modes $K$")
+    axes[1].set_ylabel("Global rel-$L_2$ on boundary")
+    axes[1].set_title("Reconstruction vs mode count")
+    axes[1].set_xlim(1, spec["K_MAX"])
+
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.show()
+    print(f"Saved to {out_path}")
+
+
+# %% Sine-mode order — full-res grid (L=421, K_MAX=419)
+# L=421 gives K_MAX=419 modes; corner pixels coincide with the downsampled grid,
+# so the corners-are-zero conclusion is resolution-independent.
+edges_full = pool_edges(sol)
+corner_report(edges_full, "full-res")
+spec_full = sine_spectrum(edges_full)
+report_modes(spec_full, "full-res")
+plot_sine_order(spec_full, FIGURES_DIR / "darcy_sine_mode_order.png")
+
+# %% Sine-mode order — downsampled grid (the actual training resolution)
+# Same analysis on the STRIDE-downsampled grid the model is trained on; L=85
+# caps at K_MAX=83 modes. This is the resolution that sets the deployed n_modes.
+edges_ds = pool_edges(sol[:, ::STRIDE, ::STRIDE])
+corner_report(edges_ds, "downsampled")
+spec_ds = sine_spectrum(edges_ds)
+report_modes(spec_ds, "downsampled")
+plot_sine_order(spec_ds, FIGURES_DIR / "darcy_sine_mode_order_downsampled.png")
