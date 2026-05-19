@@ -9,6 +9,7 @@ import torch
 
 from .base import ConstrainedModel, ConstraintDiagnostic, ConstraintModule, _BUILD_META_KEYS
 from .mean import build_mlp
+from .utils.boundary_ops import apply_boundary_ansatz, channel_mask
 from .utils.hooks import ForwardHookLatentExtractor
 
 
@@ -83,6 +84,15 @@ class SineBoundaryConstraint(ConstraintModule):
             idx["right"][1:-1],
         ])
         self.register_buffer("idx_all_boundary", all_boundary)
+
+        # Ansatz distance l for f = g + l * N. The indicator (0 on the
+        # perimeter, 1 in the interior) reproduces the original hard-overwrite
+        # exactly: on the boundary f = g (the sine profile), in the interior
+        # f = N (the backbone, untouched). Swapping this for a smooth l would
+        # blend the correction inward instead.
+        distance = torch.ones(H * W, dtype=torch.float32)
+        distance[all_boundary] = 0.0
+        self.register_buffer("boundary_distance", distance.view(1, H * W, 1))
 
         # MLP input: bottom(W) + top(W) + left_inner(H-2) + right_inner(H-2) + latent
         boundary_feat_dim = 2 * W + 2 * (H - 2) + latent_dim
@@ -201,11 +211,24 @@ class SineBoundaryConstraint(ConstraintModule):
         u_left   = coeffs[:, 2] @ self.basis_v.T   # [B, H]
         u_right  = coeffs[:, 3] @ self.basis_v.T   # [B, H]
 
-        out = pred.clone()
-        out[:, self.idx_bottom, 0] = u_bottom
-        out[:, self.idx_top,    0] = u_top
-        out[:, self.idx_left,   0] = u_left
-        out[:, self.idx_right,  0] = u_right
+        # Particular solution g: the sine profile on the perimeter, zero in the
+        # interior. With l = boundary_distance (0 on perimeter, 1 interior),
+        #   f = g + l * N
+        # collapses to g on the boundary and N elsewhere. The write order
+        # (bottom, top, left, right) matches the original overwrite; corners
+        # are zero in every edge basis so the order is immaterial.
+        g_flat = pred.new_zeros(B, self.H * self.W)
+        g_flat[:, self.idx_bottom] = u_bottom
+        g_flat[:, self.idx_top]    = u_top
+        g_flat[:, self.idx_left]   = u_left
+        g_flat[:, self.idx_right]  = u_right
+
+        out = apply_boundary_ansatz(
+            pred=pred,
+            particular=g_flat.unsqueeze(-1),
+            distance=self.boundary_distance,
+            channel_mask=channel_mask(pred, [0]),
+        )
 
         if return_aux:
             correction = (out[:, self.idx_all_boundary, 0] - pred[:, self.idx_all_boundary, 0]).abs()
