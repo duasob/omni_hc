@@ -465,9 +465,9 @@ def pool_edges(sol3d):
     """Pool the 4 boundary edges of (N, H, W) into (4N, L) float64 profiles."""
     return np.concatenate(
         [
-            sol3d[:, 0, :],   # bottom  (N, W)
+            sol3d[:, 0, :],  # bottom  (N, W)
             sol3d[:, -1, :],  # top     (N, W)
-            sol3d[:, :, 0],   # left    (N, H)
+            sol3d[:, :, 0],  # left    (N, H)
             sol3d[:, :, -1],  # right   (N, H)
         ],
         axis=0,
@@ -523,7 +523,9 @@ def report_modes(spec, label, tol=TOL):
     relL2, Ks, K_MAX = spec["relL2"], spec["Ks"], spec["K_MAX"]
     hit = np.where(relL2 < tol)[0]
     K_REC = int(Ks[hit[0]]) if hit.size else None
-    print(f"--- Sine-mode order ({label} L={spec['L']}, edges pooled, M={spec['M']}) ---")
+    print(
+        f"--- Sine-mode order ({label} L={spec['L']}, edges pooled, M={spec['M']}) ---"
+    )
     if K_REC is not None:
         print(f"  reaches {tol:.0%} rel-L2 at K = {K_REC}")
     else:
@@ -575,3 +577,226 @@ corner_report(edges_ds, "downsampled")
 spec_ds = sine_spectrum(edges_ds)
 report_modes(spec_ds, "downsampled")
 plot_sine_order(spec_ds, FIGURES_DIR / "darcy_sine_mode_order_downsampled.png")
+
+
+# %% Input permeability with separated boundaries
+def plot_field_boundary_decomposition(field, *, cmap, out_path):
+    vmin = float(np.min(field))
+    vmax = float(np.max(field))
+
+    pieces = {
+        "top-left": field[-1:, :1],
+        "top": field[-1:, 1:-1],
+        "top-right": field[-1:, -1:],
+        "left": field[1:-1, :1],
+        "interior": field[1:-1, 1:-1],
+        "right": field[1:-1, -1:],
+        "bottom-left": field[:1, :1],
+        "bottom": field[:1, 1:-1],
+        "bottom-right": field[:1, -1:],
+    }
+    layout = [
+        ["top-left", "top", "top-right"],
+        ["left", "interior", "right"],
+        ["bottom-left", "bottom", "bottom-right"],
+    ]
+
+    fig = plt.figure(figsize=(5.8, 5.8), constrained_layout=True)
+    gs = fig.add_gridspec(
+        3,
+        3,
+        width_ratios=(0.04, 1.0, 0.04),
+        height_ratios=(0.04, 1.0, 0.04),
+        wspace=0.12,
+        hspace=0.12,
+    )
+
+    for i, row in enumerate(layout):
+        for j, name in enumerate(row):
+            ax = fig.add_subplot(gs[i, j])
+            ax.imshow(
+                pieces[name],
+                cmap=cmap,
+                origin="lower",
+                vmin=vmin,
+                vmax=vmax,
+                aspect="auto",
+            )
+            ax.set_xticks([])
+            ax.set_yticks([])
+            for spine in ax.spines.values():
+                spine.set_visible(True)
+                spine.set_color("0.35")
+                spine.set_linewidth(0.8)
+
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.show()
+    print(f"Saved to {out_path}")
+
+
+plot_field_boundary_decomposition(
+    a,
+    cmap=CMAP_INPUT,
+    out_path=FIGURES_DIR / "darcy_input_boundary_decomposition.png",
+)
+
+
+def plot_field_interior(field, *, cmap, out_path):
+    vmin = float(np.min(field))
+    vmax = float(np.max(field))
+    interior = field[1:-1, 1:-1]
+
+    fig, ax = plt.subplots(figsize=(4.8, 4.8), constrained_layout=True)
+    ax.imshow(
+        interior,
+        cmap=cmap,
+        origin="lower",
+        vmin=vmin,
+        vmax=vmax,
+        aspect="equal",
+    )
+    ax.set_xticks([])
+    ax.set_yticks([])
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.show()
+    print(f"Saved to {out_path}")
+
+
+def plot_field_boundary_strips(field, *, cmap, out_path):
+    vmin = float(np.min(field))
+    vmax = float(np.max(field))
+    edge_strips = [
+        field[-1:, 1:-1].T,
+        field[:1, 1:-1].T,
+        field[1:-1, :1],
+        field[1:-1, -1:],
+    ]
+
+    fig = plt.figure(figsize=(1.0, 5.0), constrained_layout=True)
+    strips = fig.add_gridspec(1, 4, wspace=0.22)
+    for col, edge in enumerate(edge_strips):
+        ax = fig.add_subplot(strips[0, col])
+        ax.imshow(
+            edge,
+            cmap=cmap,
+            origin="lower",
+            vmin=vmin,
+            vmax=vmax,
+            aspect="auto",
+        )
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_color("0.35")
+            spine.set_linewidth(0.8)
+
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.show()
+    print(f"Saved to {out_path}")
+
+
+plot_field_interior(
+    a,
+    cmap=CMAP_INPUT,
+    out_path=FIGURES_DIR / "darcy_input_interior.png",
+)
+plot_field_boundary_strips(
+    a,
+    cmap=CMAP_INPUT,
+    out_path=FIGURES_DIR / "darcy_input_boundary_strips.png",
+)
+plot_field_boundary_decomposition(
+    u,
+    cmap=CMAP_OUTPUT,
+    out_path=FIGURES_DIR / "darcy_output_boundary_decomposition.png",
+)
+plot_field_interior(
+    u,
+    cmap=CMAP_OUTPUT,
+    out_path=FIGURES_DIR / "darcy_output_interior.png",
+)
+plot_field_boundary_strips(
+    u,
+    cmap=CMAP_OUTPUT,
+    out_path=FIGURES_DIR / "darcy_output_boundary_strips.png",
+)
+
+
+# %% Sine-basis boundary approximation example
+def sine_basis_matrix(length, n_modes):
+    j = np.arange(length)
+    k = np.arange(1, n_modes + 1)
+    return np.sin(np.pi * np.outer(j, k) / (length - 1))
+
+
+def sine_reconstruct_profile(profile, n_modes):
+    basis = sine_basis_matrix(profile.size, n_modes)
+    coeffs = (2.0 / (profile.size - 1)) * np.dot(profile, basis)
+    return np.dot(coeffs, basis.T)
+
+
+def plot_sine_boundary_approximation(sample, *, n_modes, out_path):
+    edge_profiles = {
+        "bottom": sample[0, :],
+        "top": sample[-1, :],
+        "left": sample[:, 0],
+        "right": sample[:, -1],
+    }
+    pos = np.linspace(0.0, 1.0, sample.shape[0])
+
+    fig, axes = plt.subplots(1, 4, figsize=(12, 2.8), constrained_layout=True)
+    true_color = plt.cm.magma(0.35)
+    recon_color = plt.cm.plasma(0.70)
+
+    for ax, (edge_name, profile) in zip(axes, edge_profiles.items()):
+        recon = sine_reconstruct_profile(profile.astype(np.float64), n_modes)
+        ax.plot(pos, profile, color=true_color, linewidth=1.8, label="true")
+        ax.plot(
+            pos,
+            recon,
+            color=recon_color,
+            linewidth=1.4,
+            linestyle="--",
+            label=f"{n_modes} modes",
+        )
+        ax.axhline(0.0, color="0.55", linewidth=0.8)
+        ax.set_title(edge_name, fontsize=10)
+        ax.set_xlabel("position")
+        ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0), useMathText=True)
+
+    axes[0].set_ylabel("$u$")
+    axes[0].legend(fontsize=8, frameon=False)
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.show()
+    print(f"Saved to {out_path}")
+
+
+def plot_right_boundary_sine_diagram(sample, *, n_modes, out_path):
+    profile = sample[:, -1].astype(np.float64)
+    recon = sine_reconstruct_profile(profile, n_modes)
+    pos = np.linspace(0.0, 1.0, sample.shape[0])
+
+    fig, ax = plt.subplots(figsize=(3.0, 2.0), constrained_layout=True)
+    ax.plot(pos, profile, color=plt.cm.magma(0.35), linewidth=2.0)
+    ax.plot(pos, recon, color=plt.cm.plasma(0.70), linewidth=1.6, linestyle="--")
+    ax.axhline(0.0, color="0.55", linewidth=0.8)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    fig.savefig(out_path, bbox_inches="tight", pad_inches=0.02)
+    plt.show()
+    print(f"Saved to {out_path}")
+
+
+plot_sine_boundary_approximation(
+    sol_ds[SAMPLE_IDX],
+    n_modes=21,
+    out_path=FIGURES_DIR / "darcy_sine_basis_boundary_example.png",
+)
+plot_right_boundary_sine_diagram(
+    sol_ds[SAMPLE_IDX],
+    n_modes=21,
+    out_path=FIGURES_DIR / "darcy_sine_basis_right_boundary_diagram.png",
+)
