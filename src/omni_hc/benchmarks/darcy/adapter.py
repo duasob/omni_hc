@@ -63,7 +63,8 @@ def _log_boundary_profiles(ctx) -> dict[str, str]:
 
     out = {}
     if ctx.out_dir is not None:
-        out_path = Path(ctx.out_dir) / f"boundary_profiles_epoch{ctx.epoch:04d}.png"
+        stem = ctx.prefix if ctx.step is None else f"epoch{ctx.epoch:04d}"
+        out_path = Path(ctx.out_dir) / f"boundary_profiles_{stem}.png"
         fig.savefig(out_path, bbox_inches="tight")
         plt.close(fig)
         out["boundary_profiles"] = str(out_path)
