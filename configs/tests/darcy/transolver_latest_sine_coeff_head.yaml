@@ -1,0 +1,88 @@
+benchmark:
+  name: darcy_2d
+  dataset: Darcy_421
+  invariant: steady_pressure_response
+  geometry: structured_grid
+
+paths:
+  root_dir: data/Darcy_421
+  output_dir: outputs/darcy/sine_boundary/transolver_latest_coeff_head_test
+
+data:
+  ntrain: 1000
+  ntest: 200
+  downsamplex: 5
+  downsampley: 5
+  normalize: true
+  norm_type: UnitTransformer
+
+model:
+  backbone: Transolver
+  args:
+    loader: darcy
+    geotype: structured_2D
+    task: steady
+    space_dim: 2
+    fun_dim: 1
+    out_dim: 1
+    n_hidden: 128
+    n_heads: 8
+    n_layers: 8
+    mlp_ratio: 2
+    slice_num: 64
+    unified_pos: 1
+    ref: 8
+
+constraint:
+  name: sine_boundary_constraint
+  n_modes: 21
+  hidden_dim: 256
+  n_layers: 3
+  act: gelu
+  pretrained_coeff_head: outputs/darcy/coeff_head.pt
+  freeze_base: true
+
+training:
+  batch_size: 4
+  num_epochs: 100
+  derivloss: true
+  derivloss_weight: 0.1
+  optimizer: adamw
+  learning_rate: 0.001
+  weight_decay: 1.0e-05
+  scheduler: OneCycleLR
+  pct_start: 0.3
+  val_size: 100
+  seed: 42
+
+evaluation:
+  batch_size: 4
+  checkpoint: outputs/darcy/none/transolver/final/seed_42/latest.pt
+
+wandb_logging:
+  wandb: false
+  log_every: null
+  image_log_every: null
+  project: omni_hc
+  run_name: darcy_transolver_latest_sine_coeff_head_test
+  tags:
+    - darcy
+    - transolver
+    - sine_boundary_constraint
+    - frozen_backbone
+    - frozen_coeff_head
+
+experiment:
+  mode: test
+  benchmark: darcy
+  backbone: Transolver
+  constraint: sine_boundary_constraint
+  budget: final
+  optuna: null
+  seed: 42
+  source_configs:
+    - outputs/darcy/none/transolver/final/seed_42/resolved_config.yaml
+    - outputs/darcy/coeff_head.pt
+  split_policy: Training and tuning use train/validation data. The canonical test
+    split is data.ntest=200 and should only be evaluated with scripts/test.py after
+    final model selection.

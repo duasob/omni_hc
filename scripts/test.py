@@ -86,7 +86,8 @@ if __name__ == "__main__":
     result = test_benchmark(
         cfg,
         device=resolve_device(args.device),
-        checkpoint_path=args.checkpoint,
+        checkpoint_path=args.checkpoint
+        or (cfg.get("evaluation", {}) or {}).get("checkpoint"),
     )
     metrics = result["metrics"]
     print(
