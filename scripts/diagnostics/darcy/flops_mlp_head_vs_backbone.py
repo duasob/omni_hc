@@ -34,7 +34,9 @@ def _device(value: str) -> torch.device:
     return torch.device(value)
 
 
-def _resolve_grid_shape(cfg: dict[str, Any], explicit: tuple[int, int] | None) -> tuple[int, int]:
+def _resolve_grid_shape(
+    cfg: dict[str, Any], explicit: tuple[int, int] | None
+) -> tuple[int, int]:
     if explicit is not None:
         return explicit
 
@@ -43,8 +45,10 @@ def _resolve_grid_shape(cfg: dict[str, Any], explicit: tuple[int, int] | None) -
         return int(model_shape[0]), int(model_shape[1])
 
     dataset_name = str(cfg.get("benchmark", {}).get("dataset", ""))
-    full_resolution = 421 if "421" in dataset_name else int(
-        cfg.get("diagnostics", {}).get("full_resolution", 421)
+    full_resolution = (
+        421
+        if "421" in dataset_name
+        else int(cfg.get("diagnostics", {}).get("full_resolution", 421))
     )
     data_cfg = cfg.get("data", {})
     r1 = int(data_cfg.get("downsamplex", 1))
@@ -111,7 +115,9 @@ def _format_count(value: float) -> str:
 
 def _count_parameters(module: torch.nn.Module) -> tuple[int, int]:
     total = sum(param.numel() for param in module.parameters())
-    trainable = sum(param.numel() for param in module.parameters() if param.requires_grad)
+    trainable = sum(
+        param.numel() for param in module.parameters() if param.requires_grad
+    )
     return total, trainable
 
 
@@ -144,7 +150,9 @@ def _mlp_head_step_flops(
     def step() -> None:
         feats = head._boundary_feats(fx)
         if latent_dim:
-            feats = torch.cat([feats, torch.zeros(batch_size, latent_dim, device=device)], dim=-1)
+            feats = torch.cat(
+                [feats, torch.zeros(batch_size, latent_dim, device=device)], dim=-1
+            )
         coeffs = head.coeff_head(feats).view(batch_size, 4, head.n_modes)
         bottom = coeffs[:, 0] @ head.basis_h.T
         top = coeffs[:, 1] @ head.basis_h.T
@@ -202,10 +210,14 @@ def _backbone_step_flops(
     target = torch.randn(batch_size, n_points, 1, device=device)
     l2_loss = L2Loss(size_average=False)
     derivloss = _as_bool(
-        cfg.get("training", {}).get("derivloss", getattr(model_args, "derivloss", False))
+        cfg.get("training", {}).get(
+            "derivloss", getattr(model_args, "derivloss", False)
+        )
     )
     deriv_weight = float(cfg.get("training", {}).get("derivloss_weight", 0.1))
-    deriv_loss = DerivLoss(size_average=False, shapelist=grid_shape) if derivloss else None
+    deriv_loss = (
+        DerivLoss(size_average=False, shapelist=grid_shape) if derivloss else None
+    )
 
     def step() -> None:
         pred = model(coords, fx)
@@ -249,7 +261,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="auto")
     parser.add_argument("--grid-shape", type=_parse_shape, default=None)
     parser.add_argument("--mlp-batch-size", type=int, default=64)
-    parser.add_argument("--mlp-epochs", type=int, default=100)
+    parser.add_argument("--mlp-epochs", type=int, default=500)
     parser.add_argument("--mlp-max-samples", type=int, default=None)
     parser.add_argument("--latent-dim", type=int, default=0)
     parser.add_argument(
@@ -327,7 +339,9 @@ def main() -> None:
         constraint=args.constraint,
         budget=args.constraint_budget,
         seed=args.seed,
-        extra_overrides=deep_merge(shared_overrides, parse_dotted_overrides(args.constraint_override)),
+        extra_overrides=deep_merge(
+            shared_overrides, parse_dotted_overrides(args.constraint_override)
+        ),
     )
     grid_shape = _resolve_grid_shape(backbone_cfg, args.grid_shape)
 
@@ -356,7 +370,9 @@ def main() -> None:
     mlp_epoch_flops = mlp_step_flops * mlp_steps
     mlp_total_flops = mlp_epoch_flops * int(args.mlp_epochs)
     backbone_epoch_flops = backbone_step_flops * backbone_steps
-    ratio = mlp_total_flops / backbone_epoch_flops if backbone_epoch_flops else float("nan")
+    ratio = (
+        mlp_total_flops / backbone_epoch_flops if backbone_epoch_flops else float("nan")
+    )
     mlp_total_params, mlp_trainable_params = _count_parameters(mlp_head)
     backbone_total_params, backbone_trainable_params = _count_parameters(backbone_model)
 
@@ -369,10 +385,16 @@ def main() -> None:
     print(f"samples_per_epoch: {mlp_ntrain}")
     print(f"steps_per_epoch: {mlp_steps}")
     print(f"epochs: {args.mlp_epochs}")
-    print(f"parameters: {mlp_total_params:,} total / {mlp_trainable_params:,} trainable")
+    print(
+        f"parameters: {mlp_total_params:,} total / {mlp_trainable_params:,} trainable"
+    )
     print(f"counted_step_flops: {mlp_step_flops:,} ({_format_count(mlp_step_flops)})")
-    print(f"counted_epoch_flops: {mlp_epoch_flops:,} ({_format_count(mlp_epoch_flops)})")
-    print(f"counted_total_flops: {mlp_total_flops:,} ({_format_count(mlp_total_flops)})")
+    print(
+        f"counted_epoch_flops: {mlp_epoch_flops:,} ({_format_count(mlp_epoch_flops)})"
+    )
+    print(
+        f"counted_total_flops: {mlp_total_flops:,} ({_format_count(mlp_total_flops)})"
+    )
     print()
     print("Backbone training")
     print(f"backbone: {backbone}")
@@ -380,9 +402,15 @@ def main() -> None:
     print(f"batch_size: {backbone_batch_size}")
     print(f"samples_per_epoch: {backbone_samples}")
     print(f"steps_per_epoch: {backbone_steps}")
-    print(f"parameters: {backbone_total_params:,} total / {backbone_trainable_params:,} trainable")
-    print(f"counted_step_flops: {backbone_step_flops:,} ({_format_count(backbone_step_flops)})")
-    print(f"counted_epoch_flops: {backbone_epoch_flops:,} ({_format_count(backbone_epoch_flops)})")
+    print(
+        f"parameters: {backbone_total_params:,} total / {backbone_trainable_params:,} trainable"
+    )
+    print(
+        f"counted_step_flops: {backbone_step_flops:,} ({_format_count(backbone_step_flops)})"
+    )
+    print(
+        f"counted_epoch_flops: {backbone_epoch_flops:,} ({_format_count(backbone_epoch_flops)})"
+    )
     print()
     print(f"MLP total / {backbone} one epoch: {ratio:.6g}x")
     print(

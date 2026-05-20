@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--downsamplex", type=int, default=5)
     p.add_argument("--downsampley", type=int, default=5)
     p.add_argument("--max-samples", type=int, default=1000)
-    p.add_argument("--val-frac", type=float, default=0.2)
+    p.add_argument("--val-frac", type=float, default=0.1)
     p.add_argument(
         "--mode",
         choices=("sine", "env_cosine"),

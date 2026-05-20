@@ -460,3 +460,158 @@ if IS_NOTEBOOK:
 else:
     plt.close(fig)
 print(f"Saved to {FIGURES_DIR / 'pipe_inlet_candidate_shape_fits.png'}")
+
+
+# %% Global vorticity from velocity (FD on curvilinear mesh)
+# ω = ∂v/∂x − ∂u/∂y on a curvilinear (i, j) mesh, via chain rule through
+# logical coordinates (ξ=i, η=j with Δξ=Δη=1):
+#     ∂f/∂x = ( y_η f_ξ − y_ξ f_η) / det(J)
+#     ∂f/∂y = (−x_η f_ξ + x_ξ f_η) / det(J)
+# Area element: dA = |det(J)| dξ dη. Cross-check uses Stokes / Green's theorem:
+#     ∫∫_Ω ω dA = ∮_∂Ω (u dx + v dy)
+# (matches FD up to discretization error on the curvilinear boundary).
+def compute_vorticity_field(x, y, ux, uy):
+    x_xi = np.gradient(x, axis=0)
+    x_eta = np.gradient(x, axis=1)
+    y_xi = np.gradient(y, axis=0)
+    y_eta = np.gradient(y, axis=1)
+    det_J = x_xi * y_eta - x_eta * y_xi
+
+    u_xi = np.gradient(ux, axis=0)
+    u_eta = np.gradient(ux, axis=1)
+    v_xi = np.gradient(uy, axis=0)
+    v_eta = np.gradient(uy, axis=1)
+
+    dv_dx = (y_eta * v_xi - y_xi * v_eta) / det_J
+    du_dy = (-x_eta * u_xi + x_xi * u_eta) / det_J
+    omega = dv_dx - du_dy
+    return omega, det_J
+
+
+def vorticity_integral(omega, det_J):
+    return float((omega * np.abs(det_J)).sum())
+
+
+def stokes_circulation(x, y, ux, uy):
+    """Counter-clockwise line integral ∮ (u dx + v dy) over the mesh boundary."""
+
+    def line(xs, ys, us, vs):
+        dx = np.diff(xs)
+        dy = np.diff(ys)
+        um = 0.5 * (us[:-1] + us[1:])
+        vm = 0.5 * (vs[:-1] + vs[1:])
+        return float((um * dx + vm * dy).sum())
+
+    bw = line(x[:, 0], y[:, 0], ux[:, 0], uy[:, 0])           # bottom wall
+    ou = line(x[-1, :], y[-1, :], ux[-1, :], uy[-1, :])       # outlet
+    tw = line(x[::-1, -1], y[::-1, -1], ux[::-1, -1], uy[::-1, -1])  # top wall
+    iw = line(x[0, ::-1], y[0, ::-1], ux[0, ::-1], uy[0, ::-1])      # inlet
+    return bw + ou + tw + iw
+
+
+N_VORT = min(N, 500)
+print(f"Computing global vorticity over {N_VORT} samples...")
+integrals_fd = np.empty(N_VORT)
+integrals_stokes = np.empty(N_VORT)
+for i in range(N_VORT):
+    xi = np.asarray(x_all[i], dtype=np.float64)
+    yi = np.asarray(y_all[i], dtype=np.float64)
+    ui = np.asarray(q_all[i, 0], dtype=np.float64)
+    vi = np.asarray(q_all[i, 1], dtype=np.float64)
+    omega_i, det_i = compute_vorticity_field(xi, yi, ui, vi)
+    integrals_fd[i] = vorticity_integral(omega_i, det_i)
+    integrals_stokes[i] = stokes_circulation(xi, yi, ui, vi)
+
+print(
+    f"  ∫ω dA   (FD)    : mean={integrals_fd.mean():+.3e}  "
+    f"std={integrals_fd.std():.3e}  "
+    f"|·| mean={np.abs(integrals_fd).mean():.3e}"
+)
+print(
+    f"  ∮(u dx+v dy) (Stokes): mean={integrals_stokes.mean():+.3e}  "
+    f"std={integrals_stokes.std():.3e}  "
+    f"|·| mean={np.abs(integrals_stokes).mean():.3e}"
+)
+
+# Reference scale for normalisation: typical |inlet flux| ≈ ∫|u| dy at inlet.
+ref_flux = float(
+    np.mean(
+        [
+            np.abs(np.trapz(q_all[i, 0, 0, :], y_all[i, 0, :]))
+            for i in range(min(N_VORT, 100))
+        ]
+    )
+)
+print(f"  reference inlet |∫u dy| ≈ {ref_flux:.3e}  "
+      f"→ |∫ω|/ref ≈ {np.abs(integrals_fd).mean() / max(ref_flux, 1e-12):.2%}")
+
+# --- Vorticity field for sample 0 ---
+SAMPLE_VORT = SAMPLE_IDX
+xs0 = np.asarray(x_all[SAMPLE_VORT], dtype=np.float64)
+ys0 = np.asarray(y_all[SAMPLE_VORT], dtype=np.float64)
+u0 = np.asarray(q_all[SAMPLE_VORT, 0], dtype=np.float64)
+v0 = np.asarray(q_all[SAMPLE_VORT, 1], dtype=np.float64)
+omega0, det0 = compute_vorticity_field(xs0, ys0, u0, v0)
+I0 = vorticity_integral(omega0, det0)
+S0 = stokes_circulation(xs0, ys0, u0, v0)
+v_abs = float(np.percentile(np.abs(omega0), 99))
+
+fig, axes = plt.subplots(1, 3, figsize=(15, 4.0))
+
+# Panel 1: vorticity field on the curvilinear mesh
+ax = axes[0]
+im = ax.pcolormesh(xs0, ys0, omega0, shading="gouraud", cmap="RdBu_r",
+                   vmin=-v_abs, vmax=v_abs)
+fig.colorbar(im, ax=ax, shrink=0.85, label=r"$\omega$")
+for sl in EDGE_SLICES.values():
+    ax.plot(xs0[sl], ys0[sl], color="0.15", lw=0.7)
+ax.set_aspect("equal", adjustable="box")
+ax.set_xlabel("$x$")
+ax.set_ylabel("$y$")
+title_line2 = (
+    rf"$\int\omega\,dA = {I0:+.3e}$,  "
+    rf"$\oint(u\,dx + v\,dy) = {S0:+.3e}$"
+)
+ax.set_title(f"sample {SAMPLE_VORT}: $\\omega(x,y)$\n{title_line2}", fontsize=10)
+
+# Panel 2: distribution of ∫ω dA across samples
+ax = axes[1]
+ax.hist(
+    integrals_fd, bins=40, color=plt.get_cmap(CMAP)(0.55),
+    alpha=0.85, edgecolor="white", linewidth=0.4, label=r"$\int\omega\,dA$ (FD)",
+)
+ax.axvline(0.0, color="0.25", lw=1.0, linestyle="--")
+ax.axvline(
+    integrals_fd.mean(), color=plt.get_cmap(CMAP)(0.85), lw=1.5,
+    label=f"mean = {integrals_fd.mean():+.2e}",
+)
+ax.set_xlabel(r"$\int\omega\,dA$")
+ax.set_ylabel("count")
+ax.set_title(f"Global vorticity across {N_VORT} samples")
+ax.legend(fontsize=8, frameon=False)
+ax.grid(True, alpha=0.22)
+
+# Panel 3: FD ∫ω dA vs Stokes ∮(u dx + v dy)
+ax = axes[2]
+lim = max(np.abs(integrals_fd).max(), np.abs(integrals_stokes).max())
+ax.plot([-lim, lim], [-lim, lim], color="0.5", lw=0.8, linestyle="--",
+        label="$y=x$")
+ax.scatter(
+    integrals_fd, integrals_stokes, s=10, alpha=0.55,
+    color=plt.get_cmap(CMAP)(0.7), edgecolor="none",
+)
+ax.set_xlabel(r"$\int\omega\,dA$ (FD)")
+ax.set_ylabel(r"$\oint(u\,dx + v\,dy)$ (Stokes)")
+ax.set_title("Green's theorem cross-check")
+ax.set_aspect("equal", adjustable="box")
+ax.grid(True, alpha=0.22)
+ax.legend(fontsize=8, frameon=False, loc="upper left")
+
+fig.tight_layout()
+out_path = FIGURES_DIR / "pipe_global_vorticity.png"
+fig.savefig(out_path, bbox_inches="tight")
+if IS_NOTEBOOK:
+    plt.show()
+else:
+    plt.close(fig)
+print(f"Saved to {out_path}")
