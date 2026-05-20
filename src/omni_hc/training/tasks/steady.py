@@ -81,6 +81,15 @@ def _tensor_stats(name: str, tensor: torch.Tensor | None) -> str:
     )
 
 
+def _all_boundary_idx(H: int, W: int) -> torch.Tensor:
+    """Flat indices for the perimeter of an H×W row-major grid, corners deduplicated."""
+    bottom = torch.arange(W)
+    top    = torch.arange((H - 1) * W, H * W)
+    left   = torch.arange(0, H * W, W)
+    right  = torch.arange(W - 1, H * W, W)
+    return torch.cat([bottom, top, left[1:-1], right[1:-1]])
+
+
 def evaluate_steady(
     model,
     loader,
@@ -88,19 +97,21 @@ def evaluate_steady(
     device,
     y_normalizer,
     prepare_batch,
+    shapelist: tuple[int, int] | None = None,
     debug_nan_checks: bool = False,
     raise_on_nonfinite: bool = True,
 ):
     model.eval()
     mse_sum = 0.0
     rel_l2_sum = 0.0
+    boundary_mse_sum = 0.0
     boundary_rel_l2_sum = 0.0
     diag_metrics = MetricAccumulator()
     samples = 0
-    # Boundary-only rel-L2 is reported when the constraint exposes its
-    # flat boundary node indices (e.g. SineBoundaryConstraint).
     constraint = getattr(model, "constraint", None)
     boundary_idx = getattr(constraint, "idx_all_boundary", None)
+    if boundary_idx is None and shapelist is not None and len(shapelist) == 2:
+        boundary_idx = _all_boundary_idx(int(shapelist[0]), int(shapelist[1]))
     with torch.no_grad():
         for batch in loader:
             coords, fx, target = prepare_batch(batch, device=device)
@@ -134,6 +145,13 @@ def evaluate_steady(
             )
             if boundary_idx is not None:
                 bidx = boundary_idx.to(pred.device)
+                boundary_mse_sum += float(
+                    F.mse_loss(pred[:, bidx, :], target_decoded[:, bidx, :], reduction="none")
+                    .reshape(batch_size, -1)
+                    .mean(dim=1)
+                    .sum()
+                    .item()
+                )
                 boundary_rel_l2_sum += float(
                     relative_l2_per_sample(
                         pred[:, bidx, :], target_decoded[:, bidx, :]
@@ -146,6 +164,7 @@ def evaluate_steady(
     denom = max(samples, 1)
     metrics = {"mse": mse_sum / denom, "rel_l2": rel_l2_sum / denom}
     if boundary_idx is not None:
+        metrics["boundary_rmse"]    = float((boundary_mse_sum / denom) ** 0.5)
         metrics["boundary_rel_l2"] = boundary_rel_l2_sum / denom
     metrics.update(diag_metrics.compute())
     return metrics
@@ -446,10 +465,12 @@ def train_steady_task(
                     device=device,
                     y_normalizer=y_normalizer,
                     prepare_batch=prepare_batch,
+                    shapelist=tuple(meta.get("shapelist", ())) or None,
                     debug_nan_checks=debug_nan_checks,
                     raise_on_nonfinite=raise_on_nonfinite,
                 )
                 boundary_str = (
+                    f" val_boundary_rmse={val_metrics['boundary_rmse']:.6f}"
                     f" val_boundary_rel_l2={val_metrics['boundary_rel_l2']:.6f}"
                     if "boundary_rel_l2" in val_metrics
                     else ""
@@ -593,6 +614,7 @@ def test_steady_task(
         device=device,
         y_normalizer=y_normalizer,
         prepare_batch=prepare_batch,
+        shapelist=tuple(meta.get("shapelist", ())) or None,
         debug_nan_checks=debug_nan_checks,
         raise_on_nonfinite=raise_on_nonfinite,
     )
