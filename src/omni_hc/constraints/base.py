@@ -47,6 +47,7 @@ class ConstraintModule(nn.Module):
         backbone: nn.Module,
         model_context: dict[str, Any],
         constraint_cfg: dict[str, Any],
+        full_cfg: dict[str, Any] | None = None,
     ) -> "ConstrainedModel":
         """Construct a ConstrainedModel from a raw constraint config block.
 

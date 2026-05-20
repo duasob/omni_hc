@@ -33,7 +33,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--split", choices=("train", "test"), default="train")
     p.add_argument("--downsamplex", type=int, default=5)
     p.add_argument("--downsampley", type=int, default=5)
-    p.add_argument("--max-samples", type=int, default=1024)
+    p.add_argument("--max-samples", type=int, default=1000)
     p.add_argument("--val-frac", type=float, default=0.2)
     p.add_argument(
         "--mode",
@@ -256,10 +256,7 @@ def main() -> None:
         )
 
     best = min(rows, key=lambda r: r["best_val_rel_l2"])
-    print(
-        f"\nbest: n_modes={best['n_modes']} -> "
-        f"rel-L2={best['best_val_rel_l2']:.4e}"
-    )
+    print(f"\nbest: n_modes={best['n_modes']} -> rel-L2={best['best_val_rel_l2']:.4e}")
 
     csv_path = args.out_dir / f"darcy_boundary_n_modes_{args.mode}.csv"
     write_csv(csv_path, rows)
