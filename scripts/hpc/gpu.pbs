@@ -1,5 +1,5 @@
 #!/bin/bash
-#PBS -N darcy_darcy_defect_correction_s10_Transolver
+#PBS -N omni_hc_gpu_runner
 #PBS -l select=1:ncpus=4:mem=24gb:ngpus=1
 #PBS -l walltime=5:00:00
 #PBS -j oe

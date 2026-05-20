@@ -800,3 +800,77 @@ plot_right_boundary_sine_diagram(
     n_modes=21,
     out_path=FIGURES_DIR / "darcy_sine_basis_right_boundary_diagram.png",
 )
+
+# %% Empirical sine-head sweep — best val rel-L2 vs n_modes
+# Counterpart to the theoretical reconstruction curve above: this is what a
+# small MLP head with a sine basis actually achieves on Darcy boundaries
+# (scripts/diagnostics/darcy/darcy_boundary_n_modes.py).
+import csv
+
+SWEEP_CSV = (
+    REPO_ROOT / "artifacts/darcy/darcy_boundary_n_modes/darcy_boundary_n_modes_sine.csv"
+)
+
+with open(SWEEP_CSV) as fh:
+    reader = csv.DictReader(fh)
+    sweep_rows = [(int(r["n_modes"]), float(r["best_val_rel_l2"])) for r in reader]
+
+sweep_ks = np.array([r[0] for r in sweep_rows])
+sweep_rl2 = np.array([r[1] for r in sweep_rows])
+
+best_idx = int(np.argmin(sweep_rl2))
+floor_rl2 = float(sweep_rl2[best_idx])
+best_k = int(sweep_ks[best_idx])
+
+DEPLOYED_K = 21
+dep_idx = int(np.where(sweep_ks == DEPLOYED_K)[0][0])
+dep_rl2 = float(sweep_rl2[dep_idx])
+
+curve_color = plt.cm.magma(0.45)
+floor_color = plt.cm.plasma(0.35)
+mark_color = plt.cm.plasma(0.65)
+
+fig, ax = plt.subplots(figsize=(7, 4), constrained_layout=True)
+ax.plot(
+    sweep_ks,
+    sweep_rl2,
+    color=curve_color,
+    linewidth=1.6,
+    marker="o",
+    markersize=3.5,
+    markerfacecolor=curve_color,
+    markeredgecolor="white",
+    markeredgewidth=0.6,
+)
+ax.axhline(
+    floor_rl2,
+    color=floor_color,
+    linewidth=1.0,
+    linestyle="--",
+    label=f"floor: {floor_rl2:.3f} @ $K={best_k}$",
+)
+# ax.scatter(
+#     [DEPLOYED_K],
+#     [dep_rl2],
+#     color=mark_color,
+#     s=70,
+#     zorder=4,
+#     edgecolor="white",
+#     linewidth=1.0,
+#     label=f"deployed $K={DEPLOYED_K}$: {dep_rl2:.3f}",
+# )
+ax.set_xlabel("Number of sine modes $K$")
+ax.set_ylabel("Best val rel-$L_2$")
+ax.set_title("Sine head: best val rel-$L_2$ vs $n_{\\mathrm{modes}}$")
+ax.set_xlim(sweep_ks.min() - 1, sweep_ks.max() + 1)
+ax.grid(True, alpha=0.25)
+ax.legend(fontsize=9, frameon=False, loc="upper right")
+
+out_path = FIGURES_DIR / "darcy_sine_head_n_modes_sweep.png"
+fig.savefig(out_path, bbox_inches="tight")
+plt.show()
+print(f"Saved to {out_path}")
+print(
+    f"best K={best_k} (rel-L2={floor_rl2:.4f}), "
+    f"deployed K={DEPLOYED_K} (rel-L2={dep_rl2:.4f})"
+)

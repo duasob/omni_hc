@@ -25,7 +25,6 @@ from .boundary import (
     structured_wall_stats,
     unit_box_distance,
 )
-from .darcy_correction import DarcyDefectCorrectionConstraint
 from .darcy_flux import DarcyFluxConstraint
 from .elasticity import ElasticityDeviatoricStressConstraint
 from .mean import MeanConstraint, MeanCorrection, build_mlp, match_mean
@@ -41,7 +40,6 @@ __all__ = [
     "ConstraintDiagnostic",
     "ConstraintModule",
     "ConstraintOutput",
-    "DarcyDefectCorrectionConstraint",
     "FREESTREAM_FULL",
     "FREESTREAM_MACH",
     "FREESTREAM_PRIMITIVE",

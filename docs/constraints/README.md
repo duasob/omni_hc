@@ -12,9 +12,6 @@ physically restricted output space.
 - Darcy constraints:
   - [DarcyFluxConstraint](stream/DarcyFluxConstraint.md): stream-function flux
     construction that hard-builds `div(v) = 1` before recovering pressure.
-  - [DarcyDefectCorrectionConstraint](stream/DarcyDefectCorrectionConstraint.md):
-    coordinate ansatz for exact zero BCs followed by an iterative Poisson
-    defect correction that drives the interior Darcy residual to zero.
 - [Elasticity deviatoric stress](elasticity/ElasticityDeviatoricStressConstraint.md):
   2D incompressible hyperelastic von Mises stress from a scalar backbone latent,
   coordinates, and a constrained Right Cauchy-Green tensor.

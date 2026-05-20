@@ -6,7 +6,6 @@ from typing import Any
 import torch
 
 from omni_hc.constraints import (
-    DarcyDefectCorrectionConstraint,
     DarcyFluxConstraint,
     DirichletBoundaryAnsatz,
     ElasticityDeviatoricStressConstraint,
@@ -50,7 +49,6 @@ _CONSTRAINT_CLASSES: dict[str, type] = {
     "pipe_stream_function_ux_constraint": PipeStreamFunctionUxConstraint,
     "pipe_stream_function_boundary_ansatz": PipeStreamFunctionBoundaryAnsatz,
     "darcy_flux_constraint": DarcyFluxConstraint,
-    "darcy_defect_correction_constraint": DarcyDefectCorrectionConstraint,
     "elasticity_deviatoric_stress_constraint": ElasticityDeviatoricStressConstraint,
     "plasticity_mesh_consistency_constraint": PlasticityMeshConsistencyConstraint,
     "mean_constraint": MeanConstraint,
