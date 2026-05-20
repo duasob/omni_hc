@@ -1,6 +1,29 @@
 constraint:
   name: "sine_boundary_constraint"
-  n_modes: 16
-  hidden_dim: 128
-  n_layers: 2
+  n_modes: 21
+  hidden_dim: 256
+  n_layers: 3
   act: "gelu"
+
+  # --- Option A: load a previously saved coeff_head and keep it frozen ---
+  # The .pt file must have been produced by coeff_head_pretrain (see Option B).
+  # It contains {"state_dict": ..., "feat_mean": ..., "feat_std": ...}.
+  # pretrained_coeff_head: outputs/darcy/coeff_head.pt
+
+  # --- Option B: pretrain coeff_head from the Darcy training data before backbone training ---
+  # Uses the same data pipeline (root_dir, downsampling, ntrain) as the main run.
+  # The constraint computes and stores Z-score stats from the training boundary
+  # permeability so that _boundary_feats produces a consistent distribution
+  # during both pretrain and main training.
+  # If val_frac > 0, a held-out split tracks val MSE and the best checkpoint
+  # is restored at the end. A train/val log is written to log_path (YAML).
+  # coeff_head_pretrain:
+  #   epochs: 100
+  #   lr: 1.0e-3
+  #   weight_decay: 1.0e-4
+  #   batch_size: 64
+  #   max_samples: 1024       # optional cap on training samples
+  #   val_frac: 0.1            # 0 disables validation / best-model tracking
+  #   val_seed: 0
+  #   save_path: outputs/darcy/coeff_head.pt        # optional; reuse via Option A
+  #   log_path:  outputs/darcy/coeff_head_log.yaml  # optional; defaults next to save_path

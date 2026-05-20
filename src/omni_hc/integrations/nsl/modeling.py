@@ -139,7 +139,7 @@ def _build_constraint(backbone: torch.nn.Module, args: SimpleNamespace, cfg: dic
             f"Unsupported constraint '{name}'. "
             f"Supported: {sorted(_CONSTRAINT_CLASSES)}"
         )
-    return cls.build(backbone, _model_context(args), constraint_cfg)
+    return cls.build(backbone, _model_context(args), constraint_cfg, full_cfg=cfg)
 
 
 def create_model(
