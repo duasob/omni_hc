@@ -778,8 +778,8 @@ def plot_right_boundary_sine_diagram(sample, *, n_modes, out_path):
     pos = np.linspace(0.0, 1.0, sample.shape[0])
 
     fig, ax = plt.subplots(figsize=(3.0, 2.0), constrained_layout=True)
-    ax.plot(pos, profile, color=plt.cm.magma(0.35), linewidth=2.0)
-    ax.plot(pos, recon, color=plt.cm.plasma(0.70), linewidth=1.6, linestyle="--")
+    ax.plot(pos, profile, color=plt.cm.magma(0.35), linewidth=5.0)
+    ax.plot(pos, recon, color=plt.cm.plasma(0.70), linewidth=4.6, linestyle="--")
     ax.axhline(0.0, color="0.55", linewidth=0.8)
     ax.set_xticks([])
     ax.set_yticks([])
