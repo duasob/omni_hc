@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import math
-from pathlib import Path
 from typing import Any
 
-import numpy as np
 import torch
 
 from .base import ConstrainedModel, ConstraintDiagnostic, ConstraintModule, _BUILD_META_KEYS
@@ -149,55 +147,6 @@ class SineBoundaryConstraint(ConstraintModule):
             for param in wrapped.backbone.parameters():
                 param.requires_grad = False
         return wrapped
-
-    @classmethod
-    def log_media(cls, ctx) -> dict[str, str]:
-        import matplotlib.pyplot as plt
-
-        H, W = ctx.meta["shapelist"]
-        pred   = ctx.pred[0, :, 0].cpu().numpy()    # [N]
-        target = ctx.target[0, :, 0].cpu().numpy()  # [N]
-
-        pred_2d   = pred.reshape(H, W)
-        target_2d = target.reshape(H, W)
-
-        xs = np.linspace(0, 1, W)
-        ys = np.linspace(0, 1, H)
-
-        edges = {
-            "Bottom ($y=0$)":  (xs, pred_2d[0,  :], target_2d[0,  :]),
-            "Top ($y=1$)":     (xs, pred_2d[-1, :], target_2d[-1, :]),
-            "Left ($x=0$)":    (ys, pred_2d[:,  0], target_2d[:,  0]),
-            "Right ($x=1$)":   (ys, pred_2d[:, -1], target_2d[:, -1]),
-        }
-
-        fig, axes = plt.subplots(2, 2, figsize=(10, 7), constrained_layout=True)
-        fig.suptitle("Boundary: prediction vs ground truth", fontsize=12)
-        for ax, (label, (pos, pred_edge, gt_edge)) in zip(axes.flat, edges.items()):
-            ax.plot(pos, gt_edge,   color="steelblue", linewidth=1.5, label="Ground truth")
-            ax.plot(pos, pred_edge, color="darkorange", linewidth=1.5, label="Prediction", linestyle="--")
-            ax.axhline(0, color="0.5", linewidth=0.8, linestyle=":")
-            ax.set_title(label, fontsize=10)
-            ax.set_xlabel("Position")
-            ax.set_ylabel("$u$")
-        axes.flat[0].legend(fontsize=8, frameon=False)
-
-        if ctx.out_dir is not None:
-            out_path = Path(ctx.out_dir) / f"boundary_profiles_epoch{ctx.epoch:04d}.png"
-            fig.savefig(out_path, bbox_inches="tight")
-            plt.close(fig)
-            return {"constraint/boundary_profiles": str(out_path)}
-
-        try:
-            import wandb
-            wandb.log(
-                {"constraint/boundary_profiles": wandb.Image(fig)},
-                step=ctx.step,
-            )
-        except Exception:
-            pass
-        plt.close(fig)
-        return {}
 
     def _boundary_feats(self, fx: torch.Tensor) -> torch.Tensor:
         a = fx[:, :, 0]
