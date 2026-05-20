@@ -79,6 +79,20 @@ python scripts/diagnostics/darcy/darcy_boundary.py \
 That script produces per-sample plots and the dataset summary figure shown
 above.
 
+Inspect the discrete Darcy equation residual with:
+
+```bash
+python scripts/diagnostics/darcy/darcy_equation_condition.py \
+  --samples 0 10 100 \
+  --summary-samples 1000 \
+  --interface-steps 1
+```
+
+That diagnostic checks `-div(a grad u) - f = 0` using harmonic-mean face
+permeabilities on the downsampled grid, and reports separate bulk/interface
+residual statistics. Increase `--interface-steps` to include a wider interior
+neighborhood around permeability jumps in the interface statistics.
+
 The current benchmark assumptions implied by the docs and constraints are:
 
 - pressure is zero on the full box boundary
