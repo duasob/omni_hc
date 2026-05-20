@@ -98,7 +98,7 @@ def prepare_split(args, device):
         "x_va": torch.as_tensor(x_std[va_idx], device=device),
         "y_va": torch.as_tensor(y_s[va_idx], device=device),
     }
-    return data, H, W, mat_path, len(tr_idx), len(va_idx)
+    return data, H, W, mat_path, len(tr_idx), len(va_idx), y_scale
 
 
 def plot_sweep(rows, mode, out_dir: Path, show: bool) -> Path:
@@ -121,13 +121,95 @@ def plot_sweep(rows, mode, out_dir: Path, show: bool) -> Path:
     return out_path
 
 
+def split_unique_boundary_vector(values: np.ndarray, H: int, W: int):
+    """Split unique-boundary vectors into bottom/top/left/right profiles."""
+    bottom = values[..., :W]
+    top = values[..., W : 2 * W]
+    left = values[..., 2 * W : 2 * W + H - 2]
+    right = values[..., 2 * W + H - 2 :]
+    return bottom, top, left, right
+
+
+def plot_best_boundary_prediction(
+    model,
+    x_va: torch.Tensor,
+    y_va: torch.Tensor,
+    *,
+    H: int,
+    W: int,
+    y_scale: float,
+    mode: str,
+    n_modes: int,
+    out_dir: Path,
+    show: bool,
+    sample_index: int = 0,
+) -> Path:
+    require_matplotlib(plt)
+    sample_index = int(np.clip(sample_index, 0, x_va.shape[0] - 1))
+    model.eval()
+    with torch.no_grad():
+        pred = model(x_va[sample_index : sample_index + 1])[0].detach().cpu().numpy()
+    target = y_va[sample_index].detach().cpu().numpy()
+
+    pred = pred * y_scale
+    target = target * y_scale
+    pred_edges = split_unique_boundary_vector(pred, H, W)
+    target_edges = split_unique_boundary_vector(target, H, W)
+
+    edge_labels = ("bottom", "top", "left", "right")
+    positions = (
+        np.linspace(0.0, 1.0, W),
+        np.linspace(0.0, 1.0, W),
+        np.linspace(0.0, 1.0, H)[1:-1],
+        np.linspace(0.0, 1.0, H)[1:-1],
+    )
+
+    fig, axes = plt.subplots(
+        2,
+        2,
+        figsize=(8.4, 5.8),
+        dpi=150,
+        constrained_layout=True,
+    )
+    axes_flat = axes.ravel()
+    for ax, label, pos, y_true, y_pred in zip(
+        axes_flat, edge_labels, positions, target_edges, pred_edges
+    ):
+        ax.plot(pos, y_true, color="black", linewidth=1.8, label="real")
+        ax.plot(
+            pos,
+            y_pred,
+            color="tab:orange",
+            linewidth=1.5,
+            linestyle="--",
+            label="predicted",
+        )
+        ax.axhline(0.0, color="0.55", linewidth=0.8)
+        ax.set_title(label)
+        ax.set_xlabel("edge coordinate")
+        ax.set_ylabel("boundary u")
+        ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0), useMathText=True)
+        ax.grid(True, alpha=0.22)
+
+    axes_flat[0].legend(fontsize=8, frameon=False)
+    fig.suptitle(
+        f"Best {mode} boundary prediction (n_modes={n_modes}, val sample {sample_index})"
+    )
+    out_path = out_dir / f"darcy_boundary_best_{mode}_n_modes_{n_modes}_profiles.png"
+    fig.savefig(out_path, bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close(fig)
+    return out_path
+
+
 def main() -> None:
     args = parse_args()
     if args.no_plot and args.show:
         raise ValueError("--show cannot be used together with --no-plot")
 
     device = torch.device(args.device)
-    data, H, W, mat_path, n_tr, n_va = prepare_split(args, device)
+    data, H, W, mat_path, n_tr, n_va, y_scale = prepare_split(args, device)
 
     cap = min(H, W) - 2
     modes_max = cap if args.modes_max <= 0 else min(args.modes_max, cap)
@@ -140,6 +222,9 @@ def main() -> None:
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, object]] = []
+    best_model = None
+    best_model_score = float("inf")
+    best_model_modes = None
     for k in modes:
         _model, best_va, _hist = train_one(
             args.mode,
@@ -161,6 +246,10 @@ def main() -> None:
         )
         metrics = evaluate(_model, data["x_va"], data["y_va"])
         rows.append({"n_modes": k, "best_val_rel_l2": best_va, **metrics})
+        if best_va < best_model_score:
+            best_model = _model
+            best_model_score = float(best_va)
+            best_model_modes = int(k)
         print(
             f"  n_modes={k:>3}  best_val_rel_l2={best_va:.4e}  "
             f"pred_neg_frac={metrics['pred_neg_frac']:.2e}"
@@ -183,6 +272,20 @@ def main() -> None:
         return
     plot_path = plot_sweep(rows, args.mode, args.out_dir, args.show)
     print(f"wrote {plot_path}")
+    if best_model is not None and best_model_modes is not None:
+        profile_path = plot_best_boundary_prediction(
+            best_model,
+            data["x_va"],
+            data["y_va"],
+            H=H,
+            W=W,
+            y_scale=y_scale,
+            mode=args.mode,
+            n_modes=best_model_modes,
+            out_dir=args.out_dir,
+            show=args.show,
+        )
+        print(f"wrote {profile_path}")
 
 
 if __name__ == "__main__":
