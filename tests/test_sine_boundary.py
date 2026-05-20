@@ -68,6 +68,58 @@ def test_boundary_is_exactly_g_independent_of_pred():
         )
 
 
+class _Normalizer:
+    """Per-channel affine, mirrors benchmarks.darcy.data.UnitTransformer."""
+
+    def __init__(self, mean, std):
+        self.mean = torch.tensor(mean).reshape(1, 1, -1)
+        self.std = torch.tensor(std).reshape(1, 1, -1)
+
+    def encode(self, x):
+        return (x - self.mean) / self.std
+
+    def decode(self, x):
+        return x * self.std + self.mean
+
+
+def test_no_normalizer_path_is_identity_to_legacy():
+    # set_target_normalizer(None) must not change the bit-for-bit equivalence.
+    c, pred, fx, _ = _make()
+    c.set_target_normalizer(None)
+    with torch.no_grad():
+        got = c(pred=pred, fx=fx)
+        want = _legacy_forward(c, pred, fx)
+    assert torch.equal(got, want)
+
+
+def test_normalizer_decoded_boundary_corners_are_zero():
+    # The bug: in normalized space the sine basis pinned corners to 0, which
+    # decodes to the field mean (non-zero). With encode_target, decoded
+    # corners must be ~0 even when the normalizer mean is large.
+    c, pred, fx, (H, W) = _make(channels=1)
+    norm = _Normalizer([0.7], [0.2])  # mean != 0 is the failure case
+    c.set_target_normalizer(norm)
+    with torch.no_grad():
+        out = c(pred=pred, fx=fx)
+    decoded = norm.decode(out)[..., 0]
+    for corner in (0, W - 1, (H - 1) * W, H * W - 1):
+        assert torch.allclose(
+            decoded[:, corner], torch.zeros_like(decoded[:, corner]), atol=1e-5
+        )
+
+
+def test_normalizer_interior_is_exact_backbone():
+    # Interior must remain the raw (normalized) backbone prediction: the
+    # particular's interior is a hard 0, not encode(0) = -mu/sigma.
+    c, pred, fx, (H, W) = _make(channels=1)
+    c.set_target_normalizer(_Normalizer([0.7], [0.2]))
+    with torch.no_grad():
+        out = c(pred=pred, fx=fx)
+    field = out[..., 0].view(-1, H, W)
+    base = pred[..., 0].view(-1, H, W)
+    assert torch.equal(field[:, 1:-1, 1:-1], base[:, 1:-1, 1:-1])
+
+
 def test_return_aux_contract():
     c, pred, fx, _ = _make()
     with torch.no_grad():
