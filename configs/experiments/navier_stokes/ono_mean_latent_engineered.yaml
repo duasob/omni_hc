@@ -1,8 +1,8 @@
-name: "navier_stokes_ono_mean"
+name: "navier_stokes_ono_mean_latent_engineered"
 benchmark: "navier_stokes"
 backbone: "ONO"
 constraint: "mean_constraint"
-budget: "debug"
+budget: "final"
 
 overrides:
   constraint:
@@ -18,4 +18,4 @@ overrides:
     correction_layers: 2
     correction_act: "gelu"
   wandb_logging:
-    run_name: "navier_stokes_ono_mean"
+    run_name: "navier_stokes_ono_mean_latent_engineered"
