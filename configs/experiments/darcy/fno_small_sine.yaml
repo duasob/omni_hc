@@ -1,0 +1,13 @@
+name: "darcy_fno_sine"
+benchmark: "darcy"
+backbone: "FNO"
+constraint: "darcy_sine_boundary_constraint"
+budget: "smoke"
+
+overrides:
+  paths:
+    output_dir: "outputs/darcy/fno_sine"
+  constraint:
+    pretrained_coeff_head: "outputs/darcy/fno_sine/coeff_head.pt"
+  wandb_logging:
+    run_name: "darcy_fno_sine"

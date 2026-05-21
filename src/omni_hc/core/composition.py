@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import os
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from .config import deep_merge, load_composed_config, load_yaml_file
 
@@ -276,6 +279,33 @@ def _apply_run_metadata(
     }
 
 
+def _check_output_dir_conflict(candidate_dir: Path, resolved_cfg: dict) -> Path:
+    """Return candidate_dir if it is safe to reuse, else a timestamped subfolder.
+
+    A mismatch means the seed_N folder was produced by a different experiment
+    (e.g. different constraint/val config). We never silently overwrite that run.
+    """
+    existing = candidate_dir / "resolved_config.yaml"
+    if not existing.exists():
+        return candidate_dir
+    try:
+        with open(existing, encoding="utf-8") as fh:
+            stored = yaml.safe_load(fh) or {}
+    except Exception:
+        return candidate_dir
+
+    def _strip(d: dict) -> dict:
+        d = deepcopy(d)
+        d.pop("backend", None)
+        return d
+
+    if _strip(stored) == _strip(resolved_cfg):
+        return candidate_dir
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return candidate_dir / timestamp
+
+
 def compose_run_config(
     *,
     benchmark: str | None = None,
@@ -363,4 +393,12 @@ def compose_run_config(
         output_root=output_root,
         source_configs=source_configs,
     )
+
+    seed_dir = Path(cfg["paths"]["output_dir"])
+    actual_dir = _check_output_dir_conflict(seed_dir, cfg)
+    if actual_dir != seed_dir:
+        cfg["paths"]["output_dir"] = str(actual_dir)
+        if cfg.get("optuna", {}).get("save_dir") == str(seed_dir / "trials"):
+            cfg["optuna"]["save_dir"] = str(actual_dir / "trials")
+
     return cfg

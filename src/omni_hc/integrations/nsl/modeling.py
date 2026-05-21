@@ -6,7 +6,6 @@ from typing import Any
 import torch
 
 from omni_hc.constraints import (
-    DarcyDefectCorrectionConstraint,
     DarcyFluxConstraint,
     DirichletBoundaryAnsatz,
     ElasticityDeviatoricStressConstraint,
@@ -16,6 +15,7 @@ from omni_hc.constraints import (
     PipeStreamFunctionUxConstraint,
     PipeUxBoundaryAnsatz,
     PlasticityMeshConsistencyConstraint,
+    SineBoundaryConstraint,
     StructuredWallDirichletAnsatz,
 )
 from omni_hc.core import load_yaml_file
@@ -49,10 +49,10 @@ _CONSTRAINT_CLASSES: dict[str, type] = {
     "pipe_stream_function_ux_constraint": PipeStreamFunctionUxConstraint,
     "pipe_stream_function_boundary_ansatz": PipeStreamFunctionBoundaryAnsatz,
     "darcy_flux_constraint": DarcyFluxConstraint,
-    "darcy_defect_correction_constraint": DarcyDefectCorrectionConstraint,
     "elasticity_deviatoric_stress_constraint": ElasticityDeviatoricStressConstraint,
     "plasticity_mesh_consistency_constraint": PlasticityMeshConsistencyConstraint,
     "mean_constraint": MeanConstraint,
+    "sine_boundary_constraint": SineBoundaryConstraint,
 }
 
 
@@ -126,18 +126,18 @@ def _model_context(args: SimpleNamespace) -> dict[str, Any]:
 
 
 def _build_constraint(backbone: torch.nn.Module, args: SimpleNamespace, cfg: dict):
-    constraint_cfg = cfg.get("constraint", {}) or {}
-    if not constraint_cfg:
+    constraint_section = cfg.get("constraint", {}) or {}
+    if not constraint_section:
         return backbone
 
-    name = str(constraint_cfg.get("name", "")).strip().lower()
+    name = str(constraint_section.get("name", "")).strip().lower()
     cls = _CONSTRAINT_CLASSES.get(name)
     if cls is None:
         raise ValueError(
             f"Unsupported constraint '{name}'. "
             f"Supported: {sorted(_CONSTRAINT_CLASSES)}"
         )
-    return cls.build(backbone, _model_context(args), constraint_cfg)
+    return cls.build(backbone, _model_context(args), cfg)
 
 
 def create_model(
