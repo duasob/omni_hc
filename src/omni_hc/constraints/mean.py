@@ -120,16 +120,17 @@ class MeanConstraint(ConstraintModule):
         cls,
         backbone: torch.nn.Module,
         model_context: dict[str, Any],
-        constraint_cfg: dict[str, Any],
+        cfg: dict[str, Any],
     ) -> ConstrainedModel:
+        constraint_section = cfg.get("constraint", {}) or {}
         _MEAN_META = _BUILD_META_KEYS | {"latent_module"}
-        params = {k: v for k, v in constraint_cfg.items() if k not in _MEAN_META}
+        params = {k: v for k, v in constraint_section.items() if k not in _MEAN_META}
         params.setdefault("out_dim", int(model_context.get("out_dim", 1)))
 
         mode = str(params.get("mode", "post_output")).lower()
         extractor = None
         if mode == "latent_head":
-            latent_module = constraint_cfg.get("latent_module")
+            latent_module = constraint_section.get("latent_module")
             if not latent_module:
                 raise ValueError("constraint.latent_module is required for latent_head mode")
             extractor = ForwardHookLatentExtractor(backbone, latent_module)
@@ -143,7 +144,7 @@ class MeanConstraint(ConstraintModule):
 
         constraint = cls(**params, extractor=extractor)
         wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
-        if constraint_cfg.get("freeze_base", False):
+        if constraint_section.get("freeze_base", False):
             for param in wrapped.backbone.parameters():
                 param.requires_grad = False
         return wrapped

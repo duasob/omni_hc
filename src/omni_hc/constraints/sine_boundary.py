@@ -401,13 +401,13 @@ class SineBoundaryConstraint(ConstraintModule):
         cls,
         backbone: torch.nn.Module,
         model_context: dict[str, Any],
-        constraint_cfg: dict[str, Any],
-        full_cfg: dict[str, Any] | None = None,
+        cfg: dict[str, Any],
     ) -> ConstrainedModel:
+        constraint_section = cfg.get("constraint", {}) or {}
         _SINE_META = _BUILD_META_KEYS | {
             "latent_module", "pretrained_coeff_head", "coeff_head_pretrain",
         }
-        params = {k: v for k, v in constraint_cfg.items() if k not in _SINE_META}
+        params = {k: v for k, v in constraint_section.items() if k not in _SINE_META}
 
         if "grid_shape" not in params:
             shapelist = model_context.get("shapelist")
@@ -418,7 +418,7 @@ class SineBoundaryConstraint(ConstraintModule):
             params["grid_shape"] = tuple(int(s) for s in shapelist)
 
         extractor = None
-        latent_module = constraint_cfg.get("latent_module")
+        latent_module = constraint_section.get("latent_module")
         if latent_module:
             extractor = ForwardHookLatentExtractor(backbone, latent_module)
             backbone.register_forward_pre_hook(lambda *_: extractor.reset())
@@ -429,8 +429,8 @@ class SineBoundaryConstraint(ConstraintModule):
 
         constraint = cls(**params, extractor=extractor)
 
-        pretrained_path = constraint_cfg.get("pretrained_coeff_head")
-        pretrain_cfg    = constraint_cfg.get("coeff_head_pretrain")
+        pretrained_path = constraint_section.get("pretrained_coeff_head")
+        pretrain_cfg    = constraint_section.get("coeff_head_pretrain")
 
         if pretrained_path is not None:
             data = torch.load(str(pretrained_path), map_location="cpu", weights_only=True)
@@ -448,12 +448,8 @@ class SineBoundaryConstraint(ConstraintModule):
             )
 
         elif pretrain_cfg is not None:
-            if full_cfg is None:
-                raise ValueError(
-                    "coeff_head_pretrain requires full_cfg (passed automatically via create_model)"
-                )
             from omni_hc.benchmarks.darcy.data import _load_darcy_train_raw
-            x_train, y_train, _ = _load_darcy_train_raw(full_cfg)
+            x_train, y_train, _ = _load_darcy_train_raw(cfg)
             # _load_darcy_train_raw returns physical-space tensors [N, H*W, 1]
             fx_arr  = x_train.numpy()
             sol_arr = y_train.numpy()
@@ -467,7 +463,7 @@ class SineBoundaryConstraint(ConstraintModule):
             constraint.pretrain_coeff_head(fx_arr, sol_arr, device=device, **pretrain_kwargs)
 
         wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
-        if constraint_cfg.get("freeze_base", False):
+        if constraint_section.get("freeze_base", False):
             for param in wrapped.backbone.parameters():
                 param.requires_grad = False
         return wrapped

@@ -126,18 +126,18 @@ def _model_context(args: SimpleNamespace) -> dict[str, Any]:
 
 
 def _build_constraint(backbone: torch.nn.Module, args: SimpleNamespace, cfg: dict):
-    constraint_cfg = cfg.get("constraint", {}) or {}
-    if not constraint_cfg:
+    constraint_section = cfg.get("constraint", {}) or {}
+    if not constraint_section:
         return backbone
 
-    name = str(constraint_cfg.get("name", "")).strip().lower()
+    name = str(constraint_section.get("name", "")).strip().lower()
     cls = _CONSTRAINT_CLASSES.get(name)
     if cls is None:
         raise ValueError(
             f"Unsupported constraint '{name}'. "
             f"Supported: {sorted(_CONSTRAINT_CLASSES)}"
         )
-    return cls.build(backbone, _model_context(args), constraint_cfg, full_cfg=cfg)
+    return cls.build(backbone, _model_context(args), cfg)
 
 
 def create_model(
