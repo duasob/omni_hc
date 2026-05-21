@@ -253,6 +253,11 @@ def _prepare_none_buffers_for_load(model, state_dict: dict[str, Any]) -> None:
 
 
 def load_model_state_dict(model, state_dict: dict[str, Any]):
+    if hasattr(model, "backbone") and not any(
+        key.startswith(("backbone.", "constraint.")) for key in state_dict
+    ):
+        _prepare_none_buffers_for_load(model.backbone, state_dict)
+        return model.backbone.load_state_dict(state_dict)
     _prepare_none_buffers_for_load(model, state_dict)
     return model.load_state_dict(state_dict)
 

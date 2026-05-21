@@ -46,16 +46,17 @@ class ConstraintModule(nn.Module):
         cls,
         backbone: nn.Module,
         model_context: dict[str, Any],
-        constraint_cfg: dict[str, Any],
+        cfg: dict[str, Any],
     ) -> "ConstrainedModel":
-        """Construct a ConstrainedModel from a raw constraint config block.
+        """Construct a ConstrainedModel from a full resolved run config.
 
         Subclasses override this when construction requires extra logic (e.g.
         wiring up a latent extractor). The default implementation injects
         model-derived keys that appear in the subclass __init__ signature and
         are absent from the YAML config.
         """
-        params = {k: v for k, v in constraint_cfg.items() if k not in _BUILD_META_KEYS}
+        constraint_section = cfg.get("constraint", {}) or {}
+        params = {k: v for k, v in constraint_section.items() if k not in _BUILD_META_KEYS}
         sig = inspect.signature(cls.__init__)
         for key, value in model_context.items():
             if key in sig.parameters and key not in params:
@@ -68,7 +69,7 @@ class ConstraintModule(nn.Module):
                 f"are present in the constraint YAML config. Detail: {exc}"
             ) from exc
         wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
-        if constraint_cfg.get("freeze_base", False):
+        if constraint_section.get("freeze_base", False):
             for param in wrapped.backbone.parameters():
                 param.requires_grad = False
         return wrapped
@@ -87,48 +88,34 @@ class ConstraintModule(nn.Module):
         )
 
 
-class LatentExtractor(Protocol):
-    def reset(self) -> None: ...
-
-    def get(self) -> torch.Tensor | None: ...
-
-
 class ConstrainedModel(nn.Module):
     """
     Wraps a backbone and applies a constraint to its prediction.
 
-    The wrapper keeps backbone construction separate from constraint logic. If
-    a latent extractor is supplied, it is reset before the backbone forward pass
-    and its captured tensor is passed to the constraint.
+    The wrapper keeps backbone construction separate from constraint logic.
+    Constraints that require latent features (e.g. latent_head mode) own their
+    extractor directly and register their own hooks on the backbone.
     """
 
     def __init__(
         self,
         backbone: nn.Module,
         constraint: nn.Module | None = None,
-        latent_extractor: LatentExtractor
-        | None = None,  # TODO: revise if this is legacy. We have build class per constraint.
     ):
         super().__init__()
         self.backbone = backbone
         self.constraint = constraint
-        self.latent_extractor = latent_extractor
         self.supports_aux = constraint is not None
 
     def forward(self, *args, return_aux=False, **kwargs):
         if self.constraint is None:
             return self.backbone(*args, **kwargs)
 
-        if self.latent_extractor is not None:
-            self.latent_extractor.reset()
-
         pred = self.backbone(*args, **kwargs)
-        latent = None if self.latent_extractor is None else self.latent_extractor.get()
         coords = args[0] if len(args) > 0 else kwargs.get("coords")
         fx = args[1] if len(args) > 1 else kwargs.get("fx")
         return self.constraint(
             pred=pred,
-            latent=latent,
             coords=coords,
             fx=fx,
             return_aux=return_aux,
