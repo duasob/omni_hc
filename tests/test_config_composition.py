@@ -80,6 +80,25 @@ def test_experiment_config_applies_overrides():
     assert cfg["wandb_logging"]["run_name"] == "navier_stokes_fno_mean"
 
 
+def test_ono_mean_latent_engineered_config_applies_architecture_taps():
+    cfg = compose_run_config(
+        experiment="configs/experiments/navier_stokes/ono_mean_latent_engineered.yaml",
+    )
+
+    assert cfg["model"]["backbone"] == "ONO"
+    assert cfg["constraint"]["name"] == "mean_constraint"
+    assert cfg["constraint"]["mode"] == "latent_head"
+    assert cfg["constraint"]["latent_module"] == [
+        "blocks.-2[1]",
+        "blocks.-1.Attn",
+        "blocks.-1[0]",
+        "blocks.-1.proj",
+        "blocks.-1.ln_3",
+    ]
+    assert cfg["constraint"]["latent_dim"] == 528
+    assert cfg["wandb_logging"]["run_name"] == "navier_stokes_ono_mean_latent_engineered"
+
+
 def test_dotted_cli_overrides_apply_to_composed_config():
     cfg = compose_run_config(
         benchmark="navier_stokes",
