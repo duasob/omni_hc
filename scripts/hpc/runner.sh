@@ -31,7 +31,7 @@ DEVICE="${DEVICE:-auto}"
 DATA_PATH="${DATA_PATH:-$HOME/omni_hc/data}"
 OUT_ROOT="${OUT_ROOT:-$HOME/omni-hc-results/${PBS_JOBID:-manual}}"
 RESULT_DIRS="${RESULT_DIRS:-outputs results runs checkpoints wandb logs}"
-REQUIRE_RESULT_ARTIFACT="${REQUIRE_RESULT_ARTIFACT:-1}"
+REQUIRE_RESULT_ARTIFACT="${REQUIRE_RESULT_ARTIFACT:-0}"
 DRY_RUN="${DRY_RUN:-0}"
 
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
@@ -40,14 +40,12 @@ export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-$OMP_NUM_THREADS}"
 export NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-$OMP_NUM_THREADS}"
 
 RUNS=(
-    "--benchmark darcy --backbone Transolver --constraint darcy_flux_constraint --budget final"
-
-    # Transolver mean constraint ablation — navier_stokes
-    "--benchmark navier_stokes --backbone Transolver --constraint mean_constraint --budget final --override constraint.mode=post_output"
-    "--benchmark navier_stokes --backbone Transolver --constraint mean_constraint --budget final --override constraint.mode=post_output_learned"
-    "--benchmark navier_stokes --backbone Transolver --constraint mean_constraint --budget final --override constraint.mode=latent_head --override constraint.latent_module=blocks.-1.ln_3"
-    "--config configs/experiments/navier_stokes/transolver_mean_latent_engineered.yaml"
+    "test: --config outputs/navier_stokes/mean_constraint/transolver/final/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/mean_constraint/transolver/final/seed_42/latest.pt"
+    "--config outputs/navier_stokes/mean_constraint/transolver/final/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/mean_constraint/transolver/final/seed_42/latest.pt"
+    "test: --config outputs/navier_stokes/mean_constraint/transolver/final/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/mean_constraint/transolver/final/seed_42/latest.pt"
 )
+
+#   "--config outputs/navier_stokes/mean_constraint/transolver/final/Z`/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/mean_constraint/transolver/final/just_latent/seed_42/latest.pt"
 
 
 timestamp() {
@@ -82,8 +80,8 @@ check_environment() {
         hash -r
     fi
 
-    if [ ! -f scripts/train.py ]; then
-        echo "ERROR: scripts/train.py was not found in $PROJECT_DIR" >&2
+    if [ ! -f scripts/train.py ] || [ ! -f scripts/test.py ]; then
+        echo "ERROR: scripts/train.py or scripts/test.py was not found in $PROJECT_DIR" >&2
         exit 2
     fi
 
@@ -121,10 +119,25 @@ load_run_lines() {
 run_one() {
     local index="$1"
     local run_args="$2"
-    local marker log_name artifact_count count dir rendered_cmd
-    local -a args train_cmd
+    local marker log_name artifact_count count dir rendered_cmd script
+    local -a args run_cmd
 
     if [ -z "${run_args// }" ] || [[ "$run_args" =~ ^[[:space:]]*# ]]; then
+        return 0
+    fi
+
+    # Parse optional command prefix: test: or train: (default: train)
+    if [[ "$run_args" =~ ^[[:space:]]*test:[[:space:]]*(.*) ]]; then
+        script="scripts/test.py"
+        run_args="${BASH_REMATCH[1]}"
+    elif [[ "$run_args" =~ ^[[:space:]]*train:[[:space:]]*(.*) ]]; then
+        script="scripts/train.py"
+        run_args="${BASH_REMATCH[1]}"
+    else
+        script="scripts/train.py"
+    fi
+
+    if [ -z "${run_args// }" ]; then
         return 0
     fi
 
@@ -137,21 +150,22 @@ run_one() {
         log_name="run_${index}"
     fi
 
-    train_cmd=(
-        "$PYTHON" scripts/train.py
+    run_cmd=(
+        "$PYTHON" "$script"
         --device "$DEVICE"
         "${args[@]}"
     )
 
     echo
     echo "Run $index started: $(timestamp)"
+    printf 'Script: %s\n' "$script"
     printf 'Args: %s\n' "$run_args"
 
     if [ "$DRY_RUN" = "1" ]; then
-        printf -v rendered_cmd '%q ' "${train_cmd[@]}"
+        printf -v rendered_cmd '%q ' "${run_cmd[@]}"
         printf 'DRY RUN: %s\n' "$rendered_cmd"
     else
-        "${train_cmd[@]}" 2>&1 | tee "$OUT_ROOT/${log_name}.log"
+        "${run_cmd[@]}" 2>&1 | tee "$OUT_ROOT/${log_name}.log"
     fi
 
     artifact_count=0
