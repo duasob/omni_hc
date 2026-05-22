@@ -12,6 +12,7 @@ Usage:
     --models ONO Factformer \
     --out-dir artifacts/navier_stokes/error_diagnosis
 """
+
 from __future__ import annotations
 
 import argparse
@@ -53,6 +54,7 @@ T_IN = 10
 DEFAULT_MODEL_SUBDIRS: dict[str, str] = {
     "Factformer": "factformer/final/seed_42",
     "Transolver": "transolver/final/seed_42",
+    "Transolver_exp": "transolver/experiment/latent_head_500e/seed_42",
     "Galerkin-T": "galerkin_transformer/validation/seed_42",
     "ONO": "ono/final/seed_42",
     "GNOT": "gnot/final/seed_42",
@@ -106,6 +108,7 @@ def parse_args() -> argparse.Namespace:
 # Model helpers
 # ---------------------------------------------------------------------------
 
+
 def load_ns_model(
     run_dir: Path,
     data_dir: Path,
@@ -114,7 +117,9 @@ def load_ns_model(
 ) -> torch.nn.Module:
     cfg = yaml.safe_load((run_dir / "resolved_config.yaml").read_text())
     cfg["paths"]["root_dir"] = str(data_dir)
-    m, _, _ = create_model(cfg, device=device, runtime_overrides=_runtime_overrides(meta))
+    m, _, _ = create_model(
+        cfg, device=device, runtime_overrides=_runtime_overrides(meta)
+    )
     ckpt = load_checkpoint_state(run_dir / "best.pt", device=device)
     load_model_state_dict(m, ckpt["model_state_dict"])
     m.eval()
@@ -141,8 +146,12 @@ def get_sample_rollout(
             local_idx = sample_idx - cumulative
             with torch.no_grad():
                 pred_b, _, _ = rollout_autoregressive(
-                    m, coords_b, fx_b, target_b,
-                    t_out=meta["t_out"], out_dim=meta["out_dim"],
+                    m,
+                    coords_b,
+                    fx_b,
+                    target_b,
+                    t_out=meta["t_out"],
+                    out_dim=meta["out_dim"],
                     teacher_forcing=False,
                 )
             pred_f = pred_b[local_idx].view(h, w, t_out).cpu().numpy()
@@ -169,15 +178,19 @@ def compute_step_rel_l2(
         coords_b, fx_b, target_b = _prepare_batch(batch, device=device, task_state=ts)
         with torch.no_grad():
             pred_b, _, _ = rollout_autoregressive(
-                m, coords_b, fx_b, target_b,
-                t_out=meta["t_out"], out_dim=meta["out_dim"],
+                m,
+                coords_b,
+                fx_b,
+                target_b,
+                t_out=meta["t_out"],
+                out_dim=meta["out_dim"],
                 teacher_forcing=False,
             )
         bsz = pred_b.shape[0]
         p = pred_b.cpu().numpy().reshape(bsz, h, w, t_out)
         g = target_b.cpu().numpy().reshape(bsz, h, w, t_out)
-        num = np.sqrt(((p - g) ** 2).sum(axis=(1, 2)))   # (bsz, t_out)
-        den = np.sqrt((g ** 2).sum(axis=(1, 2))) + 1e-8   # (bsz, t_out)
+        num = np.sqrt(((p - g) ** 2).sum(axis=(1, 2)))  # (bsz, t_out)
+        den = np.sqrt((g**2).sum(axis=(1, 2))) + 1e-8  # (bsz, t_out)
         errs.append(num / den)
     return np.concatenate(errs, axis=0)
 
@@ -185,6 +198,7 @@ def compute_step_rel_l2(
 # ---------------------------------------------------------------------------
 # Array helpers
 # ---------------------------------------------------------------------------
+
 
 def rel_l2_field(pred_f: np.ndarray, gt_f: np.ndarray) -> np.ndarray:
     """Spatial rel-L2 map: |pred - gt| / ||gt||_F per timestep. Shape: (h, w, t_out)."""
@@ -196,12 +210,17 @@ def rel_l2_field(pred_f: np.ndarray, gt_f: np.ndarray) -> np.ndarray:
 
 
 def _band(arr: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    return arr.mean(axis=0), np.percentile(arr, 5, axis=0), np.percentile(arr, 95, axis=0)
+    return (
+        arr.mean(axis=0),
+        np.percentile(arr, 5, axis=0),
+        np.percentile(arr, 95, axis=0),
+    )
 
 
 # ---------------------------------------------------------------------------
 # Plots
 # ---------------------------------------------------------------------------
+
 
 def plot_rollout_grid(
     gt: np.ndarray,
@@ -231,7 +250,9 @@ def plot_rollout_grid(
 
     for col in range(t_out):
         t_label = f"$t_{{{col + T_IN + 1}}}$"
-        axes[0, col].imshow(gt[:, :, col], cmap=CMAP, origin="lower", vmin=vmin, vmax=vmax)
+        axes[0, col].imshow(
+            gt[:, :, col], cmap=CMAP, origin="lower", vmin=vmin, vmax=vmax
+        )
         axes[0, col].set_title(t_label, fontsize=9)
         axes[0, col].axis("off")
         for i, name in enumerate(model_names):
@@ -309,6 +330,7 @@ def plot_rel_l2_curve(
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     args = parse_args()
     if args.no_plot and args.show:
@@ -329,7 +351,9 @@ def main() -> None:
             raise FileNotFoundError(f"Run directory not found for {name}: {rd}")
 
     # Build test loader from the first model's config (data is shared across models)
-    first_cfg = yaml.safe_load((next(iter(run_dirs.values())) / "resolved_config.yaml").read_text())
+    first_cfg = yaml.safe_load(
+        (next(iter(run_dirs.values())) / "resolved_config.yaml").read_text()
+    )
     first_cfg["paths"]["root_dir"] = str(args.data_dir)
     test_loader = build_test_loader(first_cfg)
     meta = test_loader.ns_meta
@@ -353,7 +377,9 @@ def main() -> None:
     for name in args.models:
         print(f"  {name}")
         m = load_ns_model(run_dirs[name], args.data_dir, meta, device)
-        pred_f, gt_f = get_sample_rollout(m, test_loader, args.sample, h, w, t_out, meta, device)
+        pred_f, gt_f = get_sample_rollout(
+            m, test_loader, args.sample, h, w, t_out, meta, device
+        )
         preds[name] = pred_f
         gt_field = gt_f
 
@@ -364,8 +390,14 @@ def main() -> None:
             print("matplotlib not available; skipping plots.")
         else:
             out = plot_rollout_grid(
-                gt_field, preds, errors, args.models, t_out,
-                sample_idx=args.sample, out_dir=args.out_dir, show=args.show,
+                gt_field,
+                preds,
+                errors,
+                args.models,
+                t_out,
+                sample_idx=args.sample,
+                out_dir=args.out_dir,
+                show=args.show,
             )
             print(f"wrote {out}")
 
@@ -375,7 +407,9 @@ def main() -> None:
     for name in args.models:
         print(f"  {name}")
         m = load_ns_model(run_dirs[name], args.data_dir, meta, device)
-        step_errors[name] = compute_step_rel_l2(m, test_loader, h, w, t_out, meta, device)
+        step_errors[name] = compute_step_rel_l2(
+            m, test_loader, h, w, t_out, meta, device
+        )
         mean_final = step_errors[name][:, -1].mean()
         print(f"    mean rel. L2 at t={t_out}: {mean_final:.4f}")
 
@@ -384,7 +418,11 @@ def main() -> None:
             print("matplotlib not available; skipping plots.")
         else:
             out = plot_rel_l2_curve(
-                step_errors, args.models, t_out, out_dir=args.out_dir, show=args.show,
+                step_errors,
+                args.models,
+                t_out,
+                out_dir=args.out_dir,
+                show=args.show,
             )
             print(f"wrote {out}")
 
