@@ -18,7 +18,7 @@ REPO_ROOT = next(
 DATA_PATH = (
     REPO_ROOT / "data/NavierStokes_V1e-5_N1200_T20/NavierStokes_V1e-5_N1200_T20.mat"
 )
-OUTPUTS_ROOT = REPO_ROOT / "outputs/navier_stokes/mean_correction"
+OUTPUTS_ROOT = REPO_ROOT / "outputs/navier_stokes/mean_constraint"
 FIGURES_DIR = REPO_ROOT / "docs/figures/ns"
 FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -98,28 +98,31 @@ print(f"Saved image to {FIGURES_DIR / 'ns_dataset_sample.pdf'}")
 # Right: spatial mean of |ω| — captures the growing magnitude of the field.
 u_flat = u.reshape(N, H * W, T_FULL)
 
-spatial_mean = u_flat.mean(axis=1)       # (N, T)
-spatial_mag  = np.abs(u_flat).mean(axis=1)  # (N, T)
+spatial_mean = u_flat.mean(axis=1)  # (N, T)
+spatial_mag = np.abs(u_flat).mean(axis=1)  # (N, T)
+
 
 def _band(arr):
-    m   = arr.mean(axis=0)
-    p5  = np.percentile(arr, 5,  axis=0)
+    m = arr.mean(axis=0)
+    p5 = np.percentile(arr, 5, axis=0)
     p95 = np.percentile(arr, 95, axis=0)
     return m, p5, p95
 
-mean_t, mean_p5, mean_p95       = _band(spatial_mean)
-mag_mean_t, mag_p5, mag_p95     = _band(spatial_mag)
+
+mean_t, mean_p5, mean_p95 = _band(spatial_mean)
+mag_mean_t, mag_p5, mag_p95 = _band(spatial_mag)
 
 t_idx = np.arange(1, T_FULL + 1)
 
 c_mean = plt.get_cmap(CMAP)(0.3)
-c_mag  = plt.get_cmap(CMAP)(0.75)
+c_mag = plt.get_cmap(CMAP)(0.75)
 
 fig, (ax_mean, ax_mag) = plt.subplots(1, 2, figsize=(12, 3.5))
 
 # --- left: signed mean ---
-ax_mean.fill_between(t_idx, mean_p5, mean_p95,
-                     alpha=0.25, color=c_mean, label="5–95th percentile")
+ax_mean.fill_between(
+    t_idx, mean_p5, mean_p95, alpha=0.25, color=c_mean, label="5–95th percentile"
+)
 ax_mean.plot(t_idx, mean_t, color=c_mean, lw=1.8, label="Mean")
 ax_mean.axhline(0, color="0.4", lw=0.9, ls="--", label=r"$\bar\omega = 0$")
 ax_mean.set_xlabel("Timestep")
@@ -129,8 +132,9 @@ ax_mean.xaxis.set_major_locator(mticker.MultipleLocator(2))
 ax_mean.legend(frameon=False)
 
 # --- right: magnitude mean ---
-ax_mag.fill_between(t_idx, mag_p5, mag_p95,
-                    alpha=0.25, color=c_mag, label="5–95th percentile")
+ax_mag.fill_between(
+    t_idx, mag_p5, mag_p95, alpha=0.25, color=c_mag, label="5–95th percentile"
+)
 ax_mag.plot(t_idx, mag_mean_t, color=c_mag, lw=1.8, label="Mean")
 ax_mag.set_xlabel("Timestep")
 ax_mag.set_ylabel(r"Spatial mean $|\bar\omega|$")
@@ -336,3 +340,164 @@ ax.imshow(corr_np, cmap="Reds", origin="lower")
 ax.axis("off")
 fig.savefig(FIGURES_DIR / "ns_correction.png", bbox_inches="tight", pad_inches=0)
 plt.show()
+
+
+# %% Diagnosis — multi-model 3×N rollout grid (rel. L2 error)
+# Rows: target | pred_1 | pred_2 | ... | rel_l2_1 | rel_l2_2 | ...
+# Adjust DIAG_MODELS to any subset of keys from MODELS.
+DIAG_MODELS = ["ONO"]
+
+
+def load_ns_model(run_dir: Path) -> torch.nn.Module:
+    cfg_m = yaml.safe_load((run_dir / "resolved_config.yaml").read_text())
+    cfg_m["paths"]["root_dir"] = str(DATA_PATH.parent)
+    m, _, _ = create_model(
+        cfg_m, device=DEVICE, runtime_overrides=_runtime_overrides(meta)
+    )
+    ckpt_m = load_checkpoint_state(run_dir / "best.pt", device=DEVICE)
+    load_model_state_dict(m, ckpt_m["model_state_dict"])
+    m.eval()
+    return m
+
+
+def rel_l2_field(pred_f: np.ndarray, gt_f: np.ndarray) -> np.ndarray:
+    """Spatial rel-L2 map: |pred - gt| / ||gt||_F per timestep. Shape: (h, w, t_out)."""
+    out = np.empty_like(pred_f)
+    for t in range(pred_f.shape[2]):
+        gt_t = gt_f[:, :, t]
+        out[:, :, t] = np.abs(pred_f[:, :, t] - gt_t) / (np.linalg.norm(gt_t) + 1e-8)
+    return out
+
+
+diag_batch = next(iter(test_loader))
+diag_preds = {}
+for _name in DIAG_MODELS:
+    _m = load_ns_model(MODELS[_name])
+    _ts = _init_task_state(meta, sample_dtype=torch.float32, device=DEVICE)
+    _coords, _fx, _tgt = _prepare_batch(diag_batch, device=DEVICE, task_state=_ts)
+    with torch.no_grad():
+        _pred, _, _ = rollout_autoregressive(
+            _m,
+            _coords,
+            _fx,
+            _tgt,
+            t_out=meta["t_out"],
+            out_dim=meta["out_dim"],
+            teacher_forcing=False,
+        )
+    diag_preds[_name] = _pred[0].view(h, w, t_out).cpu().numpy()
+
+diag_gt = _tgt[0].view(h, w, t_out).cpu().numpy()
+diag_errors = {n: rel_l2_field(diag_preds[n], diag_gt) for n in DIAG_MODELS}
+
+n_m = len(DIAG_MODELS)
+n_rows = 1 + 2 * n_m
+_cell = 1.5
+
+vmin_d = min(diag_gt.min(), *(diag_preds[n].min() for n in DIAG_MODELS))
+vmax_d = max(diag_gt.max(), *(diag_preds[n].max() for n in DIAG_MODELS))
+err_max_d = max(diag_errors[n].max() for n in DIAG_MODELS)
+
+fig, axes = plt.subplots(
+    n_rows,
+    t_out,
+    figsize=(t_out * _cell + 1.5, n_rows * _cell + 0.5),
+    constrained_layout=True,
+)
+
+for col in range(t_out):
+    t_label = f"$t_{{{col + T_IN + 1}}}$"
+    axes[0, col].imshow(
+        diag_gt[:, :, col], cmap=CMAP, origin="lower", vmin=vmin_d, vmax=vmax_d
+    )
+    axes[0, col].set_title(t_label, fontsize=9)
+    axes[0, col].axis("off")
+    for i, name in enumerate(DIAG_MODELS):
+        axes[1 + i, col].imshow(
+            diag_preds[name][:, :, col],
+            cmap=CMAP,
+            origin="lower",
+            vmin=vmin_d,
+            vmax=vmax_d,
+        )
+        axes[1 + i, col].axis("off")
+        axes[1 + n_m + i, col].imshow(
+            diag_errors[name][:, :, col],
+            cmap=CMAP,
+            origin="lower",
+            vmin=0,
+            vmax=err_max_d,
+        )
+        axes[1 + n_m + i, col].axis("off")
+
+axes[0, 0].set_ylabel("Ground truth", fontsize=9)
+for i, name in enumerate(DIAG_MODELS):
+    axes[1 + i, 0].set_ylabel(name, fontsize=9)
+    axes[1 + n_m + i, 0].set_ylabel(f"{name} rel. $L_2$", fontsize=9)
+
+fig.colorbar(
+    plt.cm.ScalarMappable(cmap=CMAP, norm=plt.Normalize(vmin=vmin_d, vmax=vmax_d)),
+    ax=axes[: 1 + n_m],
+    fraction=0.015,
+    pad=0.02,
+    label="Vorticity",
+)
+fig.colorbar(
+    plt.cm.ScalarMappable(cmap=CMAP, norm=plt.Normalize(vmin=0, vmax=err_max_d)),
+    ax=axes[1 + n_m :],
+    fraction=0.015,
+    pad=0.02,
+    label=r"Rel. $L_2$",
+)
+fig.suptitle("NS diagnosis — test sample 0", fontsize=11)
+fig.savefig(FIGURES_DIR / "ns_diag_rollout.png", bbox_inches="tight")
+plt.show()
+
+
+# %% Diagnosis — per-timestep rel. L2 over the full test set (multi-model)
+def compute_step_rel_l2(m, loader, h, w, t_out, meta, device):
+    """Returns (N_samples, t_out) per-sample per-timestep relative L2."""
+    ts = _init_task_state(meta, sample_dtype=torch.float32, device=device)
+    errs = []
+    for batch in loader:
+        coords_b, fx_b, target_b = _prepare_batch(batch, device=device, task_state=ts)
+        with torch.no_grad():
+            pred_b, _, _ = rollout_autoregressive(
+                m,
+                coords_b,
+                fx_b,
+                target_b,
+                t_out=meta["t_out"],
+                out_dim=meta["out_dim"],
+                teacher_forcing=False,
+            )
+        bsz = pred_b.shape[0]
+        p = pred_b.cpu().numpy().reshape(bsz, h, w, t_out)
+        g = target_b.cpu().numpy().reshape(bsz, h, w, t_out)
+        num = np.sqrt(((p - g) ** 2).sum(axis=(1, 2)))  # (bsz, t_out)
+        den = np.sqrt((g**2).sum(axis=(1, 2))) + 1e-8  # (bsz, t_out)
+        errs.append(num / den)
+    return np.concatenate(errs, axis=0)  # (N_test, t_out)
+
+
+step_idx = np.arange(1, t_out + 1)
+curve_colors_d = plt.get_cmap(CMAP)(np.linspace(0.15, 0.85, len(DIAG_MODELS)))
+
+fig, ax = plt.subplots(figsize=(7, 3.5))
+for name, color in zip(DIAG_MODELS, curve_colors_d):
+    step_errs = compute_step_rel_l2(
+        load_ns_model(MODELS[name]), test_loader, h, w, t_out, meta, DEVICE
+    )
+    mean_e, p5_e, p95_e = _band(step_errs)
+    ax.fill_between(step_idx, p5_e, p95_e, alpha=0.2, color=color)
+    ax.plot(step_idx, mean_e, color=color, lw=1.8, label=name)
+
+ax.set_xlabel("Output timestep")
+ax.set_ylabel(r"Rel. $L_2$")
+ax.set_title(r"NS per-timestep rel. $L_2$ error")
+ax.xaxis.set_major_locator(mticker.MultipleLocator(2))
+ax.legend(frameon=False)
+fig.tight_layout()
+fig.savefig(FIGURES_DIR / "ns_diag_rel_l2_curve.png", bbox_inches="tight")
+plt.show()
+print(f"Saved diagnosis figures to {FIGURES_DIR}")

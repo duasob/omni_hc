@@ -60,19 +60,6 @@ The top and bottom wall profiles are omitted from the plots because the no-slip
 condition makes the edge rows flat zero lines. The tables also report the first
 interior row next to each wall to show the near-wall scale:
 
-| Boundary | Mean $u_x$ | Mean $|u_x|$ | Max $|u_x|$ | Min $u_x$ | Max $u_x$ | Std $u_x$ |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Bottom wall (j=0) | 0.0000e+00 | 0.0000e+00 | 0.0000e+00 | 0.0000e+00 | 0.0000e+00 | 0.0000e+00 |
-| Bottom first interior (j=1) | 7.6649e-03 | 7.6663e-03 | 2.9095e-02 | -2.8398e-03 | 2.9095e-02 | 3.4262e-03 |
-| Top first interior (j=W-2) | 8.0617e-03 | 8.2772e-03 | 1.8101e+00 | -1.8101e+00 | 3.8942e-01 | 1.0773e-02 |
-| Top wall (j=W-1) | 0.0000e+00 | 0.0000e+00 | 0.0000e+00 | 0.0000e+00 | 0.0000e+00 | 0.0000e+00 |
-
-| Boundary | Mean $u_y$ | Mean $|u_y|$ | Max $|u_y|$ | Min $u_y$ | Max $u_y$ | Std $u_y$ |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Bottom wall (j=0) | 0.0000e+00 | 0.0000e+00 | 0.0000e+00 | 0.0000e+00 | 0.0000e+00 | 0.0000e+00 |
-| Bottom first interior (j=1) | 5.7941e-04 | 2.4670e-03 | 1.6355e-02 | -1.1699e-02 | 1.6355e-02 | 3.2257e-03 |
-| Top first interior (j=W-2) | 5.8771e-04 | 4.1196e-03 | 3.7753e+00 | -8.6606e-01 | 3.7753e+00 | 3.8234e-02 |
-| Top wall (j=W-1) | 0.0000e+00 | 0.0000e+00 | 0.0000e+00 | 0.0000e+00 | 0.0000e+00 | 0.0000e+00 |
 
 ## Hard Constraints
 

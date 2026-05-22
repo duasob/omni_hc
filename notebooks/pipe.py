@@ -22,6 +22,7 @@ from omni_hc.constraints import (
     PipeInletParabolicAnsatz,
     PipeStreamFunctionBoundaryAnsatz,
     PipeUxBoundaryAnsatz,
+    StructuredWallDirichletAnsatz,
 )
 from omni_hc.diagnostics.boundary_maps import infer_boundary_ansatz_maps
 
@@ -135,35 +136,61 @@ def plot_pipe_constraint_maps(constraint_specs, *, coords_tensor, out_path):
         2,
         len(maps),
         figsize=(14.0, 5.0),
-        gridspec_kw={"hspace": 0.32, "wspace": 0.12},
+        gridspec_kw={"hspace": 0.12, "wspace": 0.25},
         sharex=True,
         sharey=True,
     )
-    fig.suptitle("Pipe flow hard-constraint maps", y=0.98)
+    # fig.suptitle("Pipe flow hard-constraint maps", y=0.98)
+
+    row_defs = (
+        ("g", "coolwarm", lambda m: m.g[..., 0].numpy()),
+        ("l", CMAP, lambda m: m.l[..., 0].numpy()),
+    )
+    # Shared colour range per row so a single colourbar describes the whole row.
+    row_ranges = [
+        (
+            min(float(getter(m).min()) for m in maps),
+            max(float(getter(m).max()) for m in maps),
+        )
+        for _, _, getter in row_defs
+    ]
+    row_meshes = [None] * len(row_defs)
 
     for col, ((title, _constraint), ansatz_maps) in enumerate(
         zip(constraint_specs, maps)
     ):
-        for row, (map_name, values, cmap) in enumerate(
-            (
-                ("g", ansatz_maps.g[..., 0].numpy(), "coolwarm"),
-                ("l", ansatz_maps.l[..., 0].numpy(), CMAP),
-            )
-        ):
+        for row, (map_name, cmap, getter) in enumerate(row_defs):
             ax = axes[row, col]
-            im = ax.pcolormesh(x, y, values, shading="gouraud", cmap=cmap)
+            vmin, vmax = row_ranges[row]
+            im = ax.pcolormesh(
+                x,
+                y,
+                getter(ansatz_maps),
+                shading="gouraud",
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+            )
+            row_meshes[row] = im
             ax.plot(x[:, 0], y[:, 0], color="0.15", lw=0.7)
             ax.plot(x[:, -1], y[:, -1], color="0.15", lw=0.7)
             ax.plot(x[0, :], y[0, :], color="0.15", lw=0.7)
             ax.plot(x[-1, :], y[-1, :], color="0.15", lw=0.7)
             ax.set_aspect("equal", adjustable="box")
-            ax.set_title(f"{title}\n{map_name} ({ansatz_maps.space})", fontsize=9)
-            ax.set_xlabel("$x$")
+
+            if row == len(maps) - 1:
+                ax.set_title(f"{map_name}", fontsize=12)
+                ax.set_xlabel("$x$")
+            else:
+                ax.set_title(f"{title}\n{map_name}", fontsize=12)
             if col == 0:
                 ax.set_ylabel("$y$")
-            fig.colorbar(im, ax=ax, shrink=0.8, fraction=0.035, pad=0.02)
 
-    fig.subplots_adjust(top=0.84, bottom=0.12, left=0.055, right=0.985)
+    fig.subplots_adjust(top=0.84, bottom=0.12, left=0.055, right=0.90)
+    # One shared colourbar per row, placed to the right of the entire row.
+    for row, mesh in enumerate(row_meshes):
+        fig.colorbar(mesh, ax=list(axes[row, :]), shrink=0.8, fraction=0.035, pad=0.02)
+
     fig.savefig(out_path, bbox_inches="tight")
     if IS_NOTEBOOK:
         plt.show()
@@ -178,17 +205,21 @@ coords_tensor = torch.as_tensor(
 )
 pipe_constraint_specs = [
     (
-        "Inlet parabolic",
+        "Wall",
+        StructuredWallDirichletAnsatz(out_dim=1, grid_shape=(H, W)),
+    ),
+    (
+        "Inlet",
         PipeInletParabolicAnsatz(out_dim=1, grid_shape=(H, W), amplitude=0.25),
     ),
     (
         "Inlet + wall",
         PipeUxBoundaryAnsatz(out_dim=1, grid_shape=(H, W), amplitude=0.25),
     ),
-    (
-        "Stream function",
-        PipeStreamFunctionBoundaryAnsatz(shapelist=(H, W), amplitude=0.25),
-    ),
+    # (
+    #     "Stream function",
+    #     PipeStreamFunctionBoundaryAnsatz(shapelist=(H, W), amplitude=0.25),
+    # ),
 ]
 plot_pipe_constraint_maps(
     pipe_constraint_specs,
@@ -502,10 +533,10 @@ def stokes_circulation(x, y, ux, uy):
         vm = 0.5 * (vs[:-1] + vs[1:])
         return float((um * dx + vm * dy).sum())
 
-    bw = line(x[:, 0], y[:, 0], ux[:, 0], uy[:, 0])           # bottom wall
-    ou = line(x[-1, :], y[-1, :], ux[-1, :], uy[-1, :])       # outlet
+    bw = line(x[:, 0], y[:, 0], ux[:, 0], uy[:, 0])  # bottom wall
+    ou = line(x[-1, :], y[-1, :], ux[-1, :], uy[-1, :])  # outlet
     tw = line(x[::-1, -1], y[::-1, -1], ux[::-1, -1], uy[::-1, -1])  # top wall
-    iw = line(x[0, ::-1], y[0, ::-1], ux[0, ::-1], uy[0, ::-1])      # inlet
+    iw = line(x[0, ::-1], y[0, ::-1], ux[0, ::-1], uy[0, ::-1])  # inlet
     return bw + ou + tw + iw
 
 
@@ -542,8 +573,10 @@ ref_flux = float(
         ]
     )
 )
-print(f"  reference inlet |∫u dy| ≈ {ref_flux:.3e}  "
-      f"→ |∫ω|/ref ≈ {np.abs(integrals_fd).mean() / max(ref_flux, 1e-12):.2%}")
+print(
+    f"  reference inlet |∫u dy| ≈ {ref_flux:.3e}  "
+    f"→ |∫ω|/ref ≈ {np.abs(integrals_fd).mean() / max(ref_flux, 1e-12):.2%}"
+)
 
 # --- Vorticity field for sample 0 ---
 SAMPLE_VORT = SAMPLE_IDX
@@ -560,8 +593,9 @@ fig, axes = plt.subplots(1, 3, figsize=(15, 4.0))
 
 # Panel 1: vorticity field on the curvilinear mesh
 ax = axes[0]
-im = ax.pcolormesh(xs0, ys0, omega0, shading="gouraud", cmap="RdBu_r",
-                   vmin=-v_abs, vmax=v_abs)
+im = ax.pcolormesh(
+    xs0, ys0, omega0, shading="gouraud", cmap="RdBu_r", vmin=-v_abs, vmax=v_abs
+)
 fig.colorbar(im, ax=ax, shrink=0.85, label=r"$\omega$")
 for sl in EDGE_SLICES.values():
     ax.plot(xs0[sl], ys0[sl], color="0.15", lw=0.7)
@@ -577,12 +611,19 @@ ax.set_title(f"sample {SAMPLE_VORT}: $\\omega(x,y)$\n{title_line2}", fontsize=10
 # Panel 2: distribution of ∫ω dA across samples
 ax = axes[1]
 ax.hist(
-    integrals_fd, bins=40, color=plt.get_cmap(CMAP)(0.55),
-    alpha=0.85, edgecolor="white", linewidth=0.4, label=r"$\int\omega\,dA$ (FD)",
+    integrals_fd,
+    bins=40,
+    color=plt.get_cmap(CMAP)(0.55),
+    alpha=0.85,
+    edgecolor="white",
+    linewidth=0.4,
+    label=r"$\int\omega\,dA$ (FD)",
 )
 ax.axvline(0.0, color="0.25", lw=1.0, linestyle="--")
 ax.axvline(
-    integrals_fd.mean(), color=plt.get_cmap(CMAP)(0.85), lw=1.5,
+    integrals_fd.mean(),
+    color=plt.get_cmap(CMAP)(0.85),
+    lw=1.5,
     label=f"mean = {integrals_fd.mean():+.2e}",
 )
 ax.set_xlabel(r"$\int\omega\,dA$")
@@ -594,11 +635,14 @@ ax.grid(True, alpha=0.22)
 # Panel 3: FD ∫ω dA vs Stokes ∮(u dx + v dy)
 ax = axes[2]
 lim = max(np.abs(integrals_fd).max(), np.abs(integrals_stokes).max())
-ax.plot([-lim, lim], [-lim, lim], color="0.5", lw=0.8, linestyle="--",
-        label="$y=x$")
+ax.plot([-lim, lim], [-lim, lim], color="0.5", lw=0.8, linestyle="--", label="$y=x$")
 ax.scatter(
-    integrals_fd, integrals_stokes, s=10, alpha=0.55,
-    color=plt.get_cmap(CMAP)(0.7), edgecolor="none",
+    integrals_fd,
+    integrals_stokes,
+    s=10,
+    alpha=0.55,
+    color=plt.get_cmap(CMAP)(0.7),
+    edgecolor="none",
 )
 ax.set_xlabel(r"$\int\omega\,dA$ (FD)")
 ax.set_ylabel(r"$\oint(u\,dx + v\,dy)$ (Stokes)")

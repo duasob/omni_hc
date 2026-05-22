@@ -18,6 +18,7 @@ FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
 CMAP_INPUT = "viridis"
 CMAP_OUTPUT = "magma"
+CMAP_VECTOR = "spring"
 
 plt.rcParams.update(
     {
@@ -874,3 +875,191 @@ print(
     f"best K={best_k} (rel-L2={floor_rl2:.4f}), "
     f"deployed K={DEPLOYED_K} (rel-L2={dep_rl2:.4f})"
 )
+
+# %% Darcy flux constraint - load constrained Transolver model
+# Pulls every intermediate field of the flux pipeline from a trained run so the
+# architecture block diagram can show real fields:
+#   psi (stream fn, backbone output) -> v_corr = grad_perp(psi)  [div = 0]
+#   v_part [fixed, div = 1] + v_corr -> v_valid  [div = 1]
+#   w = -v_valid / a -> sine Poisson solve -> u  (pressure, u|bnd = 0)
+import importlib
+import sys
+
+import torch
+import yaml
+
+from omni_hc.benchmarks.darcy.adapter import _prepare_batch, _runtime_overrides
+from omni_hc.benchmarks.darcy.data import build_test_loader
+from omni_hc.integrations.nsl import create_model
+from omni_hc.integrations.nsl.modeling import ensure_nsl_path
+from omni_hc.training.common import (
+    forward_with_optional_aux,
+    load_checkpoint_state,
+    load_model_state_dict,
+)
+
+DEVICE = torch.device("cpu")
+FLUX_RUN_DIR = (
+    REPO_ROOT / "outputs/darcy/darcy_flux_projection/transolver/final/seed_42"
+)
+
+cfg = yaml.safe_load((FLUX_RUN_DIR / "resolved_config.yaml").read_text())
+cfg["paths"]["root_dir"] = str(DATA_DIR)
+
+# NSL's unified_pos_embedding defaults to CUDA; force the run device before the
+# backbone module imports it (needed to run on CPU / Mac).
+ensure_nsl_path(cfg)
+import layers.Embedding as _emb
+
+_emb = importlib.reload(_emb)
+_orig_upe = _emb.unified_pos_embedding
+_emb._omni_hc_original_unified_pos_embedding = _orig_upe
+
+
+def _upe_device(*a, **k):
+    k.setdefault("device", DEVICE)
+    return _orig_upe(*a, **k)
+
+
+_emb.unified_pos_embedding = _upe_device
+if "models.Transolver" in sys.modules:
+    sys.modules["models.Transolver"].unified_pos_embedding = _upe_device
+
+flux_loader = build_test_loader(cfg)
+meta = flux_loader.darcy_meta
+x_norm = flux_loader.x_normalizer.to(DEVICE)
+y_norm = flux_loader.y_normalizer.to(DEVICE)
+
+model, _, _ = create_model(
+    cfg, device=DEVICE, runtime_overrides=_runtime_overrides(meta)
+)
+# Wire the constraint exactly as the steady test task does.
+model.constraint.set_target_normalizer(y_norm)
+model.constraint.set_input_normalizer(x_norm)
+model.constraint.set_grid_shape(tuple(meta["shapelist"]))
+_lo, _up = meta["domain_bounds"]
+model.constraint.set_domain_bounds(lower=float(_lo), upper=float(_up))
+
+ckpt = load_checkpoint_state(FLUX_RUN_DIR / "best.pt", device=DEVICE)
+load_model_state_dict(model, ckpt["model_state_dict"])
+model.eval()
+
+batch = next(iter(flux_loader))
+coords_b, fx_b, target_b = _prepare_batch(batch, device=DEVICE)
+with torch.no_grad():
+    out = forward_with_optional_aux(model, coords_b, fx_b)
+
+H, W = meta["shapelist"]
+FLUX_SAMPLE = 0
+aux = out["aux_tensors"]
+
+
+def _grid(t, c):
+    return t[FLUX_SAMPLE].reshape(H, W, c).cpu().numpy()
+
+
+psi = _grid(aux["pred_base"], 1)[..., 0]  # stream function (backbone)
+v_corr = _grid(aux["stream_correction"], 2)  # grad_perp(psi), div = 0
+v_valid = _grid(aux["constrained_flux"], 2)  # v_part + v_corr, div = 1
+v_part = v_valid - v_corr  # fixed particular field, div = 1
+a_field = _grid(x_norm.decode(fx_b), 1)[..., 0]  # permeability a
+u_field = _grid(y_norm.decode(out["pred"]), 1)[..., 0]  # recovered pressure u
+a_safe = np.clip(a_field, 1e-6, None)
+w_field = -v_valid / a_safe[..., None]  # w = -v_valid / a = grad u
+
+print(f"psi {psi.shape}  v_valid {v_valid.shape}  u {u_field.shape}")
+print(
+    "diagnostics:",
+    {
+        k: float(v.value)
+        for k, v in out["diagnostics"].items()
+        if "flux_div" in k or "darcy_res" in k or "boundary" in k
+    },
+)
+
+# %% Darcy flux - pipeline field icons for the block diagram
+# Clean, axis-free square icons so they compose into diagrams/darcy_flux_pipeline.tex.
+
+CMAP_VECTOR = "spring"
+
+
+def _save_scalar_icon(field, fname, cmap, symmetric=False):
+    fig, ax = plt.subplots(figsize=(2.2, 2.2))
+    kw = {}
+    if symmetric:
+        m = float(np.abs(field).max()) or 1.0
+        kw = dict(vmin=-m, vmax=m)
+    ax.imshow(field, origin="lower", extent=(0, 1, 0, 1), cmap=cmap, **kw)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    fig.savefig(FIGURES_DIR / fname, bbox_inches="tight", pad_inches=0.02)
+    plt.show()
+    print(f"saved {fname}")
+
+
+def _save_vector_icon(field, fname, cmap):
+    min_arrow_frac = 0.55
+    edge_pad = 0.06
+    mag = np.linalg.norm(field, axis=-1)
+    eps = (
+        np.finfo(field.dtype).eps if np.issubdtype(field.dtype, np.floating) else 1e-12
+    )
+    unit = np.divide(
+        field,
+        np.maximum(mag, eps)[..., None],
+        out=np.zeros_like(field, dtype=np.float64),
+        where=mag[..., None] > eps,
+    )
+    xs = np.linspace(0, 1, W)
+    ys = np.linspace(0, 1, H)
+    Xg, Yg = np.meshgrid(xs, ys)
+    s = max(H // 4, 1)
+    fig, ax = plt.subplots(figsize=(2.2, 2.2))
+    fig.patch.set_facecolor("#050505")
+    ax.set_facecolor("#050505")
+    mag_sample = mag[::s, ::s]
+    finite_mag = mag_sample[np.isfinite(mag_sample)]
+    vmin = float(finite_mag.min()) if finite_mag.size else 0.0
+    vmax = float(finite_mag.max()) if finite_mag.size else 1.0
+    if vmax <= vmin:
+        vmax = vmin + 1e-12
+    norm = plt.Normalize(vmin=vmin, vmax=vmax)
+    rel_mag = np.clip(mag_sample / vmax, 0.0, 1.0)
+    rel_mag = np.where(mag_sample > eps, np.maximum(rel_mag, min_arrow_frac), 0.0)
+    ax.quiver(
+        Xg[::s, ::s],
+        Yg[::s, ::s],
+        unit[::s, ::s, 0] * rel_mag,
+        unit[::s, ::s, 1] * rel_mag,
+        mag_sample,
+        cmap=cmap,
+        norm=norm,
+        angles="xy",
+        scale_units="xy",
+        scale=7,
+        pivot="mid",
+        alpha=0.95,
+        width=0.014,
+        headwidth=3.5,
+        headlength=2.5,
+        headaxislength=2.8,
+    )
+    ax.set_xlim(-edge_pad, 1 + edge_pad)
+    ax.set_ylim(-edge_pad, 1 + edge_pad)
+    ax.set_aspect("equal")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    fig.savefig(FIGURES_DIR / fname, bbox_inches="tight", pad_inches=0.02)
+    plt.show()
+    print(f"saved {fname}")
+
+
+_save_scalar_icon(a_field, "darcy_flux_a.png", CMAP_INPUT)
+_save_scalar_icon(psi, "darcy_flux_psi.png", CMAP_OUTPUT, symmetric=True)
+_save_vector_icon(v_part, "darcy_flux_vpart.png", CMAP_VECTOR)
+_save_vector_icon(v_corr, "darcy_flux_vcorr.png", CMAP_VECTOR)
+_save_vector_icon(v_valid, "darcy_flux_vvalid.png", CMAP_VECTOR)
+_save_vector_icon(w_field, "darcy_flux_w.png", CMAP_VECTOR)
+_save_scalar_icon(u_field, "darcy_flux_u.png", CMAP_OUTPUT)

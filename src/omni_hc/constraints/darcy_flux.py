@@ -361,3 +361,36 @@ class DarcyFluxConstraint(ConstraintModule):
                 diagnostics=diagnostics,
             )
         return pressure_encoded
+
+    @classmethod
+    def log_media(cls, ctx) -> dict[str, str]:
+        aux = ctx.aux_tensors
+        required = ("pred_base", "stream_correction", "constrained_flux")
+        if not all(k in aux for k in required):
+            return {}
+        h, w = ctx.meta["shapelist"]
+        if ctx.out_dir is None:
+            from omni_hc.training.logging_utils import log_darcy_flux_pipeline_images
+
+            log_darcy_flux_pipeline_images(
+                ctx.pred,
+                ctx.fx,
+                aux,
+                h,
+                w,
+                prefix=ctx.prefix,
+                epoch=ctx.epoch,
+                step=ctx.step,
+            )
+            return {}
+        from omni_hc.training.logging_utils import save_darcy_flux_pipeline_images
+
+        return save_darcy_flux_pipeline_images(
+            ctx.pred,
+            ctx.fx,
+            aux,
+            h,
+            w,
+            out_dir=ctx.out_dir,
+            prefix=ctx.prefix,
+        )

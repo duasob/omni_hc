@@ -1490,6 +1490,191 @@ def save_pipe_stream_images(
     return {"pipe_stream": str(path)}
 
 
+def _as_first_grid(tensor, h, w, channels):
+    return tensor[0].detach().cpu().reshape(h, w, int(channels)).numpy()
+
+
+def _plot_darcy_flux_scalar_icon(ax, field, *, title, cmap, symmetric=False):
+    ax.set_facecolor("#050505")
+    kw = {}
+    if symmetric:
+        scale = float(np.nanmax(np.abs(field))) if field.size else 1.0
+        if scale <= 0.0:
+            scale = 1e-12
+        kw = {"vmin": -scale, "vmax": scale}
+    image = ax.imshow(field, origin="lower", extent=(0, 1, 0, 1), cmap=cmap, **kw)
+    ax.set_title(title, color="white", fontsize=9)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    return image
+
+
+def _plot_darcy_flux_vector_icon(
+    ax,
+    field,
+    *,
+    title,
+    cmap,
+    min_arrow_frac=0.25,
+    edge_pad=0.06,
+):
+    h, w = field.shape[:2]
+    mag = np.linalg.norm(field, axis=-1)
+    eps = (
+        np.finfo(field.dtype).eps
+        if np.issubdtype(field.dtype, np.floating)
+        else 1e-12
+    )
+    unit = np.divide(
+        field,
+        np.maximum(mag, eps)[..., None],
+        out=np.zeros_like(field, dtype=np.float64),
+        where=mag[..., None] > eps,
+    )
+    xs = np.linspace(0, 1, w)
+    ys = np.linspace(0, 1, h)
+    xg, yg = np.meshgrid(xs, ys)
+    stride = max(h // 12, 1)
+    mag_sample = mag[::stride, ::stride]
+    finite_mag = mag_sample[np.isfinite(mag_sample)]
+    vmin = float(finite_mag.min()) if finite_mag.size else 0.0
+    vmax = float(finite_mag.max()) if finite_mag.size else 1.0
+    if vmax <= vmin:
+        vmax = vmin + 1e-12
+    rel_mag = np.clip(mag_sample / vmax, 0.0, 1.0)
+    rel_mag = np.where(mag_sample > eps, np.maximum(rel_mag, min_arrow_frac), 0.0)
+
+    ax.set_facecolor("#050505")
+    quiver = ax.quiver(
+        xg[::stride, ::stride],
+        yg[::stride, ::stride],
+        unit[::stride, ::stride, 0] * rel_mag,
+        unit[::stride, ::stride, 1] * rel_mag,
+        mag_sample,
+        cmap=cmap,
+        norm=plt.Normalize(vmin=vmin, vmax=vmax),
+        angles="xy",
+        scale_units="xy",
+        scale=18,
+        pivot="mid",
+        alpha=0.95,
+        width=0.01,
+        headwidth=3.5,
+        headlength=4.5,
+        headaxislength=3.8,
+    )
+    ax.set_xlim(-edge_pad, 1 + edge_pad)
+    ax.set_ylim(-edge_pad, 1 + edge_pad)
+    ax.set_aspect("equal")
+    ax.set_title(title, color="white", fontsize=9)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    return quiver
+
+
+def _make_darcy_flux_pipeline_figure(
+    pred,
+    fx,
+    aux_tensors,
+    h,
+    w,
+    *,
+    scalar_cmap="magma",
+    input_cmap="viridis",
+    vector_cmap="spring",
+):
+    required = {"pred_base", "stream_correction", "constrained_flux"}
+    if fx is None or not required.issubset(aux_tensors):
+        return None
+
+    psi = _as_first_grid(aux_tensors["pred_base"], h, w, 1)[..., 0]
+    v_corr = _as_first_grid(aux_tensors["stream_correction"], h, w, 2)
+    v_valid = _as_first_grid(aux_tensors["constrained_flux"], h, w, 2)
+    v_part = v_valid - v_corr
+    a_field = _as_first_grid(fx, h, w, 1)[..., 0]
+    u_field = _as_first_grid(pred, h, w, 1)[..., 0]
+    a_safe = np.clip(a_field, 1e-6, None)
+    w_field = -v_valid / a_safe[..., None]
+
+    fig, axes = plt.subplots(2, 4, figsize=(10.0, 5.2), dpi=150)
+    fig.patch.set_facecolor("#050505")
+    fields = [
+        ("a", "scalar", a_field, input_cmap, False),
+        ("psi", "scalar", psi, scalar_cmap, True),
+        ("v_part", "vector", v_part, vector_cmap, False),
+        ("v_corr", "vector", v_corr, vector_cmap, False),
+        ("v_valid", "vector", v_valid, vector_cmap, False),
+        ("w = grad u", "vector", w_field, vector_cmap, False),
+        ("u", "scalar", u_field, scalar_cmap, False),
+    ]
+    for ax, (title, kind, field, cmap, symmetric) in zip(axes.flat, fields):
+        if kind == "scalar":
+            _plot_darcy_flux_scalar_icon(
+                ax,
+                field,
+                title=title,
+                cmap=cmap,
+                symmetric=symmetric,
+            )
+        else:
+            _plot_darcy_flux_vector_icon(ax, field, title=title, cmap=cmap)
+    for ax in axes.flat[len(fields):]:
+        ax.set_facecolor("#050505")
+        ax.axis("off")
+    fig.tight_layout(pad=0.8)
+    return fig
+
+
+def log_darcy_flux_pipeline_images(
+    pred,
+    fx,
+    aux_tensors,
+    h,
+    w,
+    *,
+    prefix,
+    epoch,
+    step=None,
+):
+    if wandb is None or getattr(wandb, "run", None) is None or plt is None:
+        return
+    fig = _make_darcy_flux_pipeline_figure(pred, fx, aux_tensors, h, w)
+    if fig is None:
+        return
+    wandb.log(
+        {
+            f"{prefix}/darcy_flux_pipeline": wandb.Image(fig),
+            "epoch": epoch + 1,
+        },
+        step=step,
+    )
+    plt.close(fig)
+
+
+def save_darcy_flux_pipeline_images(
+    pred,
+    fx,
+    aux_tensors,
+    h,
+    w,
+    *,
+    out_dir,
+    prefix="test",
+):
+    if plt is None:
+        return {}
+    fig = _make_darcy_flux_pipeline_figure(pred, fx, aux_tensors, h, w)
+    if fig is None:
+        return {}
+    path = _save_figure(Path(out_dir) / f"{prefix}_darcy_flux_pipeline.png", fig)
+    plt.close(fig)
+    return {"darcy_flux_pipeline": str(path)}
+
+
 def finish_wandb_if_active():
     if wandb is None:
         return
