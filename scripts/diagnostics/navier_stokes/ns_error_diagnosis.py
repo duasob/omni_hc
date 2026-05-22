@@ -54,7 +54,7 @@ T_IN = 10
 DEFAULT_MODEL_SUBDIRS: dict[str, str] = {
     "Factformer": "factformer/final/seed_42",
     "Transolver": "transolver/final/seed_42",
-    "Transolver_exp": "transolver/experiment/latent_head_500e/seed_42",
+    "Transolver_exp": "transolver/experiments/latent_head_500e/seed_42",
     "Galerkin-T": "galerkin_transformer/validation/seed_42",
     "ONO": "ono/final/seed_42",
     "GNOT": "gnot/final/seed_42",
