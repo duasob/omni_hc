@@ -284,7 +284,7 @@ def plot_rollout_grid(
         pad=0.02,
         label=r"Rel. $L_2$",
     )
-    fig.suptitle(f"NS diagnosis — test sample {sample_idx}", fontsize=11)
+    # fig.suptitle(f"NS diagnosis — test sample {sample_idx}", fontsize=11)
 
     out_path = out_dir / "ns_diag_rollout.png"
     fig.savefig(out_path, bbox_inches="tight")
