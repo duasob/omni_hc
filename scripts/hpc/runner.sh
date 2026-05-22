@@ -40,13 +40,9 @@ export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-$OMP_NUM_THREADS}"
 export NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-$OMP_NUM_THREADS}"
 
 RUNS=(
-    "test: --config outputs/navier_stokes/mean_constraint/transolver/final/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/mean_constraint/transolver/final/seed_42/latest.pt"
-    "--config outputs/navier_stokes/mean_constraint/transolver/final/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/mean_constraint/transolver/final/seed_42/latest.pt"
-    "test: --config outputs/navier_stokes/mean_constraint/transolver/final/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/mean_constraint/transolver/final/seed_42/latest.pt"
+    "test: --config outputs/navier_stokes/mean_constraint/ono/final/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/mean_constraint/ono/final/seed_42/latest.pt"
+    "--benchmark darcy --backbone Transolver --constraint "
 )
-
-#   "--config outputs/navier_stokes/mean_constraint/transolver/final/Z`/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/mean_constraint/transolver/final/just_latent/seed_42/latest.pt"
-
 
 timestamp() {
     date -u +"%Y-%m-%dT%H:%M:%SZ"
