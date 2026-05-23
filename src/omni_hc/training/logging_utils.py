@@ -1495,7 +1495,7 @@ def _as_first_grid(tensor, h, w, channels):
 
 
 def _plot_darcy_flux_scalar_icon(ax, field, *, title, cmap, symmetric=False):
-    ax.set_facecolor("#050505")
+    ax.set_facecolor("none")
     kw = {}
     if symmetric:
         scale = float(np.nanmax(np.abs(field))) if field.size else 1.0
@@ -1503,7 +1503,7 @@ def _plot_darcy_flux_scalar_icon(ax, field, *, title, cmap, symmetric=False):
             scale = 1e-12
         kw = {"vmin": -scale, "vmax": scale}
     image = ax.imshow(field, origin="lower", extent=(0, 1, 0, 1), cmap=cmap, **kw)
-    ax.set_title(title, color="white", fontsize=9)
+    ax.set_title(title, color="#171717", fontsize=9)
     ax.set_xticks([])
     ax.set_yticks([])
     for spine in ax.spines.values():
@@ -1517,7 +1517,7 @@ def _plot_darcy_flux_vector_icon(
     *,
     title,
     cmap,
-    min_arrow_frac=0.25,
+    min_arrow_frac=0.5,
     edge_pad=0.06,
 ):
     h, w = field.shape[:2]
@@ -1536,7 +1536,24 @@ def _plot_darcy_flux_vector_icon(
     xs = np.linspace(0, 1, w)
     ys = np.linspace(0, 1, h)
     xg, yg = np.meshgrid(xs, ys)
-    stride = max(h // 12, 1)
+    stride = max(h // 8, 1)
+
+    ax.set_facecolor("none")
+    finite_all = mag[np.isfinite(mag)]
+    bg_vmin = float(finite_all.min()) if finite_all.size else 0.0
+    bg_vmax = float(finite_all.max()) if finite_all.size else 1.0
+    if bg_vmax <= bg_vmin:
+        bg_vmax = bg_vmin + 1e-12
+    ax.imshow(
+        mag,
+        origin="lower",
+        extent=(0, 1, 0, 1),
+        cmap="viridis",
+        vmin=bg_vmin,
+        vmax=bg_vmax,
+        alpha=0.72,
+    )
+
     mag_sample = mag[::stride, ::stride]
     finite_mag = mag_sample[np.isfinite(mag_sample)]
     vmin = float(finite_mag.min()) if finite_mag.size else 0.0
@@ -1546,7 +1563,6 @@ def _plot_darcy_flux_vector_icon(
     rel_mag = np.clip(mag_sample / vmax, 0.0, 1.0)
     rel_mag = np.where(mag_sample > eps, np.maximum(rel_mag, min_arrow_frac), 0.0)
 
-    ax.set_facecolor("#050505")
     quiver = ax.quiver(
         xg[::stride, ::stride],
         yg[::stride, ::stride],
@@ -1557,23 +1573,31 @@ def _plot_darcy_flux_vector_icon(
         norm=plt.Normalize(vmin=vmin, vmax=vmax),
         angles="xy",
         scale_units="xy",
-        scale=18,
+        scale=11,
         pivot="mid",
-        alpha=0.95,
-        width=0.01,
+        alpha=0.92,
+        width=0.011,
         headwidth=3.5,
-        headlength=4.5,
-        headaxislength=3.8,
+        headlength=2.5,
+        headaxislength=2.8,
     )
     ax.set_xlim(-edge_pad, 1 + edge_pad)
     ax.set_ylim(-edge_pad, 1 + edge_pad)
     ax.set_aspect("equal")
-    ax.set_title(title, color="white", fontsize=9)
+    ax.set_title(title, color="#171717", fontsize=9)
     ax.set_xticks([])
     ax.set_yticks([])
     for spine in ax.spines.values():
         spine.set_visible(False)
     return quiver
+
+
+def _gradient_field_from_scalar(field, *, lower=0.0, upper=1.0):
+    """Finite-difference vector field for diagram icons, ordered as (dx, dy)."""
+    dy = (upper - lower) / max(field.shape[0] - 1, 1)
+    dx = (upper - lower) / max(field.shape[1] - 1, 1)
+    grad_y, grad_x = np.gradient(field.astype(np.float64), dy, dx, edge_order=2)
+    return np.stack([grad_x, grad_y], axis=-1)
 
 
 def _make_darcy_flux_pipeline_figure(
@@ -1583,6 +1607,8 @@ def _make_darcy_flux_pipeline_figure(
     h,
     w,
     *,
+    lower=0.0,
+    upper=1.0,
     scalar_cmap="magma",
     input_cmap="viridis",
     vector_cmap="spring",
@@ -1592,16 +1618,22 @@ def _make_darcy_flux_pipeline_figure(
         return None
 
     psi = _as_first_grid(aux_tensors["pred_base"], h, w, 1)[..., 0]
-    v_corr = _as_first_grid(aux_tensors["stream_correction"], h, w, 2)
-    v_valid = _as_first_grid(aux_tensors["constrained_flux"], h, w, 2)
-    v_part = v_valid - v_corr
+    v_corr_raw = _as_first_grid(aux_tensors["stream_correction"], h, w, 2)
+    v_valid_raw = _as_first_grid(aux_tensors["constrained_flux"], h, w, 2)
+    v_part = v_valid_raw - v_corr_raw  # fixed particular field (deterministic)
     a_field = _as_first_grid(fx, h, w, 1)[..., 0]
     u_field = _as_first_grid(pred, h, w, 1)[..., 0]
-    a_safe = np.clip(a_field, 1e-6, None)
-    w_field = -v_valid / a_safe[..., None]
+
+    # Derive the displayed vector fields from the model's pressure answer rather
+    # than the raw internal tensors: w = grad(u), v_valid = -a grad(u), and
+    # v_corr = v_valid - v_part. This shows the smooth Darcy relation v = -a grad(u)
+    # and avoids the choppier raw flux fields.
+    w_field = _gradient_field_from_scalar(u_field, lower=lower, upper=upper)
+    v_valid = -a_field[..., None] * w_field
+    v_corr = v_valid - v_part
 
     fig, axes = plt.subplots(2, 4, figsize=(10.0, 5.2), dpi=150)
-    fig.patch.set_facecolor("#050505")
+    fig.patch.set_alpha(0.0)
     fields = [
         ("a", "scalar", a_field, input_cmap, False),
         ("psi", "scalar", psi, scalar_cmap, True),
@@ -1623,7 +1655,7 @@ def _make_darcy_flux_pipeline_figure(
         else:
             _plot_darcy_flux_vector_icon(ax, field, title=title, cmap=cmap)
     for ax in axes.flat[len(fields):]:
-        ax.set_facecolor("#050505")
+        ax.set_facecolor("none")
         ax.axis("off")
     fig.tight_layout(pad=0.8)
     return fig
@@ -1639,10 +1671,14 @@ def log_darcy_flux_pipeline_images(
     prefix,
     epoch,
     step=None,
+    lower=0.0,
+    upper=1.0,
 ):
     if wandb is None or getattr(wandb, "run", None) is None or plt is None:
         return
-    fig = _make_darcy_flux_pipeline_figure(pred, fx, aux_tensors, h, w)
+    fig = _make_darcy_flux_pipeline_figure(
+        pred, fx, aux_tensors, h, w, lower=lower, upper=upper
+    )
     if fig is None:
         return
     wandb.log(
@@ -1664,13 +1700,19 @@ def save_darcy_flux_pipeline_images(
     *,
     out_dir,
     prefix="test",
+    lower=0.0,
+    upper=1.0,
 ):
     if plt is None:
         return {}
-    fig = _make_darcy_flux_pipeline_figure(pred, fx, aux_tensors, h, w)
+    fig = _make_darcy_flux_pipeline_figure(
+        pred, fx, aux_tensors, h, w, lower=lower, upper=upper
+    )
     if fig is None:
         return {}
-    path = _save_figure(Path(out_dir) / f"{prefix}_darcy_flux_pipeline.png", fig)
+    path = Path(out_dir) / f"{prefix}_darcy_flux_pipeline.png"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, bbox_inches="tight", transparent=True)
     plt.close(fig)
     return {"darcy_flux_pipeline": str(path)}
 

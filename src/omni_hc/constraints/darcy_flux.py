@@ -17,7 +17,10 @@ from .utils.spectral import (
     sine_poisson_solve_dirichlet_2d,
     spectral_divergence_2d,
 )
-from .utils.stream_ops import stream_velocity_from_psi_cartesian_spectral
+from .utils.stream_ops import (
+    stream_velocity_from_psi_cartesian_fd,
+    stream_velocity_from_psi_cartesian_spectral,
+)
 
 
 class DarcyFluxConstraint(ConstraintModule):
@@ -27,7 +30,9 @@ class DarcyFluxConstraint(ConstraintModule):
     The backbone predicts a scalar stream function psi on the physical Darcy
     grid. The constraint then:
     1. pads psi on a larger computational box,
-    2. builds a divergence-free correction v_corr = grad_perp(psi) spectrally,
+    2. builds a divergence-free correction v_corr = grad_perp(psi) via finite
+       differences (``stream_derivative="fd"``, default for new configs) or the
+       spectral FFT derivative (``"spectral"``),
     3. adds a fixed particular field v_part with div(v_part) = 1,
     4. computes w = -v_valid / a on the physical domain,
     5. recovers pressure with a Dirichlet-aware sine Poisson solve.
@@ -39,11 +44,13 @@ class DarcyFluxConstraint(ConstraintModule):
     name = "darcy_flux_projection"
 
     _SUPPORTED_BACKENDS = {"helmholtz", "helmholtz_sine", "sine"}
+    _SUPPORTED_DERIVATIVES = {"fd", "spectral"}
 
     def __init__(
         self,
         *,
         spectral_backend: str = "helmholtz_sine",
+        stream_derivative: str = "spectral",
         force_value: float = 1.0,
         permeability_eps: float = 1e-6,
         padding: int | Sequence[int] = 8,
@@ -64,6 +71,13 @@ class DarcyFluxConstraint(ConstraintModule):
                 f"Received spectral_backend={spectral_backend!r}."
             )
         self.spectral_backend = backend
+        derivative = str(stream_derivative).lower()
+        if derivative not in self._SUPPORTED_DERIVATIVES:
+            raise ValueError(
+                "DarcyFluxConstraint.stream_derivative must be one of "
+                f"{sorted(self._SUPPORTED_DERIVATIVES)}, got {stream_derivative!r}."
+            )
+        self.stream_derivative = derivative
         self.force_value = float(force_value)
         self.permeability_eps = float(permeability_eps)
         self.padding = normalize_padding_2d(padding)
@@ -158,7 +172,20 @@ class DarcyFluxConstraint(ConstraintModule):
         dy: float,
         dx: float,
     ) -> torch.Tensor:
+        if self.stream_derivative == "fd":
+            return stream_velocity_from_psi_cartesian_fd(psi, dy=dy, dx=dx)
         return stream_velocity_from_psi_cartesian_spectral(psi, dy=dy, dx=dx)
+
+    def _stream_divergence(
+        self,
+        field: torch.Tensor,
+        *,
+        dy: float,
+        dx: float,
+    ) -> torch.Tensor:
+        if self.stream_derivative == "fd":
+            return finite_difference_divergence_2d(field, dy=dy, dx=dx)
+        return spectral_divergence_2d(field, dy=dy, dx=dx)
 
     def _recover_pressure_from_gradient_sine(
         self,
@@ -277,7 +304,7 @@ class DarcyFluxConstraint(ConstraintModule):
                 dx=dx,
             )
             flux_divergence_residual = flux_divergence - self.force_value
-            stream_divergence_padded = spectral_divergence_2d(
+            stream_divergence_padded = self._stream_divergence(
                 stream_correction_padded,
                 dy=dy,
                 dx=dx,
@@ -369,6 +396,8 @@ class DarcyFluxConstraint(ConstraintModule):
         if not all(k in aux for k in required):
             return {}
         h, w = ctx.meta["shapelist"]
+        domain_bounds = ctx.meta.get("domain_bounds", (0.0, 1.0))
+        lower, upper = float(domain_bounds[0]), float(domain_bounds[1])
         if ctx.out_dir is None:
             from omni_hc.training.logging_utils import log_darcy_flux_pipeline_images
 
@@ -381,6 +410,8 @@ class DarcyFluxConstraint(ConstraintModule):
                 prefix=ctx.prefix,
                 epoch=ctx.epoch,
                 step=ctx.step,
+                lower=lower,
+                upper=upper,
             )
             return {}
         from omni_hc.training.logging_utils import save_darcy_flux_pipeline_images
@@ -393,4 +424,6 @@ class DarcyFluxConstraint(ConstraintModule):
             w,
             out_dir=ctx.out_dir,
             prefix=ctx.prefix,
+            lower=lower,
+            upper=upper,
         )

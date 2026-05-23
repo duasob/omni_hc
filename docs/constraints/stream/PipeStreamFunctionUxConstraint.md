@@ -21,10 +21,90 @@ setting:
 
 $$\nabla \cdot \mathbf{u} = \frac{\partial u_x}{\partial x} + \frac{\partial u_y}{\partial y} = \frac{\partial^2 \psi}{\partial x \partial y} - \frac{\partial^2 \psi}{\partial y \partial x} = 0$$
 
+## Boundary Ansatz Decomposition (`PipeStreamFunctionBoundaryAnsatz`)
+
+The stronger variant, `PipeStreamFunctionBoundaryAnsatz`, applies the
+standard hard-constraint decomposition **in stream-function space**:
+
+$$\psi = g + l \cdot \mathcal{N}$$
+
+where $\mathcal{N}$ is the raw scalar backbone output (any unconstrained
+scalar field on the pipe grid), and the lift $g$ and window $l$ are both
+determined entirely by the mesh geometry — not by the network.
+
+### $g$ — boundary lift
+
+$g$ is the stream function whose transverse derivative exactly reproduces the
+target inlet parabolic profile everywhere along the inlet face:
+
+$$g(\eta) = C + A \cdot H \cdot \!\left(2\eta^{2} - \tfrac{4}{3}\eta^{3}\right)$$
+
+| symbol | meaning | default |
+|--------|---------|---------|
+| $C$ | `boundary_constant` — integration constant, sets the reference level of $\psi$ | $0$ |
+| $A$ | `amplitude` — peak inlet $u_x$ | $0.25$ |
+| $H$ | `inlet_extent` — physical wall-to-wall span at the inlet, $y_{\max}^{\text{inlet}} - y_{\min}^{\text{inlet}}$ | mesh-derived |
+| $\eta \in [0,1]$ | normalized transverse coordinate, $\eta = (y - y_{\min}) / (y_{\max} - y_{\min})$ row-wise | mesh-derived |
+
+Taking the physical $y$-derivative recovers the familiar parabolic profile at
+the inlet ($\xi = 0$):
+
+$$\left.\frac{\partial g}{\partial y}\right|_{\xi=0}
+= A \cdot (4\eta - 4\eta^{2})
+= 4A\,\eta\,(1-\eta)$$
+
+which is exactly zero at both walls ($\eta=0,1$) and peaks at $A$ on the
+centre-line ($\eta = \tfrac12$).
+
+### $l$ — correction window
+
+$l$ is a smooth non-negative envelope that **vanishes at every hard boundary**
+so the network correction $l \cdot \mathcal{N}$ cannot alter the prescribed
+values:
+
+$$l(\xi,\eta) = \xi^{p} \cdot \eta^{2} \cdot (1-\eta)^{2}$$
+
+| symbol | meaning | default |
+|--------|---------|---------|
+| $\xi \in [0,1]$ | normalized streamwise coordinate, $\xi = 0$ at inlet, $\xi = 1$ at outlet | mesh-derived |
+| $p$ | `decay_power` — controls how quickly the correction grows away from the inlet | $4$ |
+
+Boundary behaviour enforced by $l$:
+
+| boundary | $l$ value | consequence |
+|----------|-----------|-------------|
+| inlet ($\xi = 0$) | $0$ | $\psi = g$ exactly; inlet parabolic profile is preserved |
+| lower wall ($\eta = 0$) | $0$ | $\psi = g$ at wall; $u_x$ wall value set by $\partial g/\partial y\rvert_{\eta=0} = 0$ |
+| upper wall ($\eta = 1$) | $0$ | same as lower wall |
+| interior | $> 0$ | network can freely adjust $\psi$, and hence $u_x$, in the interior |
+
+The $\xi^{p}$ factor lets the correction build gradually from the inlet.
+Larger $p$ keeps the correction small close to the inlet for longer.
+
+### $\mathcal{N}$ — network output
+
+$\mathcal{N}$ is the raw scalar backbone prediction reshaped to the pipe grid
+$(H \times W)$. It is fully unconstrained; the boundary properties come
+entirely from $l$ zeroing out its contribution at the boundaries.
+
+### Resulting $u_x$
+
+After constructing $\psi = g + l \cdot \mathcal{N}$, the physical velocity is
+recovered with curvilinear finite-difference derivatives:
+
+$$u_x = \frac{\partial\psi}{\partial y}
+= \underbrace{\frac{\partial g}{\partial y}}_{\text{parabolic lift}} +
+  \underbrace{\frac{\partial(l\cdot\mathcal{N})}{\partial y}}_{\text{network correction}},
+\qquad
+u_y = -\frac{\partial\psi}{\partial x}$$
+
+The $g$ and $l$ fields on the curvilinear mesh are shown below:
+
+![pipe_stream_g_l_fields](../../figures/pipe/pipe_stream_g_l_fields.png)
+
 ## Interpretation For A Scalar $u_x$ Target
 
-This constraint should be interpreted carefully in the current pipe setup. The
-benchmark uses `target_channel: 0`, so the training loss is applied only to the
+The benchmark uses `target_channel: 0`, so the training loss is applied only to the
 returned $u_x$. Although the constraint internally recovers
 
 $$

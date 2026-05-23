@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import torch
 
-from .spectral import finite_difference_derivative_2d, spectral_gradient_2d
+from .spectral import (
+    finite_difference_derivative_2d,
+    finite_difference_gradient_2d,
+    spectral_gradient_2d,
+)
 
 
 def stream_velocity_from_psi_cartesian_spectral(
@@ -17,6 +21,32 @@ def stream_velocity_from_psi_cartesian_spectral(
             f"got {tuple(psi.shape)!r}"
         )
     gradient = spectral_gradient_2d(psi, dy=dy, dx=dx)
+    dpsi_dx = gradient[:, 0:1]
+    dpsi_dy = gradient[:, 1:2]
+    return torch.cat([dpsi_dy, -dpsi_dx], dim=1)
+
+
+def stream_velocity_from_psi_cartesian_fd(
+    psi: torch.Tensor,
+    *,
+    dy: float,
+    dx: float,
+) -> torch.Tensor:
+    """Divergence-free velocity grad_perp(psi) via finite differences.
+
+    Mirrors :func:`stream_velocity_from_psi_cartesian_spectral` but uses central
+    finite differences. The FD symbol ``sin(kh)/h`` attenuates the grid-scale
+    modes that the spectral ``ik`` factor amplifies, so it avoids the
+    high-frequency striping the FFT derivative produces on a non-periodic (e.g.
+    reflect-padded) field. It is also consistent with the central-difference
+    divergence used downstream, so div(grad_perp(psi)) cancels on the interior.
+    """
+    if psi.ndim != 4 or psi.shape[1] != 1:
+        raise ValueError(
+            "Expected a scalar field with shape (batch, 1, height, width), "
+            f"got {tuple(psi.shape)!r}"
+        )
+    gradient = finite_difference_gradient_2d(psi, dy=dy, dx=dx)
     dpsi_dx = gradient[:, 0:1]
     dpsi_dy = gradient[:, 1:2]
     return torch.cat([dpsi_dy, -dpsi_dx], dim=1)
