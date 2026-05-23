@@ -47,6 +47,13 @@ def build_scheduler(optimizer, cfg: dict):
             gamma=float(cfg.get("gamma", 0.5)),
         )
         return scheduler, False
+    if name == "cosineannealinglr":
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=int(cfg["num_epochs"]),
+            eta_min=float(cfg.get("eta_min", 0.0)),
+        )
+        return scheduler, False
     raise ValueError(f"Unknown scheduler: {name}")
 
 
