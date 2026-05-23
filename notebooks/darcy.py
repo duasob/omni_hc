@@ -959,13 +959,27 @@ def _grid(t, c):
 
 
 psi = _grid(aux["pred_base"], 1)[..., 0]  # stream function (backbone)
-v_corr = _grid(aux["stream_correction"], 2)  # grad_perp(psi), div = 0
-v_valid = _grid(aux["constrained_flux"], 2)  # v_part + v_corr, div = 1
-v_part = v_valid - v_corr  # fixed particular field, div = 1
+v_corr_raw = _grid(aux["stream_correction"], 2)  # grad_perp(psi), div = 0
+v_valid_raw = _grid(aux["constrained_flux"], 2)  # v_part + v_corr, div = 1
+v_part = v_valid_raw - v_corr_raw  # fixed particular field, div = 1
 a_field = _grid(x_norm.decode(fx_b), 1)[..., 0]  # permeability a
 u_field = _grid(y_norm.decode(out["pred"]), 1)[..., 0]  # recovered pressure u
-a_safe = np.clip(a_field, 1e-6, None)
-w_field = -v_valid / a_safe[..., None]  # w = -v_valid / a = grad u
+
+
+def _gradient_field_from_scalar(field, lower=0.0, upper=1.0):
+    """Finite-difference vector field for diagram icons, ordered as (dx, dy)."""
+    dy = (upper - lower) / max(field.shape[0] - 1, 1)
+    dx = (upper - lower) / max(field.shape[1] - 1, 1)
+    grad_y, grad_x = np.gradient(field.astype(np.float64), dy, dx, edge_order=2)
+    return np.stack([grad_x, grad_y], axis=-1)
+
+
+# For the diagram, derive the final vector fields from the model's pressure
+# answer. This avoids showing raw internal tensors and gives smoother visual
+# cues while preserving the Darcy relationship: v = -a grad u.
+w_field = _gradient_field_from_scalar(u_field, lower=float(_lo), upper=float(_up))
+v_valid = -a_field[..., None] * w_field
+v_corr = v_valid - v_part
 
 print(f"psi {psi.shape}  v_valid {v_valid.shape}  u {u_field.shape}")
 print(
@@ -985,6 +999,8 @@ CMAP_VECTOR = "spring"
 
 def _save_scalar_icon(field, fname, cmap, symmetric=False):
     fig, ax = plt.subplots(figsize=(2.2, 2.2))
+    fig.patch.set_alpha(0.0)
+    ax.set_facecolor("none")
     kw = {}
     if symmetric:
         m = float(np.abs(field).max()) or 1.0
@@ -992,13 +1008,15 @@ def _save_scalar_icon(field, fname, cmap, symmetric=False):
     ax.imshow(field, origin="lower", extent=(0, 1, 0, 1), cmap=cmap, **kw)
     ax.set_xticks([])
     ax.set_yticks([])
-    fig.savefig(FIGURES_DIR / fname, bbox_inches="tight", pad_inches=0.02)
+    fig.savefig(
+        FIGURES_DIR / fname, bbox_inches="tight", pad_inches=0.02, transparent=True
+    )
     plt.show()
     print(f"saved {fname}")
 
 
 def _save_vector_icon(field, fname, cmap):
-    min_arrow_frac = 0.55
+    min_arrow_frac = 0.5
     edge_pad = 0.06
     mag = np.linalg.norm(field, axis=-1)
     eps = (
@@ -1013,10 +1031,27 @@ def _save_vector_icon(field, fname, cmap):
     xs = np.linspace(0, 1, W)
     ys = np.linspace(0, 1, H)
     Xg, Yg = np.meshgrid(xs, ys)
-    s = max(H // 4, 1)
+    s = max(H // 8, 1)
     fig, ax = plt.subplots(figsize=(2.2, 2.2))
-    fig.patch.set_facecolor("#050505")
-    ax.set_facecolor("#050505")
+    fig.patch.set_alpha(0.0)
+    ax.set_facecolor("none")
+
+    # Background: magnitude field as a scalar heatmap
+    finite_all = mag[np.isfinite(mag)]
+    bg_vmin = float(finite_all.min()) if finite_all.size else 0.0
+    bg_vmax = float(finite_all.max()) if finite_all.size else 1.0
+    if bg_vmax <= bg_vmin:
+        bg_vmax = bg_vmin + 1e-12
+    ax.imshow(
+        mag,
+        origin="lower",
+        extent=(0, 1, 0, 1),
+        cmap="viridis",
+        vmin=bg_vmin,
+        vmax=bg_vmax,
+        alpha=0.72,
+    )
+
     mag_sample = mag[::s, ::s]
     finite_mag = mag_sample[np.isfinite(mag_sample)]
     vmin = float(finite_mag.min()) if finite_mag.size else 0.0
@@ -1036,10 +1071,10 @@ def _save_vector_icon(field, fname, cmap):
         norm=norm,
         angles="xy",
         scale_units="xy",
-        scale=7,
+        scale=11,
         pivot="mid",
-        alpha=0.95,
-        width=0.014,
+        alpha=0.92,
+        width=0.011,
         headwidth=3.5,
         headlength=2.5,
         headaxislength=2.8,
@@ -1051,7 +1086,9 @@ def _save_vector_icon(field, fname, cmap):
     ax.set_yticks([])
     for spine in ax.spines.values():
         spine.set_visible(False)
-    fig.savefig(FIGURES_DIR / fname, bbox_inches="tight", pad_inches=0.02)
+    fig.savefig(
+        FIGURES_DIR / fname, bbox_inches="tight", pad_inches=0.02, transparent=True
+    )
     plt.show()
     print(f"saved {fname}")
 

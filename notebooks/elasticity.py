@@ -42,7 +42,7 @@ print(f"coords: {coords.shape}  sigma: {sigma.shape}  ({N} samples, {P} points)"
 print(f"sigma range: [{sigma.min():.3e}, {sigma.max():.3e}]")
 
 # %% Dataset sample - point cloud coloured by von Mises stress
-SAMPLE_IDX = [0, 10, 100]
+SAMPLE_IDX = [0, 10, 100, 500, 1000]
 
 fig, axes = plt.subplots(1, len(SAMPLE_IDX), figsize=(4 * len(SAMPLE_IDX), 4))
 if len(SAMPLE_IDX) == 1:
@@ -60,10 +60,11 @@ for ax, idx in zip(axes, SAMPLE_IDX):
         vmin=vmin,
         vmax=vmax,
     )
-    ax.set_title(f"sample {idx}", fontsize=10)
+    # ax.set_title(f"sample {idx}", fontsize=10)
+
     ax.set_aspect("equal")
-    ax.set_xticks([])
-    ax.set_yticks([])
+    ax.set_xlabel("$x$")
+    ax.set_ylabel("$y$")
 
 fig.colorbar(
     plt.cm.ScalarMappable(cmap=CMAP, norm=plt.Normalize(vmin=vmin, vmax=vmax)),
@@ -88,8 +89,12 @@ ax_hist.set_ylabel("count")
 ax_hist.set_title("Stress distribution")
 
 order = np.argsort(per_sample_mean)
-ax_band.plot(per_sample_mean[order], color=plt.get_cmap(CMAP)(0.3), label="per-sample mean")
-ax_band.plot(per_sample_max[order], color=plt.get_cmap(CMAP)(0.75), label="per-sample max")
+ax_band.plot(
+    per_sample_mean[order], color=plt.get_cmap(CMAP)(0.3), label="per-sample mean"
+)
+ax_band.plot(
+    per_sample_max[order], color=plt.get_cmap(CMAP)(0.75), label="per-sample max"
+)
 ax_band.set_xlabel("sample (sorted by mean stress)")
 ax_band.set_ylabel(r"$\sigma_{VM}$")
 ax_band.set_title("Per-sample stress")
