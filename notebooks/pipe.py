@@ -22,6 +22,7 @@ from omni_hc.constraints import (
     PipeInletParabolicAnsatz,
     PipeStreamFunctionBoundaryAnsatz,
     PipeUxBoundaryAnsatz,
+    StructuredWallDirichletAnsatz,
 )
 from omni_hc.diagnostics.boundary_maps import infer_boundary_ansatz_maps
 
@@ -117,6 +118,56 @@ else:
 print(f"Saved to {FIGURES_DIR / 'pipe_dataset_sample.png'}")
 
 
+# %% Mesh structure variation across samples (2×5 grid)
+N_MESH_ROWS, N_MESH_COLS = 2, 5
+MESH_SAMPLE_INDICES = np.linspace(0, N - 1, N_MESH_ROWS * N_MESH_COLS, dtype=int)
+
+fig, axes = plt.subplots(
+    N_MESH_ROWS,
+    N_MESH_COLS,
+    figsize=(N_MESH_COLS * 4.5, N_MESH_ROWS * 1.8),
+    constrained_layout=True,
+)
+
+legend_handles = []
+for ax_idx, (ax, idx) in enumerate(zip(axes.ravel(), MESH_SAMPLE_INDICES)):
+    xi = np.asarray(x_all[idx])
+    yi = np.asarray(y_all[idx])
+
+    for i in range(0, H, MESH_STEP):
+        ax.plot(xi[i, :], yi[i, :], color="0.78", lw=0.35)
+    for j in range(0, W, MESH_STEP):
+        ax.plot(xi[:, j], yi[:, j], color="0.78", lw=0.35)
+
+    for edge, sl in EDGE_SLICES.items():
+        (line,) = ax.plot(xi[sl], yi[sl], color=EDGE_COLORS[edge], lw=1.6)
+        if ax_idx == 0:
+            line.set_label(edge)
+            legend_handles.append(line)
+
+    ax.set_aspect("equal", adjustable="box")
+    ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+fig.legend(
+    handles=legend_handles,
+    fontsize=8,
+    frameon=False,
+    loc="lower center",
+    ncol=4,
+    bbox_to_anchor=(0.5, -0.04),
+)
+
+out_path = FIGURES_DIR / "pipe_mesh_variation.png"
+fig.savefig(out_path, bbox_inches="tight")
+if IS_NOTEBOOK:
+    plt.show()
+else:
+    plt.close(fig)
+print(f"Saved to {out_path}")
+
+
 # %% Pipe flow constraint maps
 def plot_pipe_constraint_maps(constraint_specs, *, coords_tensor, out_path):
     maps = [
@@ -135,35 +186,61 @@ def plot_pipe_constraint_maps(constraint_specs, *, coords_tensor, out_path):
         2,
         len(maps),
         figsize=(14.0, 5.0),
-        gridspec_kw={"hspace": 0.32, "wspace": 0.12},
+        gridspec_kw={"hspace": 0.12, "wspace": 0.25},
         sharex=True,
         sharey=True,
     )
-    fig.suptitle("Pipe flow hard-constraint maps", y=0.98)
+    # fig.suptitle("Pipe flow hard-constraint maps", y=0.98)
+
+    row_defs = (
+        ("$g(i,j)$", "coolwarm", lambda m: m.g[..., 0].numpy()),
+        ("$l(i,j)$", CMAP, lambda m: m.l[..., 0].numpy()),
+    )
+    # Shared colour range per row so a single colourbar describes the whole row.
+    row_ranges = [
+        (
+            min(float(getter(m).min()) for m in maps),
+            max(float(getter(m).max()) for m in maps),
+        )
+        for _, _, getter in row_defs
+    ]
+    row_meshes = [None] * len(row_defs)
 
     for col, ((title, _constraint), ansatz_maps) in enumerate(
         zip(constraint_specs, maps)
     ):
-        for row, (map_name, values, cmap) in enumerate(
-            (
-                ("g", ansatz_maps.g[..., 0].numpy(), "coolwarm"),
-                ("l", ansatz_maps.l[..., 0].numpy(), CMAP),
-            )
-        ):
+        for row, (map_name, cmap, getter) in enumerate(row_defs):
             ax = axes[row, col]
-            im = ax.pcolormesh(x, y, values, shading="gouraud", cmap=cmap)
+            vmin, vmax = row_ranges[row]
+            im = ax.pcolormesh(
+                x,
+                y,
+                getter(ansatz_maps),
+                shading="gouraud",
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+            )
+            row_meshes[row] = im
             ax.plot(x[:, 0], y[:, 0], color="0.15", lw=0.7)
             ax.plot(x[:, -1], y[:, -1], color="0.15", lw=0.7)
             ax.plot(x[0, :], y[0, :], color="0.15", lw=0.7)
             ax.plot(x[-1, :], y[-1, :], color="0.15", lw=0.7)
             ax.set_aspect("equal", adjustable="box")
-            ax.set_title(f"{title}\n{map_name} ({ansatz_maps.space})", fontsize=9)
-            ax.set_xlabel("$x$")
+
+            if row == len(maps) - 1:
+                ax.set_title(f"{map_name}", fontsize=12)
+                ax.set_xlabel("$x$")
+            else:
+                ax.set_title(f"{title}\n{map_name}", fontsize=12)
             if col == 0:
                 ax.set_ylabel("$y$")
-            fig.colorbar(im, ax=ax, shrink=0.8, fraction=0.035, pad=0.02)
 
-    fig.subplots_adjust(top=0.84, bottom=0.12, left=0.055, right=0.985)
+    fig.subplots_adjust(top=0.84, bottom=0.12, left=0.055, right=0.90)
+    # One shared colourbar per row, placed to the right of the entire row.
+    for row, mesh in enumerate(row_meshes):
+        fig.colorbar(mesh, ax=list(axes[row, :]), shrink=0.8, fraction=0.035, pad=0.02)
+
     fig.savefig(out_path, bbox_inches="tight")
     if IS_NOTEBOOK:
         plt.show()
@@ -178,17 +255,21 @@ coords_tensor = torch.as_tensor(
 )
 pipe_constraint_specs = [
     (
-        "Inlet parabolic",
+        "Wall",
+        StructuredWallDirichletAnsatz(out_dim=1, grid_shape=(H, W)),
+    ),
+    (
+        "Inlet",
         PipeInletParabolicAnsatz(out_dim=1, grid_shape=(H, W), amplitude=0.25),
     ),
     (
         "Inlet + wall",
         PipeUxBoundaryAnsatz(out_dim=1, grid_shape=(H, W), amplitude=0.25),
     ),
-    (
-        "Stream function",
-        PipeStreamFunctionBoundaryAnsatz(shapelist=(H, W), amplitude=0.25),
-    ),
+    # (
+    #     "Stream function",
+    #     PipeStreamFunctionBoundaryAnsatz(shapelist=(H, W), amplitude=0.25),
+    # ),
 ]
 plot_pipe_constraint_maps(
     pipe_constraint_specs,
@@ -502,10 +583,10 @@ def stokes_circulation(x, y, ux, uy):
         vm = 0.5 * (vs[:-1] + vs[1:])
         return float((um * dx + vm * dy).sum())
 
-    bw = line(x[:, 0], y[:, 0], ux[:, 0], uy[:, 0])           # bottom wall
-    ou = line(x[-1, :], y[-1, :], ux[-1, :], uy[-1, :])       # outlet
+    bw = line(x[:, 0], y[:, 0], ux[:, 0], uy[:, 0])  # bottom wall
+    ou = line(x[-1, :], y[-1, :], ux[-1, :], uy[-1, :])  # outlet
     tw = line(x[::-1, -1], y[::-1, -1], ux[::-1, -1], uy[::-1, -1])  # top wall
-    iw = line(x[0, ::-1], y[0, ::-1], ux[0, ::-1], uy[0, ::-1])      # inlet
+    iw = line(x[0, ::-1], y[0, ::-1], ux[0, ::-1], uy[0, ::-1])  # inlet
     return bw + ou + tw + iw
 
 
@@ -542,8 +623,10 @@ ref_flux = float(
         ]
     )
 )
-print(f"  reference inlet |∫u dy| ≈ {ref_flux:.3e}  "
-      f"→ |∫ω|/ref ≈ {np.abs(integrals_fd).mean() / max(ref_flux, 1e-12):.2%}")
+print(
+    f"  reference inlet |∫u dy| ≈ {ref_flux:.3e}  "
+    f"→ |∫ω|/ref ≈ {np.abs(integrals_fd).mean() / max(ref_flux, 1e-12):.2%}"
+)
 
 # --- Vorticity field for sample 0 ---
 SAMPLE_VORT = SAMPLE_IDX
@@ -560,8 +643,9 @@ fig, axes = plt.subplots(1, 3, figsize=(15, 4.0))
 
 # Panel 1: vorticity field on the curvilinear mesh
 ax = axes[0]
-im = ax.pcolormesh(xs0, ys0, omega0, shading="gouraud", cmap="RdBu_r",
-                   vmin=-v_abs, vmax=v_abs)
+im = ax.pcolormesh(
+    xs0, ys0, omega0, shading="gouraud", cmap="RdBu_r", vmin=-v_abs, vmax=v_abs
+)
 fig.colorbar(im, ax=ax, shrink=0.85, label=r"$\omega$")
 for sl in EDGE_SLICES.values():
     ax.plot(xs0[sl], ys0[sl], color="0.15", lw=0.7)
@@ -577,12 +661,19 @@ ax.set_title(f"sample {SAMPLE_VORT}: $\\omega(x,y)$\n{title_line2}", fontsize=10
 # Panel 2: distribution of ∫ω dA across samples
 ax = axes[1]
 ax.hist(
-    integrals_fd, bins=40, color=plt.get_cmap(CMAP)(0.55),
-    alpha=0.85, edgecolor="white", linewidth=0.4, label=r"$\int\omega\,dA$ (FD)",
+    integrals_fd,
+    bins=40,
+    color=plt.get_cmap(CMAP)(0.55),
+    alpha=0.85,
+    edgecolor="white",
+    linewidth=0.4,
+    label=r"$\int\omega\,dA$ (FD)",
 )
 ax.axvline(0.0, color="0.25", lw=1.0, linestyle="--")
 ax.axvline(
-    integrals_fd.mean(), color=plt.get_cmap(CMAP)(0.85), lw=1.5,
+    integrals_fd.mean(),
+    color=plt.get_cmap(CMAP)(0.85),
+    lw=1.5,
     label=f"mean = {integrals_fd.mean():+.2e}",
 )
 ax.set_xlabel(r"$\int\omega\,dA$")
@@ -594,11 +685,14 @@ ax.grid(True, alpha=0.22)
 # Panel 3: FD ∫ω dA vs Stokes ∮(u dx + v dy)
 ax = axes[2]
 lim = max(np.abs(integrals_fd).max(), np.abs(integrals_stokes).max())
-ax.plot([-lim, lim], [-lim, lim], color="0.5", lw=0.8, linestyle="--",
-        label="$y=x$")
+ax.plot([-lim, lim], [-lim, lim], color="0.5", lw=0.8, linestyle="--", label="$y=x$")
 ax.scatter(
-    integrals_fd, integrals_stokes, s=10, alpha=0.55,
-    color=plt.get_cmap(CMAP)(0.7), edgecolor="none",
+    integrals_fd,
+    integrals_stokes,
+    s=10,
+    alpha=0.55,
+    color=plt.get_cmap(CMAP)(0.7),
+    edgecolor="none",
 )
 ax.set_xlabel(r"$\int\omega\,dA$ (FD)")
 ax.set_ylabel(r"$\oint(u\,dx + v\,dy)$ (Stokes)")
@@ -609,6 +703,66 @@ ax.legend(fontsize=8, frameon=False, loc="upper left")
 
 fig.tight_layout()
 out_path = FIGURES_DIR / "pipe_global_vorticity.png"
+fig.savefig(out_path, bbox_inches="tight")
+if IS_NOTEBOOK:
+    plt.show()
+else:
+    plt.close(fig)
+print(f"Saved to {out_path}")
+
+
+# %% Stream function boundary ansatz — g and l fields on the pipe mesh
+# PipeStreamFunctionBoundaryAnsatz uses psi = g + l * N where:
+#   g = psi_bc(eta)             : boundary lift (stream fn that recovers parabolic inlet)
+#   l = xi^p * eta^2*(1-eta)^2  : correction window (zero at all hard boundaries)
+#   N = backbone scalar output  : unconstrained network prediction
+# Uses sample 0 mesh (x, y already loaded).
+SFBA_AMPLITUDE = 0.25
+SFBA_DECAY_POWER = 0.25
+
+# eta: transverse coordinate normalized row-wise (wall-to-wall in each streamwise slice)
+y_min_row = y.min(axis=1, keepdims=True)  # (H, 1)
+y_max_row = y.max(axis=1, keepdims=True)  # (H, 1)
+eta_field = (y - y_min_row) / np.maximum(y_max_row - y_min_row, 1e-12)  # (H, W)
+
+# xi: streamwise coordinate, 0 at inlet (row 0) → 1 at outlet (row H-1)
+xi_field = np.linspace(0.0, 1.0, H)[:, None] * np.ones((1, W))  # (H, W)
+
+# inlet_extent: physical wall-to-wall span at the inlet row
+inlet_extent = float(y[0, :].max() - y[0, :].min())
+
+# g = psi_bc(eta) = A * H * (2*eta^2 - 4/3*eta^3)
+g_field = (
+    SFBA_AMPLITUDE * inlet_extent * (2.0 * eta_field**2 - (4.0 / 3.0) * eta_field**3)
+)
+
+# l = xi^p * eta^2 * (1 - eta)^2
+l_field = xi_field**SFBA_DECAY_POWER * eta_field**2 * (1.0 - eta_field) ** 2
+
+fig, (ax_g, ax_l) = plt.subplots(1, 2, figsize=(13, 4), constrained_layout=True)
+
+im_g = ax_g.pcolormesh(x, y, g_field, shading="gouraud", cmap="coolwarm")
+for sl in EDGE_SLICES.values():
+    ax_g.plot(x[sl], y[sl], color="0.15", lw=0.7)
+fig.colorbar(im_g, ax=ax_g, shrink=0.7)
+ax_g.set_aspect("equal", adjustable="box")
+ax_g.set_xlabel("$x$")
+ax_g.set_ylabel("$y$")
+# ax_g.set_title(r"$g(i,j)$", fontsize=10)
+
+im_l = ax_l.pcolormesh(x, y, l_field, shading="gouraud", cmap=CMAP)
+for sl in EDGE_SLICES.values():
+    ax_l.plot(x[sl], y[sl], color="0.15", lw=0.7)
+fig.colorbar(im_l, ax=ax_l, shrink=0.7)
+ax_l.set_aspect("equal", adjustable="box")
+ax_l.set_xlabel("$x$")
+ax_l.set_ylabel("$y$")
+# ax_l.set_title(
+#     rf"$l(i,j)$,  $p={SFBA_DECAY_POWER}$",
+#     fontsize=10,
+# )
+
+out_path = FIGURES_DIR / "pipe_stream_g_l_fields.png"
 fig.savefig(out_path, bbox_inches="tight")
 if IS_NOTEBOOK:
     plt.show()

@@ -6,6 +6,11 @@ budget: "debug"
 optuna: "darcy_flux_fft_pad"
 
 overrides:
+  constraint:
+    # This experiment is the spectral + reflect-pad baseline; pin it explicitly
+    # since the shared constraint config now defaults to the FD path.
+    stream_derivative: "spectral"
+    padding: 8
   paths:
     output_dir: "outputs/darcy/fno_flux_fft_pad"
   wandb_logging:

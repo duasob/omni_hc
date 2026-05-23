@@ -39,7 +39,8 @@ def test_constraint_alias_resolves_to_config_parameters():
 
     assert cfg["constraint"]["name"] == "darcy_flux_constraint"
     assert cfg["constraint"]["spectral_backend"] == "helmholtz_sine"
-    assert cfg["constraint"]["padding"] == 8
+    assert cfg["constraint"]["stream_derivative"] == "fd"
+    assert cfg["constraint"]["padding"] == 0
     assert "configs/constraints/darcy_flux_constraint.yaml" in cfg["experiment"]["source_configs"]
 
 

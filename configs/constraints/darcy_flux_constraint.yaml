@@ -1,10 +1,14 @@
 constraint:
   name: "darcy_flux_constraint"
   spectral_backend: "helmholtz_sine"
+  # grad_perp(psi) via finite differences: attenuates grid-scale modes instead
+  # of amplifying them (spectral ik), removing the high-frequency striping the
+  # FFT derivative produced on the reflect-padded field. FD needs no padding.
+  stream_derivative: "fd"
   pressure_out_dim: 1
   force_value: 1.0
   permeability_eps: 1.0e-6
-  padding: 8
+  padding: 0
   padding_mode: "reflect"
   particular_field: "y_only"
   enforce_boundary: true

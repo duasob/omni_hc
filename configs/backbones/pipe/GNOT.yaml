@@ -1,18 +1,20 @@
 model:
-  backbone: "FNO"
+  backbone: "GNOT"
   args:
-    loader: "elas"
-    geotype: "unstructured"
+    loader: "pipe"
+    geotype: "structured_2D"
     task: "steady"
     space_dim: 2
-    fun_dim: 0
+    fun_dim: 2
     out_dim: 1
-    n_hidden: 32
+    n_hidden: 128
     n_heads: 8
     n_layers: 8
-    modes: 12
+    mlp_ratio: 2
+    slice_num: 64
     unified_pos: 0
     ref: 8
+    dropout: 0.0
 
 training:
   batch_size: 4
@@ -22,4 +24,3 @@ training:
   weight_decay: 1.0e-5
   scheduler: "OneCycleLR"
   pct_start: 0.3
-

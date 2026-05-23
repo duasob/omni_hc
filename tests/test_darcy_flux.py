@@ -64,6 +64,41 @@ def test_darcy_flux_constraint_recovers_scalar_pressure_with_dirichlet_boundary(
     )
 
 
+def test_darcy_flux_fd_derivative_conserves_mass_discretely():
+    # The FD grad_perp(psi) is consistent with the central-difference divergence
+    # used downstream, so div(q) == force_value exactly on the interior (the
+    # spectral path only holds in the spectral sense and leaves a large residual
+    # under the FD divergence the Poisson RHS actually uses).
+    from omni_hc.constraints.utils.spectral import (
+        finite_difference_divergence_2d,
+        reshape_channels_last_to_grid,
+    )
+
+    torch.manual_seed(0)
+    height = width = 16
+    n_points = height * width
+    force_value = 1.0
+
+    constraint = DarcyFluxConstraint(
+        stream_derivative="fd",
+        padding=0,
+        force_value=force_value,
+        particular_field="y_only",
+        shapelist=(height, width),
+    )
+    psi_pred = torch.randn(2, n_points, 1)
+    perm = torch.full((2, n_points, 1), 4.0)
+
+    out = constraint(pred=psi_pred, fx=perm, return_aux=True)
+    flux = reshape_channels_last_to_grid(
+        out.aux["constrained_flux"], shapelist=(height, width)
+    )
+    dy = dx = 1.0 / (height - 1)
+    div = finite_difference_divergence_2d(flux, dy=dy, dx=dx)
+    residual = (div[..., 1:-1, 1:-1] - force_value).abs()
+    assert float(residual.max()) < 1e-3
+
+
 def test_darcy_flux_constraint_requires_scalar_stream_output():
     constraint = DarcyFluxConstraint(
         spectral_backend="helmholtz_sine",
