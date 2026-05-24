@@ -1,3 +1,6 @@
+training:
+  max_grad_norm: 1.0
+
 constraint:
   name: "elasticity_deviatoric_stress_constraint"
   backbone_out_dim: 1
