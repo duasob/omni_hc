@@ -40,8 +40,7 @@ export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-$OMP_NUM_THREADS}"
 export NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-$OMP_NUM_THREADS}"
 
 RUNS=(
-    "test: --config outputs/navier_stokes/mean_constraint/ono/final/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/mean_constraint/ono/final/seed_42/latest.pt"
-    "--benchmark darcy --backbone Transolver --constraint "
+    "--benchmark darcy --backbone Transolver --constraint none --budget final"
 )
 
 timestamp() {
