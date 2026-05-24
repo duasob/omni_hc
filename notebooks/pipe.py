@@ -43,10 +43,16 @@ EDGE_SLICES = {
     "upper_wall": (slice(None), -1),
 }
 EDGE_COLORS = {
-    "inlet": plt.get_cmap(CMAP)(0.65),
+    "inlet": "0.45",
     "outlet": plt.get_cmap(CMAP)(0.85),
     "lower_wall": plt.get_cmap(CMAP)(0.40),
     "upper_wall": plt.get_cmap(CMAP)(0.15),
+}
+EDGE_LABELS = {
+    "inlet": "Inlet",
+    "outlet": "Outlet",
+    "lower_wall": "Lower wall",
+    "upper_wall": "Upper wall",
 }
 
 plt.rcParams.update(
@@ -344,27 +350,39 @@ def plot_boundary_edge_profiles(channel_name, channel_values, label):
         "inlet": edge_profile_stats(channel_values[:, 0, :]),
         "outlet": edge_profile_stats(channel_values[:, -1, :]),
     }
-    transverse_idx = np.arange(W)
+    transverse_coord = np.linspace(0.0, 1.0, W)
 
-    fig, axes = plt.subplots(1, 2, figsize=(9.5, 3.6), sharey=True)
-    fig.suptitle(f"Pipe ${label}$ boundary profiles", y=1.04)
+    fig, ax = plt.subplots(figsize=(5.8, 3.4))
 
-    for ax, edge in zip(axes, ("inlet", "outlet")):
+    for edge in ("inlet", "outlet"):
         stats = edge_stats[edge]
         ax.fill_between(
-            transverse_idx,
+            transverse_coord,
             stats["q05"],
             stats["q95"],
             color=EDGE_COLORS[edge],
-            alpha=0.16,
+            alpha=0.14,
+            linewidth=0,
         )
-        ax.plot(transverse_idx, stats["mean"], color=EDGE_COLORS[edge], lw=1.8)
-        ax.set_title(edge)
-        ax.set_xlabel("transverse edge index")
-        ax.axhline(0.0, color="0.25", lw=0.8)
-        ax.grid(True, alpha=0.22)
+        ax.plot(
+            transverse_coord,
+            stats["mean"],
+            color=EDGE_COLORS[edge],
+            lw=2.0,
+            label=EDGE_LABELS[edge],
+        )
 
-    axes[0].set_ylabel(f"${label}$")
+    ax.axhline(0.0, color="0.20", lw=0.8, alpha=0.75)
+    ax.set_title(f"Pipe ${label}$ boundary profiles", pad=8)
+    ax.set_xlabel("normalized transverse coordinate")
+    ax.set_ylabel(f"${label}$")
+    ax.legend(frameon=False, loc="best")
+    ax.margins(x=0.02)
+    ax.grid(axis="y", color="0.88", linewidth=0.6)
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_color("0.20")
+        spine.set_linewidth(0.8)
 
     fig.tight_layout()
     output_path = FIGURES_DIR / f"pipe_{channel_name}_boundary_edge_profiles.png"
@@ -384,6 +402,116 @@ for channel_name, channel_idx, label in velocity_channels:
     channel_values = q_all[:, channel_idx]
     write_wall_statistics(channel_name, channel_values)
     plot_boundary_edge_profiles(channel_name, channel_values, label)
+
+
+# %% Pipe sample geometries with inlet and outlet ux profiles
+PROFILE_SAMPLE_COUNT = 5
+PROFILE_SAMPLE_INDICES = np.linspace(0, N - 1, PROFILE_SAMPLE_COUNT, dtype=int)
+PROFILE_MESH_STEP = 10
+
+
+def profile_curve_scale(xi, yi, ux_values):
+    pipe_length = float(
+        np.nanmedian(np.hypot(xi[-1, :] - xi[0, :], yi[-1, :] - yi[0, :]))
+    )
+    max_abs_ux = float(np.nanmax(np.abs(ux_values)))
+    if max_abs_ux <= 1e-12:
+        return 0.0
+    return 0.11 * pipe_length / max_abs_ux
+
+
+def draw_pipe_sample_with_ux_profiles(ax, sample_idx):
+    xi = np.asarray(x_all[sample_idx], dtype=np.float64)
+    yi = np.asarray(y_all[sample_idx], dtype=np.float64)
+    ux = np.asarray(q_all[sample_idx, 0], dtype=np.float64)
+
+    for i in range(0, H, PROFILE_MESH_STEP):
+        ax.plot(xi[i, :], yi[i, :], color="0.86", lw=0.35, zorder=1)
+    for j in range(0, W, PROFILE_MESH_STEP):
+        ax.plot(xi[:, j], yi[:, j], color="0.86", lw=0.35, zorder=1)
+
+    ax.plot(xi[0, :], yi[0, :], color=EDGE_COLORS["inlet"], lw=1.5, zorder=3)
+    ax.plot(xi[-1, :], yi[-1, :], color=EDGE_COLORS["outlet"], lw=1.5, zorder=3)
+    ax.plot(xi[:, 0], yi[:, 0], color="0.15", lw=1.1, zorder=3)
+    ax.plot(xi[:, -1], yi[:, -1], color="0.15", lw=1.1, zorder=3)
+
+    stream_dx = xi[-1, :] - xi[0, :]
+    stream_dy = yi[-1, :] - yi[0, :]
+    stream_norm = np.maximum(np.hypot(stream_dx, stream_dy), 1e-12)
+    stream_dx = stream_dx / stream_norm
+    stream_dy = stream_dy / stream_norm
+
+    scale = profile_curve_scale(xi, yi, np.r_[ux[0, :], ux[-1, :]])
+    inlet_x = xi[0, :] + scale * ux[0, :] * stream_dx
+    inlet_y = yi[0, :] + scale * ux[0, :] * stream_dy
+    outlet_x = xi[-1, :] - scale * ux[-1, :] * stream_dx
+    outlet_y = yi[-1, :] - scale * ux[-1, :] * stream_dy
+
+    ax.fill(
+        np.r_[xi[0, :], inlet_x[::-1]],
+        np.r_[yi[0, :], inlet_y[::-1]],
+        color=EDGE_COLORS["inlet"],
+        alpha=0.12,
+        linewidth=0,
+        zorder=2,
+    )
+    ax.fill(
+        np.r_[xi[-1, :], outlet_x[::-1]],
+        np.r_[yi[-1, :], outlet_y[::-1]],
+        color=EDGE_COLORS["outlet"],
+        alpha=0.12,
+        linewidth=0,
+        zorder=2,
+    )
+    ax.plot(inlet_x, inlet_y, color=EDGE_COLORS["inlet"], lw=2.0, zorder=4)
+    ax.plot(outlet_x, outlet_y, color=EDGE_COLORS["outlet"], lw=2.0, zorder=4)
+
+    ax.text(
+        0.01,
+        0.92,
+        f"sample {sample_idx}",
+        transform=ax.transAxes,
+        fontsize=8,
+        ha="left",
+        va="top",
+        color="0.15",
+    )
+    ax.set_aspect("equal", adjustable="box")
+    ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+
+fig, axes = plt.subplots(
+    PROFILE_SAMPLE_COUNT,
+    1,
+    figsize=(8.0, 1.45 * PROFILE_SAMPLE_COUNT),
+    constrained_layout=True,
+)
+axes = np.atleast_1d(axes)
+for ax, sample_idx in zip(axes, PROFILE_SAMPLE_INDICES):
+    draw_pipe_sample_with_ux_profiles(ax, int(sample_idx))
+
+legend_handles = [
+    plt.Line2D([], [], color=EDGE_COLORS["inlet"], lw=2.0, label="Inlet $u_x$"),
+    plt.Line2D([], [], color=EDGE_COLORS["outlet"], lw=2.0, label="Outlet $u_x$"),
+    plt.Line2D([], [], color="0.15", lw=1.1, label="Pipe wall"),
+]
+fig.legend(
+    handles=legend_handles,
+    frameon=False,
+    loc="upper center",
+    bbox_to_anchor=(0.5, 1.07),
+    ncol=3,
+)
+
+out_path = FIGURES_DIR / "pipe_sample_geometry_ux_profiles.png"
+fig.savefig(out_path, bbox_inches="tight")
+if IS_NOTEBOOK:
+    plt.show()
+else:
+    plt.close(fig)
+print(f"Saved to {out_path}")
 
 
 # %% Inlet ux candidate shape fits
