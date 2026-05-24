@@ -12,4 +12,4 @@ constraint:
   head_layers: 2
   head_init_scale: 1.0e-3
   theta_bias: 0.0
-  log_lambda_bias: 0.0
+  log_lambda_bias: 0.5 # init off the von Mises cusp (sigma_vm=0 at lambda=1) for better-conditioned early gradients
