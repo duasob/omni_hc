@@ -10,4 +10,6 @@ overrides:
   wandb_logging:
     run_name: "elasticity_fno_deviatoric_stress"
     point_size: 28.0
+  training:
+    debug_nan_checks: true
 

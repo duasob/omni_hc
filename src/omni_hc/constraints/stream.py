@@ -145,6 +145,27 @@ class PipeStreamFunctionUxConstraint(ConstraintModule):
             )
         return ux_encoded
 
+    @classmethod
+    def log_media(cls, ctx) -> dict[str, str]:
+        aux = ctx.aux_tensors
+        if not all(k in aux for k in ("stream_psi", "stream_uy", "stream_div")):
+            return {}
+        h, w = ctx.meta["shapelist"]
+        if ctx.out_dir is None:
+            from omni_hc.training.logging_utils import log_pipe_stream_images
+            log_pipe_stream_images(
+                ctx.coords, h, w,
+                prefix=ctx.prefix, epoch=ctx.epoch, step=ctx.step,
+                psi=aux["stream_psi"], uy=aux["stream_uy"], divergence=aux["stream_div"],
+            )
+            return {}
+        from omni_hc.training.logging_utils import save_pipe_stream_images
+        return save_pipe_stream_images(
+            ctx.coords, h, w,
+            out_dir=ctx.out_dir, prefix=ctx.prefix,
+            psi=aux["stream_psi"], uy=aux["stream_uy"], divergence=aux["stream_div"],
+        )
+
 
 class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
     """
@@ -217,6 +238,29 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
         if self.target_normalizer is None:
             return target
         return self.target_normalizer.encode(target)
+
+    @property
+    def idx_all_boundary(self):
+        """Flat node indices of the CONSTRAINED boundary (inlet + walls).
+
+        The steady eval uses this to compute boundary_rel_l2. The outlet face is
+        excluded on purpose: the ansatz does not constrain it (the correction
+        window l = xi^p * eta^2 * (1 - eta)^2 is largest there), so scoring it
+        would report fit error on a free edge as if it were a constraint miss.
+        """
+        if self.shapelist is None or len(self.shapelist) != 2:
+            return None
+        h, w = int(self.shapelist[0]), int(self.shapelist[1])
+        grid = torch.arange(h * w).reshape(h, w)
+        if self.inlet_axis == 0:
+            inlet = grid[0, :]       # inlet face (streamwise start)
+            wall_a = grid[1:, 0]     # walls run along the streamwise axis
+            wall_b = grid[1:, -1]
+        else:
+            inlet = grid[:, 0]
+            wall_a = grid[0, 1:]
+            wall_b = grid[-1, 1:]
+        return torch.cat([inlet.reshape(-1), wall_a.reshape(-1), wall_b.reshape(-1)])
 
     def _transverse_coordinate(self, coords_grid: torch.Tensor) -> torch.Tensor:
         if self.coordinate_channel not in {0, 1}:

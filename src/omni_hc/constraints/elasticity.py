@@ -222,7 +222,7 @@ class ElasticityDeviatoricStressConstraint(ConstraintModule):
         stress_trace = stress[..., 0, 0] + stress[..., 1, 1]
         stress_dev = stress - 0.5 * stress_trace[..., None, None] * identity
         stress_dev_inner = stress_dev.square().sum(dim=(-1, -2))
-        sigma_vm = (1.5 * stress_dev_inner).clamp_min(0.0).sqrt().unsqueeze(-1)
+        sigma_vm = (1.5 * stress_dev_inner.clamp_min(0.0) + 1e-8).sqrt().unsqueeze(-1)
         det_c = _det2(right_cauchy_green)
 
         aux.update(
