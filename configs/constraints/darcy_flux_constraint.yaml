@@ -1,3 +1,6 @@
+training:
+  max_grad_norm: 1.0
+
 constraint:
   name: "darcy_flux_constraint"
   spectral_backend: "helmholtz_sine"

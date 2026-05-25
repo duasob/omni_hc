@@ -172,6 +172,50 @@ fig.savefig(FIGURES_DIR / "darcy_dataset_statistics.png", bbox_inches="tight")
 plt.show()
 print(f"Saved to {FIGURES_DIR / 'darcy_dataset_statistics.png'}")
 
+# %% Boundary statistics — LaTeX booktabs table
+# Same numbers as the histograms above, summarised across all N samples. The
+# final column expresses each boundary stat as a fraction of the interior RMS,
+# making the "u = 0 on the boundary" claim quantitative.
+interior_rms = float(np.sqrt((sol_ds[:, 1:-1, 1:-1] ** 2).mean()))
+
+table_rows = [
+    (r"mean $|u|$ on $\partial\Omega$", bnd_mean_abs, True),
+    (r"max $|u|$ on $\partial\Omega$", bnd_max_abs, True),
+    (r"std $u$ on $\partial\Omega$", bnd_std, False),
+]
+
+
+def _sci(x):
+    return f"\\num{{{x:.2e}}}"
+
+
+lines = [
+    r"\begin{tabular}{lcccc}",
+    r"\toprule",
+    r"Quantity & Mean & p95 & Max & vs.\ interior \\",
+    r"\midrule",
+]
+for label, vals, rel in table_rows:
+    mean, p95, mx = vals.mean(), np.percentile(vals, 95), vals.max()
+    rel_col = f"{mean / interior_rms:.2%}".replace("%", r"\%") if rel else "--"
+    lines.append(
+        f"{label} & {_sci(mean)} & {_sci(p95)} & {_sci(mx)} & {rel_col} \\\\"
+    )
+lines += [
+    r"\midrule",
+    f"\\multicolumn{{5}}{{l}}{{Interior RMS $|u| = {_sci(interior_rms)}$}} \\\\",
+    r"\bottomrule",
+    r"\end{tabular}",
+]
+latex_table = "\n".join(lines)
+
+print(f"--- Boundary statistics table (N = {N} samples) ---")
+print(latex_table)
+
+table_path = FIGURES_DIR / "darcy_dataset_statistics_table.tex"
+table_path.write_text(latex_table + "\n")
+print(f"Saved to {table_path}")
+
 # %% Boundary profile — u along each edge
 # Extract the 4 edge profiles for multiple samples and plot as 1D curves.
 # If the shape is consistent across samples it's systematic (solver property),
@@ -195,22 +239,29 @@ edge_xs = {
     "Right  ($x=1$)": ys,
 }
 
-profile_color = plt.cm.magma(0.35)  # mid-magma for individual samples
-mean_color = plt.cm.magma(0.75)  # bright magma for the mean line
-alpha = 0.3
+band_color = plt.cm.magma(0.35)
+mean_color = plt.cm.magma(0.75)
 
 fig, axes = plt.subplots(1, 4, figsize=(14, 3), constrained_layout=True)
 for ax, (label, extractor) in zip(axes, edge_defs.items()):
     pos = edge_xs[label]
     profiles = np.stack([extractor(sol_ds[i]) for i in range(N_PROFILE_SAMPLES)])
-    for profile in profiles:
-        ax.plot(pos, profile, color=profile_color, alpha=alpha, linewidth=0.8)
-    ax.plot(pos, profiles.mean(axis=0), color=mean_color, linewidth=1.8, label="mean")
+    p5, p25, p75, p95 = (np.percentile(profiles, q, axis=0) for q in (5, 25, 75, 95))
+    mean = profiles.mean(axis=0)
+    ax.fill_between(
+        pos, p5, p95, color=band_color, alpha=0.18, linewidth=0, label="5–95%"
+    )
+    ax.fill_between(
+        pos, p25, p75, color=band_color, alpha=0.38, linewidth=0, label="25–75%"
+    )
+    ax.plot(pos, mean, color=mean_color, linewidth=1.8, label="mean")
     ax.axhline(0, color="0.4", linewidth=0.8, linestyle="--")
     ax.set_title(label, fontsize=10)
     ax.set_xlabel("Position")
     ax.set_ylabel("$u$")
     ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0), useMathText=True)
+
+axes[0].legend(fontsize=8, frameon=False)
 
 fig.savefig(
     FIGURES_DIR / f"{N_PROFILE_SAMPLES}_darcy_boundary_profiles.png",
@@ -219,88 +270,159 @@ fig.savefig(
 plt.show()
 print(f"Saved to {FIGURES_DIR / f'{N_PROFILE_SAMPLES}_darcy_boundary_profiles.png'}")
 
-# %% Boundary profiles in 2D context
-# Same profiles as above, but drawn on the edges of the unit square.
-# Each profile extends outward from its edge; amplitude is scaled to 15% of
-# the square width for legibility (actual values are O(1e-5)).
+# %% Boundary profiles in 2D context — one sample, field + edge profiles
+# Show a single sample's pressure field inside the unit square, with that same
+# sample's boundary profile drawn outside each edge. Each profile sits on a
+# mid-margin baseline (dashed) and swings outward for u > 0; amplitude is scaled
+# (actual values are O(1e-5)).
+SAMPLE_2D = 100
+sample_u = sol_ds[SAMPLE_2D]
 
-# Pre-extract all four edge profile sets
-_extractors = [
-    ("bottom", lambda u: u[0, :], xs, "x"),  # profiles along x, offset in y
-    ("top", lambda u: u[-1, :], xs, "x"),
-    ("left", lambda u: u[:, 0], ys, "y"),  # profiles along y, offset in x
-    ("right", lambda u: u[:, -1], ys, "y"),
-]
+M = 0.22  # margin around the field square
+sq_x = np.linspace(M, 1 - M, sample_u.shape[1])  # positions along horizontal edges
+sq_y = np.linspace(M, 1 - M, sample_u.shape[0])  # positions along vertical edges
 
-_all_profiles = {}
-for name, fn, pos, _ in _extractors:
-    _all_profiles[name] = np.stack([fn(sol_ds[i]) for i in range(N_PROFILE_SAMPLES)])
+edge_profiles = {
+    "bottom": sample_u[0, :],
+    "top": sample_u[-1, :],
+    "left": sample_u[:, 0],
+    "right": sample_u[:, -1],
+}
 
-# Inset the square so profiles have room to extend outward within [0, 1]
-M = 0.2  # margin on each side
-sq_x = np.linspace(M, 1 - M, sol_ds.shape[2])  # positions along horizontal edges
-sq_y = np.linspace(M, 1 - M, sol_ds.shape[1])  # positions along vertical edges
+# Symmetric amplitude scale: max |profile| maps to AMP within the margin.
+AMP = 0.58 * M
+GAP = 0.3 * M  # baseline sits mid-margin so the curve can swing both ways
+_peak = max(np.abs(p).max() for p in edge_profiles.values()) or 1.0
+SCALE = AMP / _peak
 
-# Scale factor: use 99th percentile of absolute values to set the margin fill;
-# rare outliers clip at the axes limits rather than crushing the typical shape.
-_peak = max(np.percentile(np.abs(_all_profiles[n]), 99) for n in _all_profiles)
-SCALE = (0.8 * M) / _peak
+curve_color = plt.cm.magma(0.4)
+base_color = "0.55"
 
-fig, ax = plt.subplots(figsize=(5, 5), constrained_layout=True)
+fig, ax = plt.subplots(figsize=(5.5, 5.5), constrained_layout=True)
 
-# Draw domain square (inset)
+# Sample field inside the square
+ax.imshow(
+    sample_u,
+    origin="lower",
+    extent=(M, 1 - M, M, 1 - M),
+    cmap=CMAP_OUTPUT,
+    zorder=1,
+)
 square = plt.Polygon(
     [(M, M), (1 - M, M), (1 - M, 1 - M), (M, 1 - M)],
     fill=False,
     edgecolor="0.3",
     linewidth=1.2,
-    zorder=2,
+    zorder=3,
 )
 ax.add_patch(square)
 
-_pos_map = {"bottom": sq_x, "top": sq_x, "left": sq_y, "right": sq_y}
+# bottom — baseline below the square, positive u bulges downward (outward)
+by = M - GAP
+ax.plot([M, 1 - M], [by, by], color=base_color, lw=0.8, ls="--", zorder=2)
+ax.plot(sq_x, by - edge_profiles["bottom"] * SCALE, color=curve_color, lw=1.6, zorder=4)
 
-for name, fn, _, axis in _extractors:
-    pos = _pos_map[name]
-    profiles = _all_profiles[name]
-    mean_prof = profiles.mean(axis=0)
+# top — baseline above the square, positive u bulges upward (outward)
+ty = (1 - M) + GAP
+ax.plot([M, 1 - M], [ty, ty], color=base_color, lw=0.8, ls="--", zorder=2)
+ax.plot(sq_x, ty + edge_profiles["top"] * SCALE, color=curve_color, lw=1.6, zorder=4)
 
-    for prof in profiles:
-        v = np.clip(prof * SCALE, 0, M)  # never extend beyond the margin
-        if name == "bottom":
-            ax.plot(pos, M - v, color=profile_color, alpha=0.04, linewidth=0.6)
-        elif name == "top":
-            ax.plot(pos, (1 - M) + v, color=profile_color, alpha=0.04, linewidth=0.6)
-        elif name == "left":
-            ax.plot(M - v, pos, color=profile_color, alpha=0.04, linewidth=0.6)
-        elif name == "right":
-            ax.plot((1 - M) + v, pos, color=profile_color, alpha=0.04, linewidth=0.6)
+# left — baseline left of the square, positive u bulges leftward (outward)
+lx = M - GAP
+ax.plot([lx, lx], [M, 1 - M], color=base_color, lw=0.8, ls="--", zorder=2)
+ax.plot(lx - edge_profiles["left"] * SCALE, sq_y, color=curve_color, lw=1.6, zorder=4)
 
-    mv = np.clip(mean_prof * SCALE, 0, M)
-    if name == "bottom":
-        ax.plot(pos, M - mv, color=mean_color, linewidth=1.8)
-    elif name == "top":
-        ax.plot(pos, (1 - M) + mv, color=mean_color, linewidth=1.8)
-    elif name == "left":
-        ax.plot(M - mv, pos, color=mean_color, linewidth=1.8)
-    elif name == "right":
-        ax.plot((1 - M) + mv, pos, color=mean_color, linewidth=1.8)
+# right — baseline right of the square, positive u bulges rightward (outward)
+rx = (1 - M) + GAP
+ax.plot([rx, rx], [M, 1 - M], color=base_color, lw=0.8, ls="--", zorder=2)
+ax.plot(rx + edge_profiles["right"] * SCALE, sq_y, color=curve_color, lw=1.6, zorder=4)
 
 PAD = 0.05
 ax.set_xlim(-PAD, 1 + PAD)
 ax.set_ylim(-PAD, 1 + PAD)
 ax.set_aspect("equal")
-# Hide spines/ticks manually so the axes clip path stays active
 ax.set_facecolor("none")
 for spine in ax.spines.values():
     spine.set_visible(False)
 ax.set_xticks([])
 ax.set_yticks([])
-ax.set_title("Boundary profiles on $\\partial\\Omega$ (amplitude scaled)", fontsize=10)
+# ax.set_title(
+#     f"Sample {SAMPLE_2D}: field + boundary profiles (amplitude scaled)", fontsize=10
+# )
 
 fig.savefig(FIGURES_DIR / "darcy_boundary_profiles_2d.png", bbox_inches="tight")
 plt.show()
 print(f"Saved to {FIGURES_DIR / 'darcy_boundary_profiles_2d.png'}")
+
+# %% Combined — boundary profiles (2x2) + 2D context
+# Left: per-edge percentile bands + mean over many samples.
+# Right: the single-sample field with its boundary profiles on each side.
+fig = plt.figure(figsize=(13, 6), constrained_layout=True)
+outer = fig.add_gridspec(1, 2, width_ratios=[1, 1])
+
+# --- Left: 2x2 grid of percentile-band edge profiles ---
+left_gs = outer[0, 0].subgridspec(2, 2, hspace=0.01, wspace=0.025)
+for i, (label, extractor) in enumerate(edge_defs.items()):
+    axp = fig.add_subplot(left_gs[i // 2, i % 2])
+    pos = edge_xs[label]
+    profiles = np.stack([extractor(sol_ds[k]) for k in range(N_PROFILE_SAMPLES)])
+    p5, p25, p75, p95 = (np.percentile(profiles, q, axis=0) for q in (5, 25, 75, 95))
+    axp.fill_between(
+        pos, p5, p95, color=band_color, alpha=0.18, linewidth=0, label="5–95%"
+    )
+    axp.fill_between(
+        pos, p25, p75, color=band_color, alpha=0.38, linewidth=0, label="25–75%"
+    )
+    axp.plot(pos, profiles.mean(axis=0), color=mean_color, linewidth=1.8, label="mean")
+    axp.axhline(0, color="0.4", linewidth=0.8, linestyle="--")
+    axp.set_title(label, fontsize=10)
+    axp.set_xlabel("Position")
+    axp.set_ylabel("$u$")
+    axp.ticklabel_format(style="sci", axis="y", scilimits=(0, 0), useMathText=True)
+    if i == 0:
+        axp.legend(fontsize=12, frameon=False)
+
+# --- Right: single-sample field + boundary profiles ---
+axr = fig.add_subplot(outer[0, 1])
+axr.imshow(
+    sample_u, origin="lower", extent=(M, 1 - M, M, 1 - M), cmap=CMAP_OUTPUT, zorder=1
+)
+axr.add_patch(
+    plt.Polygon(
+        [(M, M), (1 - M, M), (1 - M, 1 - M), (M, 1 - M)],
+        fill=False,
+        edgecolor="0.3",
+        linewidth=1.2,
+        zorder=3,
+    )
+)
+by = M - GAP
+axr.plot([M, 1 - M], [by, by], color=base_color, lw=0.8, ls="--", zorder=2)
+axr.plot(
+    sq_x, by - edge_profiles["bottom"] * SCALE, color=curve_color, lw=1.6, zorder=4
+)
+ty = (1 - M) + GAP
+axr.plot([M, 1 - M], [ty, ty], color=base_color, lw=0.8, ls="--", zorder=2)
+axr.plot(sq_x, ty + edge_profiles["top"] * SCALE, color=curve_color, lw=1.6, zorder=4)
+lx = M - GAP
+axr.plot([lx, lx], [M, 1 - M], color=base_color, lw=0.8, ls="--", zorder=2)
+axr.plot(lx - edge_profiles["left"] * SCALE, sq_y, color=curve_color, lw=1.6, zorder=4)
+rx = (1 - M) + GAP
+axr.plot([rx, rx], [M, 1 - M], color=base_color, lw=0.8, ls="--", zorder=2)
+axr.plot(rx + edge_profiles["right"] * SCALE, sq_y, color=curve_color, lw=1.6, zorder=4)
+axr.set_xlim(-PAD, 1 + PAD)
+axr.set_ylim(-PAD, 1 + PAD)
+axr.set_aspect("equal")
+axr.set_facecolor("none")
+for spine in axr.spines.values():
+    spine.set_visible(False)
+axr.set_xticks([])
+axr.set_yticks([])
+axr.set_title(f"Sample {SAMPLE_2D} Boundary Profiles", fontsize=12)
+out_path = FIGURES_DIR / "darcy_boundary_profiles_combined.png"
+fig.savefig(out_path, bbox_inches="tight")
+plt.show()
+print(f"Saved to {out_path}")
 
 # %% Distance functions for different power values — 2D weight fields
 # The ansatz enforces u = g + l(x,y) * N(x,y), where
