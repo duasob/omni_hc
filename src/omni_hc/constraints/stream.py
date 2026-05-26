@@ -19,6 +19,10 @@ class PipeStreamFunctionUxConstraint(ConstraintModule):
     """
     Interprets the scalar backbone output as a stream function psi on the
     curvilinear pipe mesh and returns ux = dpsi/dy in physical coordinates.
+
+    When predict_uy=True, returns a 2-channel output [ux, uy] so that the
+    training loss includes the error on uy. The dataset target must then be
+    2-channel [ux, uy] accordingly.
     """
 
     name = "pipe_stream_function_ux"
@@ -28,10 +32,12 @@ class PipeStreamFunctionUxConstraint(ConstraintModule):
         *,
         shapelist=None,
         eps: float = 1e-12,
+        predict_uy: bool = False,
     ) -> None:
         super().__init__()
         self.shapelist = None if shapelist is None else tuple(int(v) for v in shapelist)
         self.eps = float(eps)
+        self.predict_uy = bool(predict_uy)
         self.input_normalizer = None
         self.target_normalizer = None
 
@@ -93,6 +99,13 @@ class PipeStreamFunctionUxConstraint(ConstraintModule):
         ux_flat = reshape_grid_to_channels_last(ux)
         ux_encoded = self._encode_target(ux_flat)
 
+        if self.predict_uy:
+            uy_flat = reshape_grid_to_channels_last(uy)
+            uy_encoded = self._encode_target(uy_flat)
+            out_encoded = torch.cat([ux_encoded, uy_encoded], dim=-1)
+        else:
+            out_encoded = ux_encoded
+
         if return_aux:
             div = finite_volume_divergence_curvilinear(
                 velocity,
@@ -134,7 +147,7 @@ class PipeStreamFunctionUxConstraint(ConstraintModule):
                 ),
             }
             return self.as_output(
-                ux_encoded,
+                out_encoded,
                 aux={
                     "pred_base": pred,
                     "stream_psi": reshape_grid_to_channels_last(psi),
@@ -143,7 +156,7 @@ class PipeStreamFunctionUxConstraint(ConstraintModule):
                 },
                 diagnostics=diagnostics,
             )
-        return ux_encoded
+        return out_encoded
 
     @classmethod
     def log_media(cls, ctx) -> dict[str, str]:
@@ -195,6 +208,7 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
         boundary_constant: float = 0.0,
         decay_power: float = 4.0,
         eps: float = 1e-12,
+        predict_uy: bool = False,
     ) -> None:
         super().__init__()
         self.shapelist = None if shapelist is None else tuple(int(v) for v in shapelist)
@@ -205,6 +219,7 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
         self.boundary_constant = float(boundary_constant)
         self.decay_power = float(decay_power)
         self.eps = float(eps)
+        self.predict_uy = bool(predict_uy)
         self.input_normalizer = None
         self.target_normalizer = None
 
@@ -367,6 +382,13 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
         ux_flat = reshape_grid_to_channels_last(ux)
         ux_encoded = self._encode_target(ux_flat)
 
+        if self.predict_uy:
+            uy_flat = reshape_grid_to_channels_last(uy)
+            uy_encoded = self._encode_target(uy_flat)
+            out_encoded = torch.cat([ux_encoded, uy_encoded], dim=-1)
+        else:
+            out_encoded = ux_encoded
+
         if return_aux:
             div = finite_volume_divergence_curvilinear(
                 velocity,
@@ -456,7 +478,7 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
                 ),
             }
             return self.as_output(
-                ux_encoded,
+                out_encoded,
                 aux={
                     "pred_base": pred,
                     "stream_psi": reshape_grid_to_channels_last(psi),
@@ -467,7 +489,7 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
                 },
                 diagnostics=diagnostics,
             )
-        return ux_encoded
+        return out_encoded
 
     @classmethod
     def log_media(cls, ctx) -> dict[str, str]:
