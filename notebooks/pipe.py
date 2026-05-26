@@ -43,10 +43,10 @@ EDGE_SLICES = {
     "upper_wall": (slice(None), -1),
 }
 EDGE_COLORS = {
-    "inlet": "0.45",
+    "inlet": "orange",  # green
     "outlet": plt.get_cmap(CMAP)(0.85),
-    "lower_wall": plt.get_cmap(CMAP)(0.40),
-    "upper_wall": plt.get_cmap(CMAP)(0.15),
+    "lower_wall": "yellowgreen",
+    "upper_wall": "green",
 }
 EDGE_LABELS = {
     "inlet": "Inlet",
@@ -378,7 +378,7 @@ def plot_boundary_edge_profiles(channel_name, channel_values, label):
     ax.set_ylabel(f"${label}$")
     ax.legend(frameon=False, loc="best")
     ax.margins(x=0.02)
-    ax.grid(axis="y", color="0.88", linewidth=0.6)
+    # ax.grid(axis="y", color="0.88", linewidth=0.6)
     for spine in ax.spines.values():
         spine.set_visible(True)
         spine.set_color("0.20")
@@ -405,9 +405,46 @@ for channel_name, channel_idx, label in velocity_channels:
 
 
 # %% Pipe sample geometries with inlet and outlet ux profiles
-PROFILE_SAMPLE_COUNT = 5
-PROFILE_SAMPLE_INDICES = np.linspace(0, N - 1, PROFILE_SAMPLE_COUNT, dtype=int)
+PROFILE_SAMPLE_COUNT = 3
+PROFILE_SAMPLE_INDICES = [100, 500, 1000]
 PROFILE_MESH_STEP = 10
+
+
+PROFILE_DISPLAY_INLET_SPAN = 0.18
+
+
+def standardize_profile_geometry(xi, yi):
+    inlet_center_x = float(np.nanmean(xi[0, :]))
+    inlet_center_y = float(np.nanmean(yi[0, :]))
+    stream_hint = np.array(
+        [
+            float(np.nanmean(xi[-1, :] - xi[0, :])),
+            float(np.nanmean(yi[-1, :] - yi[0, :])),
+        ],
+        dtype=np.float64,
+    )
+    stream_norm = float(np.hypot(*stream_hint))
+    if stream_norm <= 1e-12:
+        stream_unit = np.array([1.0, 0.0], dtype=np.float64)
+    else:
+        stream_unit = stream_hint / stream_norm
+    transverse_unit = np.array([-stream_unit[1], stream_unit[0]], dtype=np.float64)
+
+    dx = xi - inlet_center_x
+    dy = yi - inlet_center_y
+    display_x = dx * stream_unit[0] + dy * stream_unit[1]
+    display_y = dx * transverse_unit[0] + dy * transverse_unit[1]
+
+    inlet_span = float(
+        np.hypot(
+            display_x[0, -1] - display_x[0, 0],
+            display_y[0, -1] - display_y[0, 0],
+        )
+    )
+    if inlet_span <= 1e-12:
+        inlet_span = 1.0
+    scale = PROFILE_DISPLAY_INLET_SPAN / inlet_span
+    return display_x * scale, display_y * scale
 
 
 def profile_curve_scale(xi, yi, ux_values):
@@ -420,9 +457,38 @@ def profile_curve_scale(xi, yi, ux_values):
     return 0.11 * pipe_length / max_abs_ux
 
 
+def edge_frame(edge_x, edge_y, outward_hint):
+    tangent = np.array(
+        [float(edge_x[-1] - edge_x[0]), float(edge_y[-1] - edge_y[0])],
+        dtype=np.float64,
+    )
+    tangent_norm = float(np.hypot(*tangent))
+    if tangent_norm <= 1e-12:
+        tangent = np.array([0.0, 1.0])
+    else:
+        tangent /= tangent_norm
+
+    normal = np.array([tangent[1], -tangent[0]])
+    if float(np.dot(normal, outward_hint)) < 0.0:
+        normal *= -1.0
+    return tangent, normal
+
+
+def detached_profile_geometry(edge_x, edge_y, ux_edge, scale, outward_hint):
+    tangent, normal = edge_frame(edge_x, edge_y, outward_hint)
+    center = np.array([float(np.mean(edge_x)), float(np.mean(edge_y))])
+    edge_span = float(np.hypot(edge_x[-1] - edge_x[0], edge_y[-1] - edge_y[0]))
+    side_coord = np.linspace(-0.5 * edge_span, 0.5 * edge_span, W)
+    base_center = center + 0.07 * normal
+    base = base_center[:, None] + tangent[:, None] * side_coord[None, :]
+    curve = base + normal[:, None] * (scale * ux_edge)[None, :]
+    return base[0], base[1], curve[0], curve[1]
+
+
 def draw_pipe_sample_with_ux_profiles(ax, sample_idx):
     xi = np.asarray(x_all[sample_idx], dtype=np.float64)
     yi = np.asarray(y_all[sample_idx], dtype=np.float64)
+    xi, yi = standardize_profile_geometry(xi, yi)
     ux = np.asarray(q_all[sample_idx, 0], dtype=np.float64)
 
     for i in range(0, H, PROFILE_MESH_STEP):
@@ -435,47 +501,85 @@ def draw_pipe_sample_with_ux_profiles(ax, sample_idx):
     ax.plot(xi[:, 0], yi[:, 0], color="0.15", lw=1.1, zorder=3)
     ax.plot(xi[:, -1], yi[:, -1], color="0.15", lw=1.1, zorder=3)
 
-    stream_dx = xi[-1, :] - xi[0, :]
-    stream_dy = yi[-1, :] - yi[0, :]
-    stream_norm = np.maximum(np.hypot(stream_dx, stream_dy), 1e-12)
-    stream_dx = stream_dx / stream_norm
-    stream_dy = stream_dy / stream_norm
-
     scale = profile_curve_scale(xi, yi, np.r_[ux[0, :], ux[-1, :]])
-    inlet_x = xi[0, :] + scale * ux[0, :] * stream_dx
-    inlet_y = yi[0, :] + scale * ux[0, :] * stream_dy
-    outlet_x = xi[-1, :] - scale * ux[-1, :] * stream_dx
-    outlet_y = yi[-1, :] - scale * ux[-1, :] * stream_dy
+    stream_hint = np.array(
+        [
+            float(np.nanmean(xi[-1, :] - xi[0, :])),
+            float(np.nanmean(yi[-1, :] - yi[0, :])),
+        ]
+    )
+    inlet_base_x, inlet_base_y, inlet_x, inlet_y = detached_profile_geometry(
+        xi[0, :], yi[0, :], ux[0, :], scale, -stream_hint
+    )
+    outlet_base_x, outlet_base_y, outlet_x, outlet_y = detached_profile_geometry(
+        xi[-1, :], yi[-1, :], ux[-1, :], scale, stream_hint
+    )
 
     ax.fill(
-        np.r_[xi[0, :], inlet_x[::-1]],
-        np.r_[yi[0, :], inlet_y[::-1]],
+        np.r_[inlet_base_x, inlet_x[::-1]],
+        np.r_[inlet_base_y, inlet_y[::-1]],
         color=EDGE_COLORS["inlet"],
         alpha=0.12,
         linewidth=0,
         zorder=2,
     )
     ax.fill(
-        np.r_[xi[-1, :], outlet_x[::-1]],
-        np.r_[yi[-1, :], outlet_y[::-1]],
+        np.r_[outlet_base_x, outlet_x[::-1]],
+        np.r_[outlet_base_y, outlet_y[::-1]],
         color=EDGE_COLORS["outlet"],
         alpha=0.12,
         linewidth=0,
         zorder=2,
     )
+    ax.plot(inlet_base_x, inlet_base_y, color=EDGE_COLORS["inlet"], lw=1.5, zorder=4)
+    ax.plot(outlet_base_x, outlet_base_y, color=EDGE_COLORS["outlet"], lw=1.5, zorder=4)
     ax.plot(inlet_x, inlet_y, color=EDGE_COLORS["inlet"], lw=2.0, zorder=4)
     ax.plot(outlet_x, outlet_y, color=EDGE_COLORS["outlet"], lw=2.0, zorder=4)
 
-    ax.text(
-        0.01,
-        0.92,
-        f"sample {sample_idx}",
-        transform=ax.transAxes,
-        fontsize=8,
-        ha="left",
-        va="top",
-        color="0.15",
+    inlet_edge_center = np.array([float(np.mean(xi[0, :])), float(np.mean(yi[0, :]))])
+    inlet_base_center = np.array(
+        [float(np.mean(inlet_base_x)), float(np.mean(inlet_base_y))]
     )
+    outlet_edge_center = np.array(
+        [float(np.mean(xi[-1, :])), float(np.mean(yi[-1, :]))]
+    )
+    outlet_base_center = np.array(
+        [float(np.mean(outlet_base_x)), float(np.mean(outlet_base_y))]
+    )
+    inlet_gap = inlet_edge_center - inlet_base_center
+    outlet_gap = outlet_base_center - outlet_edge_center
+    arrow_style = dict(
+        arrowstyle="-|>",
+        color="0.10",
+        lw=1.1,
+        mutation_scale=11,
+        shrinkA=0,
+        shrinkB=0,
+        zorder=6,
+    )
+    ax.annotate(
+        "",
+        xy=inlet_edge_center - 0.18 * inlet_gap,
+        xytext=inlet_base_center + 0.18 * inlet_gap,
+        arrowprops=arrow_style,
+    )
+    ax.annotate(
+        "",
+        xy=outlet_base_center - 0.18 * outlet_gap,
+        xytext=outlet_edge_center + 0.18 * outlet_gap,
+        arrowprops=arrow_style,
+    )
+
+    # ax.text(
+    #     0.01,
+    #     0.92,
+    #     f"sample {sample_idx}",
+    #     transform=ax.transAxes,
+    #     fontsize=8,
+    #     ha="left",
+    #     va="top",
+    #     color="0.15",
+    # )
     ax.set_aspect("equal", adjustable="box")
     ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
     for spine in ax.spines.values():
@@ -492,10 +596,25 @@ axes = np.atleast_1d(axes)
 for ax, sample_idx in zip(axes, PROFILE_SAMPLE_INDICES):
     draw_pipe_sample_with_ux_profiles(ax, int(sample_idx))
 
+x_mins, y_mins, x_maxs, y_maxs = [], [], [], []
+for ax in axes:
+    x0, y0, width, height = ax.dataLim.bounds
+    x_mins.append(x0)
+    y_mins.append(y0)
+    x_maxs.append(x0 + width)
+    y_maxs.append(y0 + height)
+
+pad = 0.04
+x_lim = (min(x_mins) - pad, max(x_maxs) + pad)
+y_lim = (min(y_mins) - pad, max(y_maxs) + pad)
+for ax in axes:
+    ax.set_xlim(x_lim)
+    ax.set_ylim(y_lim)
+
 legend_handles = [
     plt.Line2D([], [], color=EDGE_COLORS["inlet"], lw=2.0, label="Inlet $u_x$"),
     plt.Line2D([], [], color=EDGE_COLORS["outlet"], lw=2.0, label="Outlet $u_x$"),
-    plt.Line2D([], [], color="0.15", lw=1.1, label="Pipe wall"),
+    # plt.Line2D([], [], color="0.15", lw=1.1, label="Pipe wall"),
 ]
 fig.legend(
     handles=legend_handles,
@@ -659,7 +778,7 @@ for name, fit in sorted(candidate_fits.items(), key=lambda item: item[1]["rmse"]
 ax.set_title("inlet $u_x$ candidate shape fits")
 ax.set_xlabel("normalized inlet coordinate")
 ax.set_ylabel("$u_x$")
-ax.grid(True, alpha=0.25)
+# ax.grid(True, alpha=0.25)
 ax.legend(frameon=False, fontsize=8)
 
 fig.tight_layout()
