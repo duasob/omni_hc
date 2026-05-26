@@ -1,8 +1,8 @@
 constraint:
-  name: "mean_constraint"
-  mode: "latent_head"
-  correction_hidden: 192
-  correction_layers: 2
-  correction_act: "tanh"
-  channel_dim: -1
-
+    name: "mean_constraint"
+    mode: "latent_head"
+    latent_module: "blocks.-1.ln_3"
+    correction_hidden: 256
+    correction_layers: 2
+    correction_act: "tanh"
+    channel_dim: -1
