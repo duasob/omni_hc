@@ -5,12 +5,13 @@ set -euo pipefail
 #
 # Define one run per entry in RUNS below, or set RUNS_FILE to a file generated
 # by `python -m scripts.reporting.build --write-missing-runs missing_runs.txt`.
-# Entries are passed to `scripts/train.py` by default; prefix with `test:` to
-# run `scripts/test.py`.
+# Entries are passed to `scripts/train.py` by default; prefix with `test:` or
+# `diagnose:` to run `scripts/test.py` or `scripts/diagnose.py`.
 #
 # Example entry:
 #   "--benchmark plasticity --backbone FNO --constraint plasticity_mesh_consistency_constraint --budget smoke --override wandb_logging.image_log_every=10"
 #   "test: --config outputs/.../resolved_config.yaml --checkpoint outputs/.../best.pt"
+#   "diagnose: --config outputs/.../resolved_config.yaml --checkpoint outputs/.../best.pt --write-yaml"
 #
 # Optional environment overrides:
 #   PROJECT_DIR=/path/to/repo
@@ -78,8 +79,8 @@ check_environment() {
         hash -r
     fi
 
-    if [ ! -f scripts/train.py ] || [ ! -f scripts/test.py ]; then
-        echo "ERROR: scripts/train.py or scripts/test.py was not found in $PROJECT_DIR" >&2
+    if [ ! -f scripts/train.py ] || [ ! -f scripts/test.py ] || [ ! -f scripts/diagnose.py ]; then
+        echo "ERROR: scripts/train.py, scripts/test.py, or scripts/diagnose.py was not found in $PROJECT_DIR" >&2
         exit 2
     fi
 
@@ -124,12 +125,15 @@ run_one() {
         return 0
     fi
 
-    # Parse optional command prefix: test: or train: (default: train)
+    # Parse optional command prefix: test:, train:, or diagnose: (default: train)
     if [[ "$run_args" =~ ^[[:space:]]*test:[[:space:]]*(.*) ]]; then
         script="scripts/test.py"
         run_args="${BASH_REMATCH[1]}"
     elif [[ "$run_args" =~ ^[[:space:]]*train:[[:space:]]*(.*) ]]; then
         script="scripts/train.py"
+        run_args="${BASH_REMATCH[1]}"
+    elif [[ "$run_args" =~ ^[[:space:]]*diagnose:[[:space:]]*(.*) ]]; then
+        script="scripts/diagnose.py"
         run_args="${BASH_REMATCH[1]}"
     else
         script="scripts/train.py"

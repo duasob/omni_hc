@@ -23,6 +23,7 @@ from typing import Any
 
 import torch
 import torch.nn.functional as F
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -253,6 +254,20 @@ def _format_flops(value: float) -> str:
     return f"{value:.4g} FLOPs"
 
 
+def _run_dir_from_args(args: argparse.Namespace, cfg: dict) -> Path | None:
+    if args.checkpoint is not None:
+        return Path(args.checkpoint).resolve().parent
+    output_dir = (cfg.get("paths") or {}).get("output_dir")
+    if output_dir:
+        return Path(str(output_dir)).resolve()
+    return None
+
+
+def _write_yaml(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(payload, sort_keys=False))
+
+
 # ── config resolution ─────────────────────────────────────────────────────────
 
 def _resolve_cfg(args: argparse.Namespace) -> dict:
@@ -308,6 +323,17 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--override", action="append", default=[], metavar="KEY=VALUE",
         help="Dotted config override. Repeatable.",
+    )
+    p.add_argument(
+        "--write-yaml",
+        type=str,
+        nargs="?",
+        const="diagnostics.yaml",
+        default=None,
+        help=(
+            "Write machine-readable diagnostics. With no value, writes "
+            "diagnostics.yaml next to --checkpoint or paths.output_dir."
+        ),
     )
     return p.parse_args()
 
@@ -392,6 +418,8 @@ def main() -> None:
         total_flops = epoch_flops * num_epochs
         print(f"  num_epochs        : {num_epochs}")
         print(f"  total_flops       : {total_flops:,}  ({_format_flops(total_flops)})")
+    else:
+        total_flops = 0
     if task_type != "steady":
         t_out = int(meta.get("t_out", 1))
         label = "rollout steps" if task_type == "autoregressive" else "time steps"
@@ -401,6 +429,48 @@ def main() -> None:
         "  Attention kernels, normalisation layers, and element-wise ops may be\n"
         "  under-reported."
     )
+
+    if args.write_yaml is not None:
+        yaml_path = Path(args.write_yaml)
+        if not yaml_path.is_absolute():
+            run_dir = _run_dir_from_args(args, cfg)
+            if run_dir is None:
+                raise ValueError(
+                    "--write-yaml needs an absolute path when no checkpoint or "
+                    "paths.output_dir is available."
+                )
+            yaml_path = run_dir / yaml_path
+
+        payload = {
+            "provenance": {
+                "benchmark": benchmark_name,
+                "backbone": backbone_name,
+                "constraint": constraint_name,
+                "budget": budget_label,
+                "device": str(device),
+                "task_type": task_type,
+                "num_epochs": num_epochs,
+                "training_samples": samples_per_epoch,
+                "batch_size": batch_size,
+                "steps_per_epoch": steps_per_epoch,
+                "seed": int((cfg.get("training") or {}).get("seed", args.seed)),
+                "checkpoint": str(Path(args.checkpoint).resolve())
+                if args.checkpoint is not None
+                else None,
+            },
+            "cost": {
+                "total_params": total_params,
+                "trainable_params": trainable_params,
+                "step_flops": step_flops,
+                "epoch_flops": epoch_flops,
+                "total_flops": total_flops,
+            },
+            "notes": [
+                "torch.profiler with_flops=True counts matmul/conv/linear ops; some kernels may be under-reported.",
+            ],
+        }
+        _write_yaml(yaml_path, payload)
+        print(f"\nwrote diagnostics YAML: {yaml_path}")
 
 
 if __name__ == "__main__":
