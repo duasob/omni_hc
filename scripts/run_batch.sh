@@ -10,7 +10,7 @@ set -euo pipefail
 # Optional environment overrides:
 #   RUNS_FILE=/path/to/runs.txt
 #   CONDA_ENV=omni-hc
-#   PYTHON=/path/to/python
+#   PYTHON=/path/to/python  # or "python", "python3", etc.
 #   DEVICE=auto
 #   OUT_ROOT=artifacts/batch_runs/manual
 #   DRY_RUN=1
@@ -53,9 +53,15 @@ check_environment() {
         echo "ERROR: scripts/train.py or scripts/test.py was not found in $PROJECT_DIR" >&2
         exit 2
     fi
-    if [ -n "${PYTHON:-}" ] && [ ! -x "$PYTHON" ]; then
-        echo "ERROR: PYTHON is not executable: $PYTHON" >&2
-        exit 2
+    if [ -n "${PYTHON:-}" ]; then
+        if [[ "$PYTHON" == */* ]] && [ ! -x "$PYTHON" ]; then
+            echo "ERROR: PYTHON is not executable: $PYTHON" >&2
+            exit 2
+        fi
+        if [[ "$PYTHON" != */* ]] && ! command -v "$PYTHON" >/dev/null 2>&1; then
+            echo "ERROR: PYTHON command was not found: $PYTHON" >&2
+            exit 2
+        fi
     fi
     mkdir -p "$OUT_ROOT"
 }
@@ -63,8 +69,15 @@ check_environment() {
 python_cmd() {
     if [ -n "${PYTHON:-}" ]; then
         printf '%s\n' "$PYTHON"
-    else
+    elif command -v conda >/dev/null 2>&1; then
         printf '%s\n' "conda run -n $CONDA_ENV python"
+    elif command -v python3 >/dev/null 2>&1; then
+        printf '%s\n' "python3"
+    elif command -v python >/dev/null 2>&1; then
+        printf '%s\n' "python"
+    else
+        echo "ERROR: no Python command found. Set PYTHON=/path/to/python." >&2
+        exit 2
     fi
 }
 
