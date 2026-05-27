@@ -132,10 +132,16 @@ def _write_missing_runs_file(
                 lines.append("")
                 command_count += 1
             elif isinstance(row.run, MetricFileRef):
-                lines.append(
-                    f"# {artifact.name} {result.macro}: generated metric source "
-                    f"{row.run.path}; run python -m scripts.reporting.compute_ch5"
-                )
+                if row.run.path == "ch5_gt_metrics.yaml":
+                    lines.append(
+                        f"# {artifact.name} {result.macro}: GT data diagnostics; "
+                        "run python -m scripts.reporting.compute_ch5"
+                    )
+                else:
+                    lines.append(
+                        f"# {artifact.name} {result.macro}: generated metric source "
+                        f"{row.run.path}; not produced by the test batch runner"
+                    )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines).rstrip() + "\n")
     return command_count
