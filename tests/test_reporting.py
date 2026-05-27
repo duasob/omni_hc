@@ -129,3 +129,38 @@ def test_missing_runs_file_deduplicates_runnable_run_refs(tmp_path: Path):
     ) in content
     assert content.count("test:") == 1
     assert "generated metric source gt.yaml" in content
+
+
+def test_missing_runs_file_can_include_all_run_refs(tmp_path: Path):
+    run_a = tmp_path / "outputs" / "a"
+    run_b = tmp_path / "outputs" / "b"
+    run_a.mkdir(parents=True)
+    run_b.mkdir(parents=True)
+    for run_dir in (run_a, run_b):
+        (run_dir / "resolved_config.yaml").write_text("{}")
+        (run_dir / "best.pt").write_text("checkpoint")
+    artifact = ReportArtifact(
+        name="demo",
+        chapter=5,
+        kind="tex_macros",
+        output_subpath="macros/demo.tex",
+        rows=[
+            Row(run=RunRef("outputs/a"), metric_key="metric/a", macro=r"\A"),
+            Row(run=RunRef("outputs/b"), metric_key="metric/b", macro=r"\B"),
+        ],
+    )
+    results = [
+        CellResult(r"\A", "1", "outputs/a", True),
+        CellResult(r"\B", TBD, "missing metric: metric/b", False),
+    ]
+    output_path = tmp_path / "refresh_runs.txt"
+
+    count = _write_missing_runs_file(
+        output_path, [artifact], {"demo": results}, tmp_path, mode="all"
+    )
+
+    content = output_path.read_text()
+    assert count == 2
+    assert "runfile_mode: all" in content
+    assert "test: --config outputs/a/resolved_config.yaml" in content
+    assert "test: --config outputs/b/resolved_config.yaml" in content

@@ -8,22 +8,31 @@ from __future__ import annotations
 
 from ..core.types import MetricFileRef, ReportArtifact, Row, RunRef
 
-
 # --- Run paths (relative to repo root) ----------------------------------------
-NS_HC = RunRef("outputs/navier_stokes/mean_constraint/transolver/final/seed_42")
+NS_HC = RunRef(
+    "outputs/navier_stokes/mean_constraint/galerkin_transformer/final/seed_42"
+)
 NS_BL = RunRef("outputs/navier_stokes/none/galerkin_transformer/final/seed_42")
 
-DARCY_DIRICHLET_HC = RunRef("outputs/darcy/dirichlet_ansatz_zero/transolver/final/seed_42")
+DARCY_DIRICHLET_HC = RunRef(
+    "outputs/darcy/dirichlet_ansatz_zero/transolver/final/seed_42"
+)
 DARCY_FLUX_HC = RunRef("outputs/darcy/darcy_flux_constraint/transolver/final/seed_42")
 DARCY_BL = RunRef("outputs/darcy/none/transolver/final/seed_42")
 
-PIPE_HC = RunRef("outputs/pipe/pipe_stream_function_boundary_ansatz/transolver/final/seed_42")
+PIPE_HC = RunRef(
+    "outputs/pipe/pipe_stream_function_boundary_ansatz/transolver/final/seed_42"
+)
 PIPE_BL = RunRef("outputs/pipe/none/transolver/final/seed_42")
 
-ELAS_HC = RunRef("outputs/elasticity/elasticity_deviatoric_stress_constraint/transolver/final/seed_42")
+ELAS_HC = RunRef(
+    "outputs/elasticity/elasticity_deviatoric_stress_constraint/transolver/final/seed_42"
+)
 ELAS_BL = RunRef("outputs/elasticity/none/transolver/final/seed_42")
 
-PLAS_HC = RunRef("outputs/plasticity/plasticity_mesh_consistency_constraint/transolver/final/seed_42")
+PLAS_HC = RunRef(
+    "outputs/plasticity/plasticity_mesh_consistency_constraint/transolver/final/seed_42"
+)
 PLAS_BL = RunRef("outputs/plasticity/none/transolver/smoke/seed_42")
 GT = MetricFileRef("ch5_gt_metrics.yaml")
 COST = MetricFileRef("ch5_cost_metrics.yaml")
@@ -56,7 +65,11 @@ cv_gt = ReportArtifact(
         Row(run=GT, metric_key="constraint/inlet_rmse", macro=r"\cvGtPipeInlet"),
         Row(run=GT, metric_key="constraint/div_rmse", macro=r"\cvGtPipeDiv"),
         Row(run=None, metric_key=None, macro=r"\cvGtElasticity", literal="/"),
-        Row(run=GT, metric_key="constraint/neg_spacing_fraction", macro=r"\cvGtPlasticity"),
+        Row(
+            run=GT,
+            metric_key="constraint/neg_spacing_fraction",
+            macro=r"\cvGtPlasticity",
+        ),
     ],
 )
 
@@ -104,7 +117,7 @@ cv_constrained = ReportArtifact(
     rows=[
         Row(
             run=NS_HC,
-            metric_key=("constraint/vorticity_abs_mean", "constraint/pred_base_mean"),
+            metric_key="constraint/vorticity_abs_mean",
             macro=r"\cvHcNsVorticity",
         ),
         Row(
@@ -169,7 +182,9 @@ cv_cost = ReportArtifact(
             macro=r"\cvCostFlopsNs",
             format="{:.0f}",
         ),
-        Row(run=None, metric_key=None, macro=r"\cvCostParamsDarcyDirichlet", literal="0"),
+        Row(
+            run=None, metric_key=None, macro=r"\cvCostParamsDarcyDirichlet", literal="0"
+        ),
         Row(
             run=COST,
             metric_key="darcy_dirichlet/flops_overhead",

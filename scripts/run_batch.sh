@@ -14,6 +14,7 @@ set -euo pipefail
 #   DEVICE=auto
 #   OUT_ROOT=artifacts/batch_runs/manual
 #   DRY_RUN=1
+#   CHECK_REPORTING_FINGERPRINT=0
 
 PROJECT_DIR="${PROJECT_DIR:-$PWD}"
 cd "$PROJECT_DIR"
@@ -23,6 +24,7 @@ CONDA_ENV="${CONDA_ENV:-omni-hc}"
 DEVICE="${DEVICE:-auto}"
 OUT_ROOT="${OUT_ROOT:-artifacts/batch_runs/manual}"
 DRY_RUN="${DRY_RUN:-0}"
+CHECK_REPORTING_FINGERPRINT="${CHECK_REPORTING_FINGERPRINT:-1}"
 
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
 export MKL_NUM_THREADS="${MKL_NUM_THREADS:-$OMP_NUM_THREADS}"
@@ -81,6 +83,48 @@ python_cmd() {
     fi
 }
 
+runfile_meta() {
+    local key="$1"
+    sed -n "s/^# ${key}: //p" "$RUNS_FILE" | head -n 1
+}
+
+check_reporting_fingerprint() {
+    local expected chapter name actual
+    local -a py_parts fingerprint_cmd
+
+    if [ "$CHECK_REPORTING_FINGERPRINT" != "1" ]; then
+        return 0
+    fi
+
+    expected="$(runfile_meta reporting_fingerprint)"
+    if [ -z "$expected" ]; then
+        return 0
+    fi
+    if [ ! -f scripts/reporting/build.py ]; then
+        return 0
+    fi
+
+    chapter="$(runfile_meta reporting_chapter)"
+    name="$(runfile_meta reporting_name)"
+    read -r -a py_parts <<< "$(python_cmd)"
+    fingerprint_cmd=("${py_parts[@]}" -m scripts.reporting.build --print-fingerprint)
+    if [ -n "$chapter" ] && [ "$chapter" != "all" ]; then
+        fingerprint_cmd+=(--chapter "$chapter")
+    fi
+    if [ -n "$name" ] && [ "$name" != "all" ]; then
+        fingerprint_cmd+=(--name "$name")
+    fi
+    actual="$("${fingerprint_cmd[@]}")"
+    if [ "$actual" != "$expected" ]; then
+        echo "ERROR: RUNS_FILE was generated from an older reporting registry." >&2
+        echo "Expected fingerprint: $expected" >&2
+        echo "Current fingerprint:  $actual" >&2
+        echo "Regenerate it with: python -m scripts.reporting.build --write-missing-runs missing_runs.txt" >&2
+        echo "Set CHECK_REPORTING_FINGERPRINT=0 to bypass this check." >&2
+        exit 2
+    fi
+}
+
 run_one() {
     local index="$1"
     local run_args="$2"
@@ -130,6 +174,7 @@ run_one() {
 }
 
 check_environment
+check_reporting_fingerprint
 
 echo "Batch started: $(timestamp)"
 echo "Project dir: $PROJECT_DIR"
