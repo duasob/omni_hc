@@ -12,6 +12,10 @@ import torch.nn as nn
 # Used by the default ConstraintModule.build classmethod.
 _BUILD_META_KEYS: frozenset[str] = frozenset({"name", "freeze_base"})
 
+# kwargs passed to ConstrainedModel.forward that are meant for the constraint only
+# and must not be forwarded to the backbone.
+_CONSTRAINT_ONLY_KWARGS: frozenset[str] = frozenset({"uy_target"})
+
 
 @dataclass
 class ConstraintDiagnostic:
@@ -24,6 +28,7 @@ class ConstraintOutput:
     pred: torch.Tensor
     aux: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, ConstraintDiagnostic] = field(default_factory=dict)
+    extra_loss: torch.Tensor | None = None
 
 
 class ConstraintModule(nn.Module):
@@ -80,11 +85,13 @@ class ConstraintModule(nn.Module):
         *,
         aux: dict[str, Any] | None = None,
         diagnostics: dict[str, ConstraintDiagnostic] | None = None,
+        extra_loss: torch.Tensor | None = None,
     ) -> ConstraintOutput:
         return ConstraintOutput(
             pred=pred,
             aux={} if aux is None else aux,
             diagnostics={} if diagnostics is None else diagnostics,
+            extra_loss=extra_loss,
         )
 
 
@@ -111,7 +118,8 @@ class ConstrainedModel(nn.Module):
         if self.constraint is None:
             return self.backbone(*args, **kwargs)
 
-        pred = self.backbone(*args, **kwargs)
+        backbone_kwargs = {k: v for k, v in kwargs.items() if k not in _CONSTRAINT_ONLY_KWARGS}
+        pred = self.backbone(*args, **backbone_kwargs)
         coords = args[0] if len(args) > 0 else kwargs.get("coords")
         fx = args[1] if len(args) > 1 else kwargs.get("fx")
         return self.constraint(
@@ -119,4 +127,5 @@ class ConstrainedModel(nn.Module):
             coords=coords,
             fx=fx,
             return_aux=return_aux,
+            **kwargs,
         )

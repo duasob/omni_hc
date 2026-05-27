@@ -37,21 +37,29 @@ class IdentityTransformer:
 
 class PipeDataset(Dataset):
     def __init__(
-        self, coords: torch.Tensor, x: torch.Tensor, y: torch.Tensor
+        self,
+        coords: torch.Tensor,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        y_uy: torch.Tensor | None = None,
     ) -> None:
         self._coords = coords
         self._x = x
         self._y = y
+        self._y_uy = y_uy
 
     def __len__(self) -> int:
         return int(self._x.shape[0])
 
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        return {
+        item = {
             "coords": self._coords[idx],
             "x": self._x[idx],
             "y": self._y[idx],
         }
+        if self._y_uy is not None:
+            item["y_uy"] = self._y_uy[idx]
+        return item
 
 
 def resolve_pipe_dir(root_dir: str | Path) -> Path:
@@ -93,6 +101,7 @@ def _load_pipe_raw(cfg: dict):
     ntrain = _as_int(data_cfg.get("ntrain"), 1000)
     ntest = _as_int(data_cfg.get("ntest"), 200)
     target_channel = _as_int(data_cfg.get("target_channel"), 0)
+    load_uy = bool(data_cfg.get("load_uy", False))
 
     if target_channel < 0 or target_channel >= int(output_q.shape[1]):
         raise ValueError(
@@ -105,6 +114,13 @@ def _load_pipe_raw(cfg: dict):
             f"ntrain + ntest exceeds available samples: {ntrain} + {ntest} > {n_samples}."
         )
 
+    uy_channel = 1
+    if load_uy and (uy_channel < 0 or uy_channel >= int(output_q.shape[1])):
+        raise ValueError(
+            f"load_uy=True but uy channel index {uy_channel} is out of range for "
+            f"Pipe_Q with {output_q.shape[1]} channels."
+        )
+
     x_train = np.stack(
         [
             input_x[:ntrain, ::r1, ::r2][:, :s1, :s2],
@@ -113,6 +129,9 @@ def _load_pipe_raw(cfg: dict):
         axis=-1,
     )
     y_train = output_q[:ntrain, target_channel, ::r1, ::r2][:, :s1, :s2]
+    y_uy_train = (
+        output_q[:ntrain, uy_channel, ::r1, ::r2][:, :s1, :s2] if load_uy else None
+    )
 
     test_start = ntrain
     test_stop = ntrain + ntest
@@ -124,11 +143,26 @@ def _load_pipe_raw(cfg: dict):
         axis=-1,
     )
     y_test = output_q[test_start:test_stop, target_channel, ::r1, ::r2][:, :s1, :s2]
+    y_uy_test = (
+        output_q[test_start:test_stop, uy_channel, ::r1, ::r2][:, :s1, :s2]
+        if load_uy
+        else None
+    )
 
     x_train = torch.from_numpy(x_train.reshape(ntrain, -1, 2)).float()
     y_train = torch.from_numpy(y_train.reshape(ntrain, -1, 1)).float()
+    y_uy_train = (
+        torch.from_numpy(y_uy_train.reshape(ntrain, -1, 1)).float()
+        if y_uy_train is not None
+        else None
+    )
     x_test = torch.from_numpy(x_test.reshape(ntest, -1, 2)).float()
     y_test = torch.from_numpy(y_test.reshape(ntest, -1, 1)).float()
+    y_uy_test = (
+        torch.from_numpy(y_uy_test.reshape(ntest, -1, 1)).float()
+        if y_uy_test is not None
+        else None
+    )
 
     meta = {
         "shapelist": (s1, s2),
@@ -142,30 +176,42 @@ def _load_pipe_raw(cfg: dict):
         "ntest": ntest,
         "root_dir": str(root),
         "target_channel": target_channel,
+        "load_uy": load_uy,
     }
-    return x_train, y_train, x_test, y_test, meta
+    return x_train, y_train, y_uy_train, x_test, y_test, y_uy_test, meta
 
 
-def _build_normalizers(cfg: dict, x_train: torch.Tensor, y_train: torch.Tensor):
+def _build_normalizers(cfg: dict, x_train: torch.Tensor, y_train: torch.Tensor, y_uy_train: torch.Tensor | None):
     data_cfg = cfg.get("data", {})
     normalize = bool(data_cfg.get("normalize", True))
     if not normalize:
-        return IdentityTransformer(), IdentityTransformer()
+        uy_normalizer = IdentityTransformer() if y_uy_train is not None else None
+        return IdentityTransformer(), IdentityTransformer(), uy_normalizer
     norm_type = str(data_cfg.get("norm_type", "UnitTransformer"))
     if norm_type != "UnitTransformer":
         raise ValueError(
             "Pipe loader currently supports only data.norm_type='UnitTransformer'."
         )
-    return UnitTransformer(x_train), UnitTransformer(y_train)
+    uy_normalizer = UnitTransformer(y_uy_train) if y_uy_train is not None else None
+    return UnitTransformer(x_train), UnitTransformer(y_train), uy_normalizer
+
+
+def _attach_normalizers(loader, *, x_normalizer, y_normalizer, uy_normalizer):
+    loader.x_normalizer = x_normalizer
+    loader.y_normalizer = y_normalizer
+    if uy_normalizer is not None:
+        loader.uy_normalizer = uy_normalizer
 
 
 def build_train_val_loaders(cfg: dict):
-    x_train, y_train, _, _, meta = _load_pipe_raw(cfg)
-    x_normalizer, y_normalizer = _build_normalizers(cfg, x_train, y_train)
+    x_train, y_train, y_uy_train, _, _, _, meta = _load_pipe_raw(cfg)
+    x_normalizer, y_normalizer, uy_normalizer = _build_normalizers(
+        cfg, x_train, y_train, y_uy_train
+    )
     x_train = x_normalizer.encode(x_train)
     y_train = y_normalizer.encode(y_train)
 
-    dataset = PipeDataset(x_train, x_train, y_train)
+    dataset = PipeDataset(x_train, x_train, y_train, y_uy=y_uy_train)
     training_cfg = cfg.get("training", {})
     batch_size = int(training_cfg.get("batch_size", 4))
     val_size = int(training_cfg.get("val_size", 16))
@@ -179,8 +225,12 @@ def build_train_val_loaders(cfg: dict):
             num_workers=0,
         )
         train_loader.pipe_meta = meta
-        train_loader.x_normalizer = x_normalizer
-        train_loader.y_normalizer = y_normalizer
+        _attach_normalizers(
+            train_loader,
+            x_normalizer=x_normalizer,
+            y_normalizer=y_normalizer,
+            uy_normalizer=uy_normalizer,
+        )
         return train_loader, None
 
     val_size = min(max(val_size, 1), len(dataset) - 1)
@@ -198,20 +248,30 @@ def build_train_val_loaders(cfg: dict):
     )
     train_loader.pipe_meta = meta
     val_loader.pipe_meta = meta
-    train_loader.x_normalizer = x_normalizer
-    val_loader.x_normalizer = x_normalizer
-    train_loader.y_normalizer = y_normalizer
-    val_loader.y_normalizer = y_normalizer
+    _attach_normalizers(
+        train_loader,
+        x_normalizer=x_normalizer,
+        y_normalizer=y_normalizer,
+        uy_normalizer=uy_normalizer,
+    )
+    _attach_normalizers(
+        val_loader,
+        x_normalizer=x_normalizer,
+        y_normalizer=y_normalizer,
+        uy_normalizer=uy_normalizer,
+    )
     return train_loader, val_loader
 
 
 def build_test_loader(cfg: dict):
-    x_train, y_train, x_test, y_test, meta = _load_pipe_raw(cfg)
-    x_normalizer, y_normalizer = _build_normalizers(cfg, x_train, y_train)
+    x_train, y_train, y_uy_train, x_test, y_test, y_uy_test, meta = _load_pipe_raw(cfg)
+    x_normalizer, y_normalizer, uy_normalizer = _build_normalizers(
+        cfg, x_train, y_train, y_uy_train
+    )
     x_test = x_normalizer.encode(x_test)
     y_test = y_normalizer.encode(y_test)
 
-    dataset = PipeDataset(x_test, x_test, y_test)
+    dataset = PipeDataset(x_test, x_test, y_test, y_uy=y_uy_test)
     batch_size = int(
         cfg.get("evaluation", {}).get(
             "batch_size", cfg.get("training", {}).get("batch_size", 4)
@@ -219,6 +279,10 @@ def build_test_loader(cfg: dict):
     )
     test_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
     test_loader.pipe_meta = meta
-    test_loader.x_normalizer = x_normalizer
-    test_loader.y_normalizer = y_normalizer
+    _attach_normalizers(
+        test_loader,
+        x_normalizer=x_normalizer,
+        y_normalizer=y_normalizer,
+        uy_normalizer=uy_normalizer,
+    )
     return test_loader

@@ -150,6 +150,7 @@ def _normalize_forward_output(output) -> dict[str, Any]:
             "pred_mean": float(pred.mean().item()),
             "aux_tensors": dict(output.aux),
             "diagnostics": dict(output.diagnostics),
+            "extra_loss": output.extra_loss,
         }
     if isinstance(output, tuple) and len(output) == 3:
         pred, pred_base, corr = output

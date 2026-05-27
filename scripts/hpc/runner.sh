@@ -40,9 +40,7 @@ export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-$OMP_NUM_THREADS}"
 export NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-$OMP_NUM_THREADS}"
 
 RUNS=(
-    "--benchmark navier_stokes --backbone Galerkin_Transformer --constraint mean_constraint --budget final"
-    "--benchmark navier_stokes --backbone Galerkin_Transformer --constraint none --budget final"
-
+    "--benchmark pipe --backbone Transolver --constraint pipe_stream_function_boundary_ansatz --budget final --override data.load_uy=true --override constraint.uy_loss_weight=0.1"
 )
 
 timestamp() {

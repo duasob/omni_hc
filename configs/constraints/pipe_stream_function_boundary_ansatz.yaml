@@ -7,3 +7,4 @@ constraint:
   coordinate_channel: 1
   decay_power: 1.0
   eps: 1.0e-12
+  uy_loss_weight: 0.1

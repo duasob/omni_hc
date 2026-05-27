@@ -1320,6 +1320,27 @@ def save_pipe_flow_images(
     return paths
 
 
+def _make_pipe_uy_figure(coords, h, w, *, uy_pred, uy_target):
+    x = coords[0, :, 0].detach().cpu().reshape(h, w).numpy()
+    y = coords[0, :, 1].detach().cpu().reshape(h, w).numpy()
+    pred_img = uy_pred[0, :, 0].detach().cpu().reshape(h, w).numpy()
+    tgt_img = uy_target[0, :, 0].detach().cpu().reshape(h, w).numpy()
+    err_img = pred_img - tgt_img
+
+    scale = max(float(np.abs(pred_img).max()), float(np.abs(tgt_img).max()), 1e-12)
+    err_scale = max(float(np.abs(err_img).max()), 1e-12)
+
+    fig, axes = plt.subplots(1, 3, figsize=(13, 3.5), dpi=140)
+    im0 = _plot_pipe_field(axes[0], x, y, tgt_img, title="target uy", vmin=-scale, vmax=scale, cmap="coolwarm")
+    im1 = _plot_pipe_field(axes[1], x, y, pred_img, title="pred uy", vmin=-scale, vmax=scale, cmap="coolwarm")
+    im2 = _plot_pipe_field(axes[2], x, y, err_img, title="pred - target", vmin=-err_scale, vmax=err_scale, cmap="coolwarm")
+    fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+    fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+    fig.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+    fig.tight_layout()
+    return fig
+
+
 def log_pipe_stream_images(
     coords,
     h,
@@ -1333,6 +1354,7 @@ def log_pipe_stream_images(
     divergence,
     psi_bc=None,
     mask=None,
+    uy_target=None,
 ):
     if wandb is None or getattr(wandb, "run", None) is None or plt is None:
         return
@@ -1387,14 +1409,18 @@ def log_pipe_stream_images(
         fig.colorbar(im4, ax=axes[4], fraction=0.046, pad=0.04)
     fig.tight_layout()
 
-    wandb.log(
-        {
-            f"{prefix}/pipe_stream": wandb.Image(fig),
-            "epoch": epoch + 1,
-        },
-        step=step,
-    )
+    payload = {
+        f"{prefix}/pipe_stream": wandb.Image(fig),
+        "epoch": epoch + 1,
+    }
     plt.close(fig)
+
+    if uy_target is not None:
+        uy_fig = _make_pipe_uy_figure(coords, h, w, uy_pred=uy, uy_target=uy_target)
+        payload[f"{prefix}/pipe_uy"] = wandb.Image(uy_fig)
+        plt.close(uy_fig)
+
+    wandb.log(payload, step=step)
 
 
 def _make_pipe_stream_figure(
@@ -1407,6 +1433,7 @@ def _make_pipe_stream_figure(
     divergence,
     psi_bc=None,
     mask=None,
+    uy_target=None,
 ):
     x = coords[0, :, 0].detach().cpu().reshape(h, w).numpy()
     y = coords[0, :, 1].detach().cpu().reshape(h, w).numpy()
@@ -1472,6 +1499,7 @@ def save_pipe_stream_images(
     divergence,
     psi_bc=None,
     mask=None,
+    uy_target=None,
 ):
     if plt is None:
         return {}
@@ -1487,7 +1515,15 @@ def save_pipe_stream_images(
     )
     path = _save_figure(Path(out_dir) / f"{prefix}_pipe_stream.png", fig)
     plt.close(fig)
-    return {"pipe_stream": str(path)}
+    out = {"pipe_stream": str(path)}
+
+    if uy_target is not None:
+        uy_fig = _make_pipe_uy_figure(coords, h, w, uy_pred=uy, uy_target=uy_target)
+        uy_path = _save_figure(Path(out_dir) / f"{prefix}_pipe_uy.png", uy_fig)
+        plt.close(uy_fig)
+        out["pipe_uy"] = str(uy_path)
+
+    return out
 
 
 def _as_first_grid(tensor, h, w, channels):

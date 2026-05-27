@@ -64,6 +64,7 @@ plt.rcParams.update(
     }
 )
 
+
 # %% Load dataset
 x_all = np.load(DATA_DIR / "Pipe_X.npy", mmap_mode="r")  # (N, H, W)
 y_all = np.load(DATA_DIR / "Pipe_Y.npy", mmap_mode="r")  # (N, H, W)

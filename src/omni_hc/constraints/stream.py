@@ -3,8 +3,10 @@ from __future__ import annotations
 from typing import Sequence
 
 import torch
+import torch.nn.functional as F
 
 from .base import ConstraintDiagnostic, ConstraintModule
+from .utils.boundary_ops import encode_target
 from .utils.spectral import (
     reshape_channels_last_to_grid,
     reshape_grid_to_channels_last,
@@ -15,14 +17,30 @@ from .utils.stream_ops import (
 )
 
 
+def _uy_supervision_loss(
+    uy_pred_flat: torch.Tensor,
+    uy_target: torch.Tensor,
+    uy_normalizer,
+    weight: float,
+) -> torch.Tensor:
+    """Relative L2 loss between predicted and target uy, both encoded with uy_normalizer."""
+    uy_pred_enc = encode_target(uy_pred_flat, uy_normalizer)
+    uy_tgt_enc = encode_target(uy_target, uy_normalizer)
+    n = uy_pred_enc.shape[0]
+    diff = (uy_pred_enc - uy_tgt_enc).reshape(n, -1)
+    tgt_norm = uy_tgt_enc.reshape(n, -1).norm(p=2, dim=1).clamp_min(1e-12)
+    return weight * (diff.norm(p=2, dim=1) / tgt_norm).sum()
+
+
 class PipeStreamFunctionUxConstraint(ConstraintModule):
     """
     Interprets the scalar backbone output as a stream function psi on the
     curvilinear pipe mesh and returns ux = dpsi/dy in physical coordinates.
 
-    When predict_uy=True, returns a 2-channel output [ux, uy] so that the
-    training loss includes the error on uy. The dataset target must then be
-    2-channel [ux, uy] accordingly.
+    When uy_loss_weight > 0, an additional relative-L2 loss on uy is computed
+    against the uy_target tensor passed through the batch (key "y_uy") and added
+    to the returned extra_loss. The benchmark target and out_dim stay at 1 (ux only).
+    Set data.load_uy: true in the config to supply uy_target.
     """
 
     name = "pipe_stream_function_ux"
@@ -32,14 +50,15 @@ class PipeStreamFunctionUxConstraint(ConstraintModule):
         *,
         shapelist=None,
         eps: float = 1e-12,
-        predict_uy: bool = False,
+        uy_loss_weight: float = 0.0,
     ) -> None:
         super().__init__()
         self.shapelist = None if shapelist is None else tuple(int(v) for v in shapelist)
         self.eps = float(eps)
-        self.predict_uy = bool(predict_uy)
+        self.uy_loss_weight = float(uy_loss_weight)
         self.input_normalizer = None
         self.target_normalizer = None
+        self.uy_normalizer = None
 
     def set_grid_shape(self, shapelist) -> None:
         self.shapelist = tuple(int(v) for v in shapelist)
@@ -49,6 +68,9 @@ class PipeStreamFunctionUxConstraint(ConstraintModule):
 
     def set_target_normalizer(self, normalizer) -> None:
         self.target_normalizer = normalizer
+
+    def set_uy_normalizer(self, normalizer) -> None:
+        self.uy_normalizer = normalizer
 
     def _grid_shape(self) -> tuple[int, int]:
         if self.shapelist is None:
@@ -69,7 +91,7 @@ class PipeStreamFunctionUxConstraint(ConstraintModule):
             return target
         return self.target_normalizer.encode(target)
 
-    def forward(self, *, pred, coords=None, return_aux=False, **_unused):
+    def forward(self, *, pred, coords=None, return_aux=False, uy_target=None, **_unused):
         if coords is None:
             raise ValueError("coords are required for PipeStreamFunctionUxConstraint")
         if pred.ndim != 3 or pred.shape[-1] != 1:
@@ -99,12 +121,13 @@ class PipeStreamFunctionUxConstraint(ConstraintModule):
         ux_flat = reshape_grid_to_channels_last(ux)
         ux_encoded = self._encode_target(ux_flat)
 
-        if self.predict_uy:
-            uy_flat = reshape_grid_to_channels_last(uy)
-            uy_encoded = self._encode_target(uy_flat)
-            out_encoded = torch.cat([ux_encoded, uy_encoded], dim=-1)
-        else:
-            out_encoded = ux_encoded
+        uy_flat = reshape_grid_to_channels_last(uy)
+
+        extra_loss = None
+        if self.uy_loss_weight > 0.0 and uy_target is not None:
+            extra_loss = _uy_supervision_loss(
+                uy_flat, uy_target, self.uy_normalizer, self.uy_loss_weight
+            )
 
         if return_aux:
             div = finite_volume_divergence_curvilinear(
@@ -146,17 +169,30 @@ class PipeStreamFunctionUxConstraint(ConstraintModule):
                     reduce="mean",
                 ),
             }
+            aux_out = {
+                "pred_base": pred,
+                "stream_psi": reshape_grid_to_channels_last(psi),
+                "stream_uy": uy_flat,
+                "stream_div": div.reshape(div.shape[0], 1, -1).transpose(1, 2),
+            }
+            if uy_target is not None:
+                aux_out["stream_uy_target"] = uy_target
+                uy_pred_enc = encode_target(uy_flat, self.uy_normalizer)
+                uy_tgt_enc = encode_target(uy_target, self.uy_normalizer)
+                n = uy_pred_enc.shape[0]
+                diff = (uy_pred_enc - uy_tgt_enc).reshape(n, -1)
+                tgt_norm = uy_tgt_enc.reshape(n, -1).norm(p=2, dim=1).clamp_min(1e-12)
+                diagnostics["constraint/stream_uy_rel_l2"] = ConstraintDiagnostic(
+                    value=(diff.norm(p=2, dim=1) / tgt_norm).mean(),
+                    reduce="mean",
+                )
             return self.as_output(
-                out_encoded,
-                aux={
-                    "pred_base": pred,
-                    "stream_psi": reshape_grid_to_channels_last(psi),
-                    "stream_uy": reshape_grid_to_channels_last(uy),
-                    "stream_div": div.reshape(div.shape[0], 1, -1).transpose(1, 2),
-                },
+                ux_encoded,
+                aux=aux_out,
                 diagnostics=diagnostics,
+                extra_loss=extra_loss,
             )
-        return out_encoded
+        return ux_encoded
 
     @classmethod
     def log_media(cls, ctx) -> dict[str, str]:
@@ -164,12 +200,14 @@ class PipeStreamFunctionUxConstraint(ConstraintModule):
         if not all(k in aux for k in ("stream_psi", "stream_uy", "stream_div")):
             return {}
         h, w = ctx.meta["shapelist"]
+        uy_target = aux.get("stream_uy_target")
         if ctx.out_dir is None:
             from omni_hc.training.logging_utils import log_pipe_stream_images
             log_pipe_stream_images(
                 ctx.coords, h, w,
                 prefix=ctx.prefix, epoch=ctx.epoch, step=ctx.step,
                 psi=aux["stream_psi"], uy=aux["stream_uy"], divergence=aux["stream_div"],
+                uy_target=uy_target,
             )
             return {}
         from omni_hc.training.logging_utils import save_pipe_stream_images
@@ -177,6 +215,7 @@ class PipeStreamFunctionUxConstraint(ConstraintModule):
             ctx.coords, h, w,
             out_dir=ctx.out_dir, prefix=ctx.prefix,
             psi=aux["stream_psi"], uy=aux["stream_uy"], divergence=aux["stream_div"],
+            uy_target=uy_target,
         )
 
 
@@ -193,6 +232,11 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
     and returns ux recovered from the stream function in physical
     coordinates. This preserves the inlet parabolic profile at xi=0 and
     keeps the correction from changing wall values.
+
+    When uy_loss_weight > 0, an additional relative-L2 loss on uy is computed
+    against the uy_target tensor passed through the batch (key "y_uy") and added
+    to the returned extra_loss. The benchmark target and out_dim stay at 1 (ux only).
+    Set data.load_uy: true in the config to supply uy_target.
     """
 
     name = "pipe_stream_function_boundary_ansatz"
@@ -208,7 +252,7 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
         boundary_constant: float = 0.0,
         decay_power: float = 4.0,
         eps: float = 1e-12,
-        predict_uy: bool = False,
+        uy_loss_weight: float = 0.0,
     ) -> None:
         super().__init__()
         self.shapelist = None if shapelist is None else tuple(int(v) for v in shapelist)
@@ -219,9 +263,10 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
         self.boundary_constant = float(boundary_constant)
         self.decay_power = float(decay_power)
         self.eps = float(eps)
-        self.predict_uy = bool(predict_uy)
+        self.uy_loss_weight = float(uy_loss_weight)
         self.input_normalizer = None
         self.target_normalizer = None
+        self.uy_normalizer = None
 
     def set_grid_shape(self, shapelist) -> None:
         self.shapelist = tuple(int(v) for v in shapelist)
@@ -231,6 +276,9 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
 
     def set_target_normalizer(self, normalizer) -> None:
         self.target_normalizer = normalizer
+
+    def set_uy_normalizer(self, normalizer) -> None:
+        self.uy_normalizer = normalizer
 
     def _grid_shape(self) -> tuple[int, int]:
         if self.shapelist is None:
@@ -338,7 +386,7 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
     def _correction_mask(self, *, xi: torch.Tensor, eta: torch.Tensor) -> torch.Tensor:
         return xi.pow(self.decay_power) * eta.square() * (1.0 - eta).square()
 
-    def forward(self, *, pred, coords=None, return_aux=False, **_unused):
+    def forward(self, *, pred, coords=None, return_aux=False, uy_target=None, **_unused):
         if coords is None:
             raise ValueError("coords are required for PipeStreamFunctionBoundaryAnsatz")
         if pred.ndim != 3 or pred.shape[-1] != 1:
@@ -381,13 +429,13 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
         uy = velocity[:, 1:2]
         ux_flat = reshape_grid_to_channels_last(ux)
         ux_encoded = self._encode_target(ux_flat)
+        uy_flat = reshape_grid_to_channels_last(uy)
 
-        if self.predict_uy:
-            uy_flat = reshape_grid_to_channels_last(uy)
-            uy_encoded = self._encode_target(uy_flat)
-            out_encoded = torch.cat([ux_encoded, uy_encoded], dim=-1)
-        else:
-            out_encoded = ux_encoded
+        extra_loss = None
+        if self.uy_loss_weight > 0.0 and uy_target is not None:
+            extra_loss = _uy_supervision_loss(
+                uy_flat, uy_target, self.uy_normalizer, self.uy_loss_weight
+            )
 
         if return_aux:
             div = finite_volume_divergence_curvilinear(
@@ -477,19 +525,32 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
                     reduce="max",
                 ),
             }
+            aux_out = {
+                "pred_base": pred,
+                "stream_psi": reshape_grid_to_channels_last(psi),
+                "stream_uy": uy_flat,
+                "stream_div": div.reshape(div.shape[0], 1, -1).transpose(1, 2),
+                "stream_psi_bc": reshape_grid_to_channels_last(psi_bc),
+                "stream_mask": reshape_grid_to_channels_last(correction_mask),
+            }
+            if uy_target is not None:
+                aux_out["stream_uy_target"] = uy_target
+                uy_pred_enc = encode_target(uy_flat, self.uy_normalizer)
+                uy_tgt_enc = encode_target(uy_target, self.uy_normalizer)
+                n = uy_pred_enc.shape[0]
+                diff = (uy_pred_enc - uy_tgt_enc).reshape(n, -1)
+                tgt_norm = uy_tgt_enc.reshape(n, -1).norm(p=2, dim=1).clamp_min(1e-12)
+                diagnostics["constraint/stream_uy_rel_l2"] = ConstraintDiagnostic(
+                    value=(diff.norm(p=2, dim=1) / tgt_norm).mean(),
+                    reduce="mean",
+                )
             return self.as_output(
-                out_encoded,
-                aux={
-                    "pred_base": pred,
-                    "stream_psi": reshape_grid_to_channels_last(psi),
-                    "stream_uy": reshape_grid_to_channels_last(uy),
-                    "stream_div": div.reshape(div.shape[0], 1, -1).transpose(1, 2),
-                    "stream_psi_bc": reshape_grid_to_channels_last(psi_bc),
-                    "stream_mask": reshape_grid_to_channels_last(correction_mask),
-                },
+                ux_encoded,
+                aux=aux_out,
                 diagnostics=diagnostics,
+                extra_loss=extra_loss,
             )
-        return out_encoded
+        return ux_encoded
 
     @classmethod
     def log_media(cls, ctx) -> dict[str, str]:
@@ -497,6 +558,7 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
         if not all(k in aux for k in ("stream_psi", "stream_uy", "stream_div")):
             return {}
         h, w = ctx.meta["shapelist"]
+        uy_target = aux.get("stream_uy_target")
         if ctx.out_dir is None:
             from omni_hc.training.logging_utils import log_pipe_stream_images
             log_pipe_stream_images(
@@ -504,6 +566,7 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
                 prefix=ctx.prefix, epoch=ctx.epoch, step=ctx.step,
                 psi=aux["stream_psi"], uy=aux["stream_uy"], divergence=aux["stream_div"],
                 psi_bc=aux.get("stream_psi_bc"), mask=aux.get("stream_mask"),
+                uy_target=uy_target,
             )
             return {}
         from omni_hc.training.logging_utils import save_pipe_stream_images
@@ -512,4 +575,5 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
             out_dir=ctx.out_dir, prefix=ctx.prefix,
             psi=aux["stream_psi"], uy=aux["stream_uy"], divergence=aux["stream_div"],
             psi_bc=aux.get("stream_psi_bc"), mask=aux.get("stream_mask"),
+            uy_target=uy_target,
         )

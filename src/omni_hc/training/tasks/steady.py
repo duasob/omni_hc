@@ -224,6 +224,15 @@ def train_steady_task(
                 lower=float(domain_bounds[0]),
                 upper=float(domain_bounds[1]),
             )
+    uy_normalizer = getattr(train_loader, "uy_normalizer", None)
+    if uy_normalizer is not None:
+        uy_normalizer = uy_normalizer.to(device)
+    if (
+        uy_normalizer is not None
+        and hasattr(model, "constraint")
+        and hasattr(model.constraint, "set_uy_normalizer")
+    ):
+        model.constraint.set_uy_normalizer(uy_normalizer)
 
     output_dir = resolve_output_dir(cfg)
     write_resolved_config(
@@ -292,6 +301,9 @@ def train_steady_task(
 
             for step, batch in enumerate(train_loader):
                 coords, fx, target = prepare_batch(batch, device=device)
+                uy_target = batch.get("y_uy")
+                if uy_target is not None:
+                    uy_target = uy_target.to(device)
                 if debug_nan_checks:
                     _check_finite(
                         "train/coords", coords, raise_on_nonfinite=raise_on_nonfinite
@@ -299,7 +311,7 @@ def train_steady_task(
                     _check_finite(
                         "train/target", target, raise_on_nonfinite=raise_on_nonfinite
                     )
-                out = forward_with_optional_aux(model, coords, fx)
+                out = forward_with_optional_aux(model, coords, fx, uy_target=uy_target)
                 pred = out["pred"]
                 if debug_nan_checks:
                     _check_finite(
@@ -328,6 +340,8 @@ def train_steady_task(
                 deriv_loss_value = None
                 batch_size = int(target.shape[0])
                 loss = nsl_l2_loss(pred_decoded, target_decoded)
+                if out.get("extra_loss") is not None:
+                    loss = loss + out["extra_loss"]
                 batch_loss_sum = float(loss.item())
                 if derivloss:
                     deriv_loss = nsl_deriv_loss(pred_decoded, target_decoded)
