@@ -145,6 +145,9 @@ def _prepare_batch(
             batch["time"].to(device),
         )
 
+    if benchmark_name == "elasticity_2d":
+        return batch["coords"].to(device), None, batch["y"].to(device), None
+
     # Steady tasks (darcy, elasticity, pipe)
     coords = batch["coords"].to(device)
     fx_raw = batch.get("x")
