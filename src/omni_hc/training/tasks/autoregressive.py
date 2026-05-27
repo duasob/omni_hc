@@ -88,6 +88,7 @@ def evaluate_autoregressive(
     prepare_batch,
     t_out: int,
     out_dim: int,
+    compute_extra_diagnostics=None,
 ):
     model.eval()
     nsl_l2_loss = _build_nsl_l2_loss()
@@ -122,6 +123,10 @@ def evaluate_autoregressive(
             rel_l2_sum += float(relative_l2_per_sample(pred, target).sum().item())
             step_rel_l2_sum += float(step_rel_l2.item())
             diag_metrics.update(summary["diagnostics"], weight=batch_size)
+            if compute_extra_diagnostics is not None:
+                extra = compute_extra_diagnostics(pred=pred, coords=coords, fx=fx)
+                if extra:
+                    diag_metrics.update(extra, weight=batch_size)
             samples += batch_size
     denom = max(samples, 1)
     metrics = {
@@ -463,6 +468,8 @@ def test_autoregressive_task(
     load_model_state_dict(model, checkpoint["model_state_dict"])
     sample_dtype = next(iter(test_loader))["x"].dtype
     task_state = init_task_state(meta, sample_dtype=sample_dtype, device=device)
+    from omni_hc.training.benchmark_diagnostics import make_benchmark_diagnostic_fn
+
     metrics = evaluate_autoregressive(
         model,
         test_loader,
@@ -471,6 +478,7 @@ def test_autoregressive_task(
         prepare_batch=prepare_batch,
         t_out=int(meta["t_out"]),
         out_dim=int(meta["out_dim"]),
+        compute_extra_diagnostics=make_benchmark_diagnostic_fn(cfg, meta),
     )
     media_paths = {}
     media_dir = output_dir / "test_media"

@@ -124,6 +124,7 @@ def evaluate_dynamic_conditional(
     prepare_batch,
     t_out: int,
     out_dim: int,
+    compute_extra_diagnostics=None,
 ):
     model.eval()
     nsl_l2_loss = _build_nsl_l2_loss()
@@ -161,6 +162,12 @@ def evaluate_dynamic_conditional(
             )
             step_rel_l2_sum += float(step_rel_l2.item())
             diag_metrics.update(summary["diagnostics"], weight=batch_size)
+            if compute_extra_diagnostics is not None:
+                extra = compute_extra_diagnostics(
+                    pred=pred_decoded, coords=coords, fx=fx, time=time
+                )
+                if extra:
+                    diag_metrics.update(extra, weight=batch_size)
             samples += batch_size
 
     denom = max(samples, 1)
@@ -502,6 +509,8 @@ def test_dynamic_conditional_task(
     )
     checkpoint = load_checkpoint_state(checkpoint_path, device=device)
     load_model_state_dict(model, checkpoint["model_state_dict"])
+    from omni_hc.training.benchmark_diagnostics import make_benchmark_diagnostic_fn
+
     metrics = evaluate_dynamic_conditional(
         model,
         test_loader,
@@ -510,6 +519,7 @@ def test_dynamic_conditional_task(
         prepare_batch=prepare_batch,
         t_out=int(meta["t_out"]),
         out_dim=int(meta["out_dim"]),
+        compute_extra_diagnostics=make_benchmark_diagnostic_fn(cfg, meta),
     )
     media_paths = {}
     if str(meta.get("loader", "")) == "plas":

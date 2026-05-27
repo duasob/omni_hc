@@ -100,6 +100,7 @@ def evaluate_steady(
     shapelist: tuple[int, int] | None = None,
     debug_nan_checks: bool = False,
     raise_on_nonfinite: bool = True,
+    compute_extra_diagnostics=None,
 ):
     model.eval()
     mse_sum = 0.0
@@ -160,6 +161,10 @@ def evaluate_steady(
                     .item()
                 )
             diag_metrics.update(out["diagnostics"], weight=batch_size)
+            if compute_extra_diagnostics is not None:
+                extra = compute_extra_diagnostics(pred=pred, coords=coords, fx=fx)
+                if extra:
+                    diag_metrics.update(extra, weight=batch_size)
             samples += batch_size
     denom = max(samples, 1)
     metrics = {"mse": mse_sum / denom, "rel_l2": rel_l2_sum / denom}
@@ -622,6 +627,8 @@ def test_steady_task(
             )
     checkpoint = load_checkpoint_state(checkpoint_path, device=device)
     load_model_state_dict(model, checkpoint["model_state_dict"])
+    from omni_hc.training.benchmark_diagnostics import make_benchmark_diagnostic_fn
+
     metrics = evaluate_steady(
         model,
         test_loader,
@@ -630,6 +637,7 @@ def test_steady_task(
         prepare_batch=prepare_batch,
         shapelist=tuple(meta.get("shapelist", ())) or None,
         debug_nan_checks=debug_nan_checks,
+        compute_extra_diagnostics=make_benchmark_diagnostic_fn(cfg, meta),
         raise_on_nonfinite=raise_on_nonfinite,
     )
     media_paths = {}
