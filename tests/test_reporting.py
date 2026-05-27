@@ -3,15 +3,14 @@ from pathlib import Path
 import yaml
 
 from scripts.reporting.build import _write_missing_runs_file
-from scripts.reporting.ch5_accounting import (
-    Ch5RunSpec,
-    effective_training_samples,
-    render_provenance_table,
-)
 from scripts.reporting.core.collect import get_metric, load_metric_file, load_run
 from scripts.reporting.core.emit_tex import CellResult
 from scripts.reporting.core.emit_tex import TBD, render_macro_table
 from scripts.reporting.core.types import MetricFileRef, ReportArtifact, Row, RunRef
+from scripts.reporting.registry.ch5 import (
+    effective_training_samples,
+    render_provenance_table,
+)
 
 
 def test_reporting_collector_reads_run_and_generated_metrics(tmp_path: Path):
@@ -211,25 +210,29 @@ def test_effective_training_samples_honours_validation_split():
     assert effective_training_samples({"data": {"ntrain": 100}, "training": {"val_size": 0}}) == 100
 
 
-def test_ch5_provenance_table_uses_resolved_config(monkeypatch, tmp_path: Path):
+def test_ch5_provenance_table_uses_resolved_config(tmp_path: Path):
     run_dir = tmp_path / "outputs" / "demo"
     run_dir.mkdir(parents=True)
     (run_dir / "resolved_config.yaml").write_text(
         yaml.safe_dump(
             {
+                "benchmark": {"name": "darcy_2d"},
                 "experiment": {"backbone": "Transolver", "constraint": "none"},
                 "data": {"ntrain": 1000},
                 "training": {"num_epochs": 500, "val_size": 200},
             }
         )
     )
-
-    monkeypatch.setattr(
-        "scripts.reporting.ch5_accounting.PROVENANCE_RUNS",
-        (Ch5RunSpec("Demo", "Baseline", RunRef("outputs/demo")),),
+    artifact = ReportArtifact(
+        name="cv_baseline",
+        chapter=5,
+        kind="tex_macros",
+        output_subpath="macros/demo.tex",
+        rows=[Row(run=RunRef("outputs/demo"), metric_key="metric/a", macro=r"\A")],
     )
 
-    table = render_provenance_table(tmp_path)
+    table = render_provenance_table(tmp_path, artifacts=(artifact,))
 
-    assert "Demo & Baseline & Transolver & none & 500 & 800" in table
-    assert r"\texttt{\detokenize{outputs/demo}}" in table
+    assert "Darcy & Baseline & Transolver & none & 500 & 800" in table
+    assert "Run directory" not in table
+    assert "outputs/demo" not in table

@@ -17,25 +17,25 @@ from pathlib import Path
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from scripts.reporting.ch5_accounting import (
-        cost_diagnostic_runs,
-        diagnose_command_for_run,
-        write_cost_metrics,
-        write_provenance_table,
-    )
     from scripts.reporting.core.emit_tex import write_artifact
     from scripts.reporting.core.types import MetricFileRef, ReportArtifact, RunRef
     from scripts.reporting.registry import ARTIFACTS
-else:
-    from .ch5_accounting import (
+    from scripts.reporting.registry.ch5 import (
         cost_diagnostic_runs,
         diagnose_command_for_run,
         write_cost_metrics,
         write_provenance_table,
     )
+else:
     from .core.emit_tex import write_artifact
     from .core.types import MetricFileRef, ReportArtifact, RunRef
     from .registry import ARTIFACTS
+    from .registry.ch5 import (
+        cost_diagnostic_runs,
+        diagnose_command_for_run,
+        write_cost_metrics,
+        write_provenance_table,
+    )
 
 
 def _repo_root() -> Path:
