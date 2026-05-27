@@ -50,6 +50,13 @@ def _decode_if_needed(loader, tensor: torch.Tensor, device: torch.device) -> tor
     return normalizer.to(device).decode(tensor)
 
 
+def _decode_uy_if_needed(loader, tensor: torch.Tensor, device: torch.device) -> torch.Tensor:
+    normalizer = getattr(loader, "uy_normalizer", None)
+    if normalizer is None:
+        return tensor
+    return normalizer.to(device).decode(tensor)
+
+
 def _target_for_metric(benchmark: str, target: torch.Tensor, meta: dict[str, Any]) -> torch.Tensor:
     if benchmark == "navier_stokes_2d":
         b, n, c = target.shape
@@ -85,6 +92,26 @@ def _accumulate_gt(
     return acc.compute()
 
 
+def _accumulate_pipe_gt(device: torch.device, max_batches: int | None) -> dict[str, float]:
+    cfg = load_yaml_file(REPO_ROOT / RUNS["pipe_baseline"] / "resolved_config.yaml")
+    cfg.setdefault("data", {})["load_uy"] = True
+    loader = build_pipe_test_loader(cfg)
+    meta = pipe_adapter._get_meta(loader)
+    metric_fn = BENCHMARK_METRICS["pipe_2d"]
+    acc = MetricAccumulator()
+    for batch_idx, batch in enumerate(loader):
+        if max_batches is not None and batch_idx >= max_batches:
+            break
+        coords = batch["coords"].to(device)
+        fx = batch["x"].to(device)
+        ux = _decode_if_needed(loader, batch["y"].to(device), device)
+        uy = _decode_uy_if_needed(loader, batch["y_uy"].to(device), device)
+        pred = torch.cat([ux, uy], dim=-1)
+        diagnostics = metric_fn(pred, {"coords": coords, "x": fx}, meta)
+        acc.update(diagnostics, weight=int(ux.shape[0]))
+    return acc.compute()
+
+
 def compute_gt_metrics(device: torch.device, *, max_batches: int | None = None) -> dict[str, float]:
     metrics: dict[str, float] = {}
     print("computing GT metrics: navier_stokes")
@@ -116,21 +143,7 @@ def compute_gt_metrics(device: torch.device, *, max_batches: int | None = None) 
         )
     )
     print("computing GT metrics: pipe")
-    metrics.update(
-        _accumulate_gt(
-            benchmark="pipe_2d",
-            cfg_path=f"{RUNS['pipe_baseline']}/resolved_config.yaml",
-            build_loader=build_pipe_test_loader,
-            get_meta=pipe_adapter._get_meta,
-            batch_tensors=lambda batch, dev: (
-                batch["coords"].to(dev),
-                batch["x"].to(dev),
-                batch["y"].to(dev),
-            ),
-            device=device,
-            max_batches=max_batches,
-        )
-    )
+    metrics.update(_accumulate_pipe_gt(device, max_batches))
     print("computing GT metrics: plasticity")
     metrics.update(
         _accumulate_gt(

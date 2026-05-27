@@ -97,7 +97,7 @@ cv_baseline = ReportArtifact(
         Row(run=DARCY_BL, metric_key="constraint/flux_rmse", macro=r"\cvBlDarcyFlux"),
         Row(run=PIPE_BL, metric_key="constraint/wall_abs_max", macro=r"\cvBlPipeWall"),
         Row(run=PIPE_BL, metric_key="constraint/inlet_rmse", macro=r"\cvBlPipeInlet"),
-        Row(run=PIPE_BL, metric_key="constraint/div_rmse", macro=r"\cvBlPipeDiv"),
+        Row(run=None, metric_key=None, macro=r"\cvBlPipeDiv", literal="/"),
         Row(run=None, metric_key=None, macro=r"\cvBlElasticity", literal="/"),
         Row(
             run=PLAS_BL,

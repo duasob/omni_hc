@@ -6,6 +6,7 @@ set -euo pipefail
 # Reads the same line format as scripts/hpc/runner.sh:
 #   test: --config outputs/.../resolved_config.yaml --checkpoint outputs/.../best.pt
 #   train: --benchmark darcy --backbone Transolver --constraint none --budget final
+#   diagnose: --config outputs/.../resolved_config.yaml --checkpoint outputs/.../best.pt --write-yaml
 #
 # Optional environment overrides:
 #   RUNS_FILE=/path/to/runs.txt
@@ -51,8 +52,8 @@ check_environment() {
         echo "ERROR: RUNS_FILE does not exist: $RUNS_FILE" >&2
         exit 2
     fi
-    if [ ! -f scripts/train.py ] || [ ! -f scripts/test.py ]; then
-        echo "ERROR: scripts/train.py or scripts/test.py was not found in $PROJECT_DIR" >&2
+    if [ ! -f scripts/train.py ] || [ ! -f scripts/test.py ] || [ ! -f scripts/diagnose.py ]; then
+        echo "ERROR: scripts/train.py, scripts/test.py, or scripts/diagnose.py was not found in $PROJECT_DIR" >&2
         exit 2
     fi
     if [ -n "${PYTHON:-}" ]; then
@@ -140,6 +141,9 @@ run_one() {
         run_args="${BASH_REMATCH[1]}"
     elif [[ "$run_args" =~ ^[[:space:]]*train:[[:space:]]*(.*) ]]; then
         script="scripts/train.py"
+        run_args="${BASH_REMATCH[1]}"
+    elif [[ "$run_args" =~ ^[[:space:]]*diagnose:[[:space:]]*(.*) ]]; then
+        script="scripts/diagnose.py"
         run_args="${BASH_REMATCH[1]}"
     else
         script="scripts/train.py"
