@@ -39,17 +39,17 @@ def compute(
     """
     del batch, meta
 
-    # Reduce over the spatial axis (second-to-last) to get per-sample spatial mean.
+    # per-sample spatial mean.
     spatial_mean = pred.mean(dim=-2)  # (B, ...) or (B, T, C)
     abs_mean = spatial_mean.abs()
 
     return {
         "constraint/vorticity_abs_mean": ConstraintDiagnostic(
-            value=abs_mean.mean(),
+            value=abs_mean.mean(),  # mean over all samples and timesteps.
             reduce="mean",
         ),
         "constraint/vorticity_abs_max": ConstraintDiagnostic(
-            value=abs_mean.max(),
+            value=abs_mean.max(),  # max over all samples and timesteps.
             reduce="max",
         ),
     }

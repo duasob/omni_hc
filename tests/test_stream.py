@@ -196,8 +196,11 @@ def test_pipe_stream_function_boundary_constraint_emits_boundary_diagnostics():
     out = constraint(pred=pred, coords=coords, return_aux=True)
 
     assert "constraint/stream_div_abs_mean" in out.diagnostics
+    assert "constraint/div_rmse" in out.diagnostics
     assert "constraint/stream_inlet_abs_max" in out.diagnostics
+    assert "constraint/inlet_rmse" in out.diagnostics
     assert "constraint/stream_wall_ux_abs_max" in out.diagnostics
+    assert "constraint/wall_abs_max" in out.diagnostics
     assert "constraint/stream_mask_max" in out.diagnostics
     assert "stream_psi" in out.aux
     assert "stream_uy" in out.aux

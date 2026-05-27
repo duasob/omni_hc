@@ -184,6 +184,8 @@ class PlasticityMeshConsistencyConstraint(ConstraintModule):
             oriented_cell_area = self._signed_cell_areas(coords) * orientation_sign
             bottom_y_error = (y[:, :, -1] - bottom_y).abs()
             axis_order_margin = torch.minimum(dx.min(), dy.min())
+            neg_spacing = torch.cat([dx.reshape(-1), dy.reshape(-1)], dim=0) < 0
+            neg_spacing_count = neg_spacing.to(torch.float32).sum()
             diagnostics = {
                 "constraint/min_dx": ConstraintDiagnostic(
                     value=dx.min(),
@@ -204,6 +206,14 @@ class PlasticityMeshConsistencyConstraint(ConstraintModule):
                 "constraint/axis_order_margin_min": ConstraintDiagnostic(
                     value=axis_order_margin,
                     reduce="min",
+                ),
+                "constraint/neg_spacing_count": ConstraintDiagnostic(
+                    value=neg_spacing_count,
+                    reduce="sum",
+                ),
+                "constraint/neg_spacing_fraction": ConstraintDiagnostic(
+                    value=neg_spacing.to(torch.float32).mean(),
+                    reduce="mean",
                 ),
             }
             return self.as_output(

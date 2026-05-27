@@ -3,11 +3,14 @@ set -euo pipefail
 
 # Sequential HPC runner.
 #
-# Define one training run per entry in RUNS below. Each entry is passed directly
-# to `scripts/train.py`.
+# Define one run per entry in RUNS below, or set RUNS_FILE to a file generated
+# by `python -m scripts.reporting.build --write-missing-runs missing_runs.txt`.
+# Entries are passed to `scripts/train.py` by default; prefix with `test:` to
+# run `scripts/test.py`.
 #
 # Example entry:
 #   "--benchmark plasticity --backbone FNO --constraint plasticity_mesh_consistency_constraint --budget smoke --override wandb_logging.image_log_every=10"
+#   "test: --config outputs/.../resolved_config.yaml --checkpoint outputs/.../best.pt"
 #
 # Optional environment overrides:
 #   PROJECT_DIR=/path/to/repo

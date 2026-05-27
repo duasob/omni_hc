@@ -141,6 +141,7 @@ def test_darcy_flux_constraint_emits_helmholtz_diagnostics():
     assert "constrained_flux" in out.aux
     assert "constraint/stream_div_abs_mean" in out.diagnostics
     assert "constraint/flux_div_abs_mean" in out.diagnostics
+    assert "constraint/flux_rmse" in out.diagnostics
     assert "constraint/w_error_abs_mean" in out.diagnostics
     assert "constraint/w_curl_abs_mean" in out.diagnostics
     assert "constraint/darcy_res_abs_mean" in out.diagnostics

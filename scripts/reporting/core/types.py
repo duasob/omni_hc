@@ -16,11 +16,21 @@ class RunRef:
 
 
 @dataclass(frozen=True)
+class MetricFileRef:
+    """Reference to generated report metrics, relative to --output-dir/metrics."""
+
+    path: str
+
+    def resolve(self, metrics_dir: Path) -> Path:
+        return metrics_dir / self.path
+
+
+@dataclass(frozen=True)
 class Row:
     """One cell in a macro table: pull `metric_key` from `run` and bind it to `macro`."""
 
-    run: RunRef | None
-    metric_key: str | None
+    run: RunRef | MetricFileRef | None
+    metric_key: str | Sequence[str] | None
     macro: str
     format: str = "{:.2e}"
     # Optional override: if provided, use this literal value instead of looking up a run.

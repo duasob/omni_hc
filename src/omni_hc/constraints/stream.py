@@ -467,6 +467,8 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
                 self.amplitude * 4.0 * inlet_eta * (1.0 - inlet_eta)
             ).reshape(inlet_ux.shape[0], -1)
             inlet_residual = (inlet_ux - inlet_profile).abs()
+            inlet_rmse = (inlet_ux - inlet_profile).square().mean(dim=-1).sqrt()
+            div_rmse = div.square().reshape(div.shape[0], -1).mean(dim=-1).sqrt()
             diagnostics = {
                 "constraint/stream_div_abs_mean": ConstraintDiagnostic(
                     value=div.abs().mean(),
@@ -475,6 +477,10 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
                 "constraint/stream_div_abs_max": ConstraintDiagnostic(
                     value=div.abs().max(),
                     reduce="max",
+                ),
+                "constraint/div_rmse": ConstraintDiagnostic(
+                    value=div_rmse.mean(),
+                    reduce="mean",
                 ),
                 "constraint/stream_uy_abs_mean": ConstraintDiagnostic(
                     value=uy.abs().mean(),
@@ -508,11 +514,19 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
                     value=inlet_residual.max(),
                     reduce="max",
                 ),
+                "constraint/inlet_rmse": ConstraintDiagnostic(
+                    value=inlet_rmse.mean(),
+                    reduce="mean",
+                ),
                 "constraint/stream_wall_ux_abs_mean": ConstraintDiagnostic(
                     value=wall_ux.abs().mean(),
                     reduce="mean",
                 ),
                 "constraint/stream_wall_ux_abs_max": ConstraintDiagnostic(
+                    value=wall_ux.abs().max(),
+                    reduce="max",
+                ),
+                "constraint/wall_abs_max": ConstraintDiagnostic(
                     value=wall_ux.abs().max(),
                     reduce="max",
                 ),

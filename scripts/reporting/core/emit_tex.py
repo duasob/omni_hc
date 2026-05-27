@@ -6,8 +6,8 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from .collect import MissingMetric, MissingRun, get_metric, load_run
-from .types import ReportArtifact
+from .collect import MissingMetric, MissingRun, get_metric, load_metric_file, load_run
+from .types import MetricFileRef, ReportArtifact, RunRef
 
 
 TBD = r"\textit{TBD}"
@@ -46,8 +46,14 @@ def _git_sha(repo_root: Path) -> str:
         return "unknown"
 
 
+def _metric_keys(metric_key: str | list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    if isinstance(metric_key, str):
+        return (metric_key,)
+    return tuple(metric_key)
+
+
 def render_macro_table(
-    artifact: ReportArtifact, repo_root: Path
+    artifact: ReportArtifact, repo_root: Path, metrics_dir: Path | None = None
 ) -> tuple[str, list[CellResult]]:
     assert artifact.kind == "tex_macros"
     results: list[CellResult] = []
@@ -63,8 +69,25 @@ def render_macro_table(
             )
             continue
         try:
-            data = load_run(row.run, repo_root)
-            value = get_metric(data, row.metric_key)
+            if isinstance(row.run, RunRef):
+                data = load_run(row.run, repo_root)
+                source = row.run.path
+            elif isinstance(row.run, MetricFileRef):
+                if metrics_dir is None:
+                    raise MissingRun("generated metrics dir unavailable")
+                data = load_metric_file(row.run, metrics_dir)
+                source = f"metrics/{row.run.path}"
+            else:
+                raise MissingRun(f"unsupported source: {row.run!r}")
+            missing_keys: list[str] = []
+            for key in _metric_keys(row.metric_key):
+                try:
+                    value = get_metric(data, key)
+                    break
+                except MissingMetric as e:
+                    missing_keys.append(str(e))
+            else:
+                raise MissingMetric(" or ".join(missing_keys))
         except MissingRun as e:
             results.append(CellResult(row.macro, TBD, source=f"missing: {e}", ok=False))
             continue
@@ -75,7 +98,7 @@ def render_macro_table(
             continue
         formatted = _format_scientific(value, row.format)
         results.append(
-            CellResult(row.macro, formatted, source=row.run.path, ok=True)
+            CellResult(row.macro, formatted, source=source, ok=True)
         )
 
     sha = _git_sha(repo_root)
@@ -98,7 +121,9 @@ def render_macro_table(
 def write_artifact(
     artifact: ReportArtifact, repo_root: Path, output_dir: Path
 ) -> list[CellResult]:
-    content, results = render_macro_table(artifact, repo_root)
+    content, results = render_macro_table(
+        artifact, repo_root, metrics_dir=output_dir / "metrics"
+    )
     target = output_dir / artifact.output_subpath
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content)
