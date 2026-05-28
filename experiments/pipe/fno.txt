@@ -1,0 +1,14 @@
+# FNO on the pipe benchmark: unconstrained vs. constrained training, then test both.
+
+# train: --benchmark pipe --backbone FNO --constraint none --budget smoke
+
+test: --config outputs/pipe/none/fno/smoke/seed_42/resolved_config.yaml --checkpoint outputs/pipe/none/fno/smoke/seed_42/best.pt
+
+
+# train: --benchmark pipe --backbone FNO --constraint pipe_ux_boundary_ansatz --budget smoke
+
+test: --config outputs/pipe/pipe_ux_boundary_ansatz/fno/smoke/seed_42/resolved_config.yaml --checkpoint outputs/pipe/pipe_ux_boundary_ansatz/fno/smoke/seed_42/best.pt
+
+# train: --benchmark pipe --backbone FNO --constraint pipe_stream_function_boundary_ansatz --budget smoke
+
+test: --config outputs/pipe/pipe_stream_function_boundary_ansatz/fno/smoke/seed_42/resolved_config.yaml --checkpoint outputs/pipe/pipe_stream_function_boundary_ansatz/fno/smoke/seed_42/best.pt

@@ -21,6 +21,7 @@ set -euo pipefail
 #   OUT_ROOT=$HOME/omni-hc-results/$PBS_JOBID
 #   RUNS_FILE=/path/to/runs.txt
 #   DRY_RUN=1
+#   VERBOSE=1   # stream run output to the console as well as the per-run log
 
 if type module >/dev/null 2>&1; then
     module load Python/3.10.8-GCCcore-12.2.0 || true
@@ -37,6 +38,8 @@ OUT_ROOT="${OUT_ROOT:-$HOME/omni-hc-results/${PBS_JOBID:-manual}}"
 RESULT_DIRS="${RESULT_DIRS:-outputs results runs checkpoints wandb logs}"
 REQUIRE_RESULT_ARTIFACT="${REQUIRE_RESULT_ARTIFACT:-0}"
 DRY_RUN="${DRY_RUN:-0}"
+VERBOSE="${VERBOSE:-0}"
+export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
 export MKL_NUM_THREADS="${MKL_NUM_THREADS:-$OMP_NUM_THREADS}"
@@ -166,8 +169,10 @@ run_one() {
     if [ "$DRY_RUN" = "1" ]; then
         printf -v rendered_cmd '%q ' "${run_cmd[@]}"
         printf 'DRY RUN: %s\n' "$rendered_cmd"
-    else
+    elif [ "$VERBOSE" = "1" ]; then
         "${run_cmd[@]}" 2>&1 | tee "$OUT_ROOT/${log_name}.log"
+    else
+        "${run_cmd[@]}" >"$OUT_ROOT/${log_name}.log" 2>&1
     fi
 
     artifact_count=0

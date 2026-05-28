@@ -167,14 +167,23 @@ run_one() {
     printf 'Script: %s\n' "$script"
     printf 'Args: %s\n' "$run_args"
 
+    local exit_code=0
     if [ "$DRY_RUN" = "1" ]; then
         printf -v rendered_cmd '%q ' "${run_cmd[@]}"
         printf 'DRY RUN: %s\n' "$rendered_cmd"
     else
+        set +e
         "${run_cmd[@]}" 2>&1 | tee "$OUT_ROOT/${log_name}.log"
+        exit_code=${PIPESTATUS[0]}
+        set -e
     fi
 
-    echo "Run $index finished: $(timestamp)"
+    if [ "$exit_code" -ne 0 ]; then
+        echo "Run $index FAILED (exit $exit_code): $(timestamp)" >&2
+        FAILED_RUNS+=("$index: $run_args (exit $exit_code)")
+    else
+        echo "Run $index finished: $(timestamp)"
+    fi
 }
 
 check_environment
@@ -187,6 +196,7 @@ echo "Output dir: $OUT_ROOT"
 echo "Python command: $(python_cmd)"
 
 run_count=0
+FAILED_RUNS=()
 while IFS= read -r run_args || [ -n "$run_args" ]; do
     if [ -z "${run_args// }" ] || [[ "$run_args" =~ ^[[:space:]]*# ]]; then
         continue
@@ -198,3 +208,10 @@ done < "$RUNS_FILE"
 touch "$OUT_ROOT/RUNNER_FINISHED"
 echo
 echo "All runs finished: $(timestamp)"
+echo "Total runs: $run_count, failed: ${#FAILED_RUNS[@]}"
+if [ "${#FAILED_RUNS[@]}" -gt 0 ]; then
+    echo "Failures:"
+    for entry in "${FAILED_RUNS[@]}"; do
+        echo "  - $entry"
+    done
+fi

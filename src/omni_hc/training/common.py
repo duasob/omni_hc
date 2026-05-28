@@ -8,6 +8,7 @@ import torch
 import yaml
 
 from omni_hc.constraints import ConstraintDiagnostic, ConstraintOutput
+from omni_hc.constraints.base import _CONSTRAINT_ONLY_KWARGS
 
 
 def build_optimizer(model, cfg: dict):
@@ -182,7 +183,8 @@ def _normalize_forward_output(output) -> dict[str, Any]:
 def forward_with_optional_aux(model, coords, fx, **kwargs):
     if bool(getattr(model, "supports_aux", False)):
         return _normalize_forward_output(model(coords, fx, return_aux=True, **kwargs))
-    return _normalize_forward_output(model(coords, fx, **kwargs))
+    backbone_kwargs = {k: v for k, v in kwargs.items() if k not in _CONSTRAINT_ONLY_KWARGS}
+    return _normalize_forward_output(model(coords, fx, **backbone_kwargs))
 
 
 def relative_l2_per_sample(
