@@ -53,6 +53,7 @@ _COMPONENT_CANDIDATES: dict[str, Any] = {
     ],
     "budget": lambda v, b: [
         PROJECT_ROOT / "configs/budgets" / f"{v}.yaml",
+        PROJECT_ROOT / "configs/budgets/experiment" / f"{v}.yaml",
     ],
     "optuna": lambda v, b: [
         PROJECT_ROOT / "configs/optuna" / b / f"{v}.yaml",

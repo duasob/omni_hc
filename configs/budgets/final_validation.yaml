@@ -3,9 +3,8 @@ data:
   ntest: 200
 
 training:
-  batch_size: 4
-  num_epochs: 10
   val_size: 100
+  num_epochs: 500
   seed: 42
 
 evaluation:
@@ -13,5 +12,5 @@ evaluation:
 
 wandb_logging:
   wandb: true
-  log_every: 10
-  image_log_every: 5
+  log_every: 100
+  image_log_every: 1
