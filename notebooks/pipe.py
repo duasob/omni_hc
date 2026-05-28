@@ -1111,6 +1111,282 @@ else:
 print(f"Saved to {out_path}")
 
 
+# %% Mass conservation across streamwise cross-sections
+# For incompressible 2D flow with no-slip walls, the volumetric flux through
+# every cross-section i must equal the inlet flux:
+#     Q_i = ∮_slice u·n dℓ = ∫_j (u_x dy - u_y dx)  =  Q_inlet     ∀ i
+# Discretely, along row i (j = 0..W-2):
+#     Q_i = Σ_j [ 0.5(u_x[i,j] + u_x[i,j+1]) * (y[i,j+1] - y[i,j])
+#                 - 0.5(u_y[i,j] + u_y[i,j+1]) * (x[i,j+1] - x[i,j]) ]
+def streamwise_flux_profile(x, y, ux, uy):
+    dx = np.diff(x, axis=1)  # (H, W-1) along j
+    dy = np.diff(y, axis=1)
+    ux_mid = 0.5 * (ux[:, :-1] + ux[:, 1:])
+    uy_mid = 0.5 * (uy[:, :-1] + uy[:, 1:])
+    return (ux_mid * dy - uy_mid * dx).sum(axis=1)  # (H,)
+
+
+N_MASS = min(N, 1000)
+print(f"Computing streamwise flux Q_i over {N_MASS} samples...")
+q_inlet_all = np.empty(N_MASS)
+q_outlet_all = np.empty(N_MASS)
+q_range_all = np.empty(N_MASS)
+q_std_all = np.empty(N_MASS)
+for i in range(N_MASS):
+    xi = np.asarray(x_all[i], dtype=np.float64)
+    yi = np.asarray(y_all[i], dtype=np.float64)
+    ui = np.asarray(q_all[i, 0], dtype=np.float64)
+    vi = np.asarray(q_all[i, 1], dtype=np.float64)
+    q_profile = streamwise_flux_profile(xi, yi, ui, vi)
+    q_inlet_all[i] = q_profile[0]
+    q_outlet_all[i] = q_profile[-1]
+    q_range_all[i] = q_profile.max() - q_profile.min()
+    q_std_all[i] = q_profile.std()
+
+# Inlet flux is the reference. Relative spread (max - min)/|Q_inlet| tells you
+# what fraction of the through-flow is being "lost" or "gained" along the pipe.
+rel_range = q_range_all / np.abs(q_inlet_all).clip(min=1e-12)
+rel_std = q_std_all / np.abs(q_inlet_all).clip(min=1e-12)
+rel_outlet = (q_outlet_all - q_inlet_all) / np.abs(q_inlet_all).clip(min=1e-12)
+print(f"  Q_inlet                 : mean={q_inlet_all.mean():+.3e}  std={q_inlet_all.std():.3e}")
+print(f"  Q_outlet                : mean={q_outlet_all.mean():+.3e}  std={q_outlet_all.std():.3e}")
+print(f"  (Q_outlet - Q_inlet)/Q_inlet: mean={rel_outlet.mean():+.2%}  |·| mean={np.abs(rel_outlet).mean():.2%}")
+print(f"  (max Q_i - min Q_i)/|Q_inlet|: mean={rel_range.mean():.2%}  median={np.median(rel_range):.2%}")
+print(f"  std(Q_i)/|Q_inlet|            : mean={rel_std.mean():.2%}  median={np.median(rel_std):.2%}")
+
+# Visualise.
+xs0 = np.asarray(x_all[SAMPLE_IDX], dtype=np.float64)
+ys0 = np.asarray(y_all[SAMPLE_IDX], dtype=np.float64)
+u0 = np.asarray(q_all[SAMPLE_IDX, 0], dtype=np.float64)
+v0 = np.asarray(q_all[SAMPLE_IDX, 1], dtype=np.float64)
+q_profile_0 = streamwise_flux_profile(xs0, ys0, u0, v0)
+i_axis = np.arange(H)
+
+fig, axes = plt.subplots(1, 3, figsize=(15, 4.0))
+
+ax = axes[0]
+ax.plot(i_axis, q_profile_0, color=plt.get_cmap(CMAP)(0.75), lw=1.6)
+ax.axhline(q_profile_0[0], color="0.25", lw=0.8, linestyle="--", label=f"$Q_\\mathrm{{inlet}}={q_profile_0[0]:.3e}$")
+ax.set_xlabel("streamwise index $i$")
+ax.set_ylabel("$Q_i$")
+_rel = (q_profile_0.max() - q_profile_0.min()) / max(abs(q_profile_0[0]), 1e-12)
+ax.set_title(
+    f"sample {SAMPLE_IDX}: cross-section flux\n"
+    rf"$(Q_\mathrm{{max}}-Q_\mathrm{{min}})/|Q_\mathrm{{inlet}}|$ = {_rel:.2%}",
+    fontsize=10,
+)
+ax.legend(fontsize=8, frameon=False)
+ax.grid(True, alpha=0.22)
+
+ax = axes[1]
+sample_indices = np.linspace(0, N - 1, 8, dtype=int)
+for idx in sample_indices:
+    xi = np.asarray(x_all[idx], dtype=np.float64)
+    yi = np.asarray(y_all[idx], dtype=np.float64)
+    ui = np.asarray(q_all[idx, 0], dtype=np.float64)
+    vi = np.asarray(q_all[idx, 1], dtype=np.float64)
+    qp = streamwise_flux_profile(xi, yi, ui, vi)
+    ax.plot(i_axis, qp / max(abs(qp[0]), 1e-12), lw=0.9, alpha=0.7)
+ax.axhline(1.0, color="0.25", lw=0.8, linestyle="--", label=r"$Q_i/Q_\mathrm{inlet}=1$")
+ax.set_xlabel("streamwise index $i$")
+ax.set_ylabel(r"$Q_i / Q_\mathrm{inlet}$")
+ax.set_title(f"Normalised flux profile, {len(sample_indices)} samples")
+ax.legend(fontsize=8, frameon=False)
+ax.grid(True, alpha=0.22)
+
+ax = axes[2]
+ax.hist(
+    rel_range * 100,
+    bins=40,
+    color=plt.get_cmap(CMAP)(0.55),
+    alpha=0.85,
+    edgecolor="white",
+    linewidth=0.4,
+)
+ax.axvline(
+    rel_range.mean() * 100,
+    color=plt.get_cmap(CMAP)(0.85),
+    lw=1.5,
+    label=f"mean = {rel_range.mean():.2%}",
+)
+ax.axvline(
+    np.median(rel_range) * 100,
+    color="0.25",
+    lw=1.2,
+    linestyle="--",
+    label=f"median = {np.median(rel_range):.2%}",
+)
+ax.set_xlabel(r"$(Q_\mathrm{max} - Q_\mathrm{min})/|Q_\mathrm{inlet}|$  [%]")
+ax.set_ylabel("count")
+ax.set_title(f"Relative flux spread across {N_MASS} samples")
+ax.legend(fontsize=8, frameon=False)
+ax.grid(True, alpha=0.22)
+
+fig.tight_layout()
+out_path = FIGURES_DIR / "pipe_mass_conservation.png"
+fig.savefig(out_path, bbox_inches="tight")
+if IS_NOTEBOOK:
+    plt.show()
+else:
+    plt.close(fig)
+print(f"Saved to {out_path}")
+
+
+# %% Mass conservation on a trained Transolver (unconstrained baseline)
+# Reuses streamwise_flux_profile from above on predicted (u_x, u_y) instead of
+# GT, to see whether a trained baseline that has no flux constraint actually
+# learns mass conservation as well as the (already-imperfect) ground truth.
+from omni_hc.benchmarks.pipe import adapter as pipe_adapter
+from omni_hc.benchmarks.pipe.data import build_test_loader as build_pipe_test_loader
+from omni_hc.core import load_yaml_file
+from omni_hc.integrations.nsl.modeling import create_model
+from omni_hc.training.common import load_checkpoint_state, load_model_state_dict
+
+candidates = sorted(REPO_ROOT.glob("outputs/pipe/none/transolver/*/seed_*/best.pt"))
+print(f"Found {len(candidates)} trained transolver pipe checkpoints (constraint=none):")
+for c in candidates:
+    print(f"  {c.relative_to(REPO_ROOT)}")
+
+if not candidates:
+    print("No trained Transolver pipe checkpoint found; skipping.")
+else:
+    ckpt_path = candidates[-1]
+    cfg_path = ckpt_path.parent / "resolved_config.yaml"
+    print(f"\nUsing: {ckpt_path.relative_to(REPO_ROOT)}")
+
+    cfg = load_yaml_file(cfg_path)
+    cfg.setdefault("paths", {})["output_dir"] = str(ckpt_path.parent)
+    cfg["paths"]["root_dir"] = str(DATA_DIR)
+    cfg.setdefault("data", {})["load_uy"] = True
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    loader = build_pipe_test_loader(cfg)
+    meta = pipe_adapter._get_meta(loader)
+    H_grid, W_grid = tuple(meta["shapelist"])
+    y_normalizer = getattr(loader, "y_normalizer", None)
+    if y_normalizer is not None:
+        y_normalizer = y_normalizer.to(device)
+    uy_normalizer = getattr(loader, "uy_normalizer", None)
+    if uy_normalizer is not None:
+        uy_normalizer = uy_normalizer.to(device)
+
+    model, _, _ = create_model(
+        cfg, device=device, runtime_overrides=pipe_adapter._runtime_overrides(meta)
+    )
+    ckpt = load_checkpoint_state(ckpt_path, device=device)
+    load_model_state_dict(model, ckpt["model_state_dict"])
+    model.eval()
+
+    rel_range_pred, rel_outlet_pred, q_inlet_pred = [], [], []
+    rel_range_gt, rel_outlet_gt = [], []
+
+    with torch.no_grad():
+        for batch in loader:
+            coords = batch["coords"].to(device)
+            fx = batch["x"].to(device)
+            out = model(coords, fx)
+            if isinstance(out, tuple):
+                out = out[0]
+            elif isinstance(out, dict):
+                out = out.get("pred", out)
+            if y_normalizer is not None and out.shape[-1] == 1:
+                out_dec = y_normalizer.decode(out)
+            else:
+                out_dec = out  # multi-channel model output is already physical
+            B = out_dec.shape[0]
+            C = out_dec.shape[-1]
+            grid = out_dec.reshape(B, H_grid, W_grid, C)
+            if C >= 2:
+                ux_pred = grid[..., 0].cpu().numpy()
+                uy_pred = grid[..., 1].cpu().numpy()
+            else:
+                # Single-channel model: only u_x is predicted; pad u_y with GT to
+                # isolate the u_x reconstruction quality on the flux integral.
+                ux_pred = grid[..., 0].cpu().numpy()
+                uy_pred = batch["y_uy"].reshape(B, H_grid, W_grid).cpu().numpy()
+
+            xy = coords.reshape(B, H_grid, W_grid, 2).cpu().numpy()
+
+            ux_gt = batch["y"].reshape(B, H_grid, W_grid).cpu().numpy()
+            uy_gt = batch["y_uy"].reshape(B, H_grid, W_grid).cpu().numpy()
+            if y_normalizer is not None:
+                ux_gt = (
+                    y_normalizer.decode(batch["y"].to(device))
+                    .reshape(B, H_grid, W_grid)
+                    .cpu()
+                    .numpy()
+                )
+            if uy_normalizer is not None:
+                uy_gt = (
+                    uy_normalizer.decode(batch["y_uy"].to(device))
+                    .reshape(B, H_grid, W_grid)
+                    .cpu()
+                    .numpy()
+                )
+
+            for b in range(B):
+                qp = streamwise_flux_profile(xy[b, ..., 0], xy[b, ..., 1], ux_pred[b], uy_pred[b])
+                qg = streamwise_flux_profile(xy[b, ..., 0], xy[b, ..., 1], ux_gt[b], uy_gt[b])
+                q0 = max(abs(qp[0]), 1e-12)
+                rel_range_pred.append((qp.max() - qp.min()) / q0)
+                rel_outlet_pred.append((qp[-1] - qp[0]) / q0)
+                q_inlet_pred.append(qp[0])
+                qg0 = max(abs(qg[0]), 1e-12)
+                rel_range_gt.append((qg.max() - qg.min()) / qg0)
+                rel_outlet_gt.append((qg[-1] - qg[0]) / qg0)
+
+    rel_range_pred = np.asarray(rel_range_pred)
+    rel_outlet_pred = np.asarray(rel_outlet_pred)
+    rel_range_gt = np.asarray(rel_range_gt)
+    rel_outlet_gt = np.asarray(rel_outlet_gt)
+    q_inlet_pred = np.asarray(q_inlet_pred)
+
+    print(f"\nMass conservation on {len(rel_range_pred)} test samples:")
+    print(f"  Q_inlet (pred)                            : mean={q_inlet_pred.mean():+.3e}  std={q_inlet_pred.std():.3e}")
+    print("  Predicted:")
+    print(f"    (Q_outlet - Q_inlet)/Q_inlet            : mean={rel_outlet_pred.mean():+.2%}  |·| mean={np.abs(rel_outlet_pred).mean():.2%}")
+    print(f"    (max Q_i - min Q_i)/|Q_inlet|           : mean={rel_range_pred.mean():.2%}  median={np.median(rel_range_pred):.2%}")
+    print("  Ground truth (same test split):")
+    print(f"    (Q_outlet - Q_inlet)/Q_inlet            : mean={rel_outlet_gt.mean():+.2%}  |·| mean={np.abs(rel_outlet_gt).mean():.2%}")
+    print(f"    (max Q_i - min Q_i)/|Q_inlet|           : mean={rel_range_gt.mean():.2%}  median={np.median(rel_range_gt):.2%}")
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.0))
+
+    ax = axes[0]
+    bins = np.linspace(0, np.percentile(np.r_[rel_range_pred, rel_range_gt] * 100, 99), 40)
+    ax.hist(rel_range_gt * 100, bins=bins, color="0.45", alpha=0.55, edgecolor="white", linewidth=0.4, label="GT")
+    ax.hist(rel_range_pred * 100, bins=bins, color=plt.get_cmap(CMAP)(0.7), alpha=0.7, edgecolor="white", linewidth=0.4, label="Transolver pred")
+    ax.axvline(rel_range_gt.mean() * 100, color="0.25", lw=1.2, linestyle="--", label=f"GT mean = {rel_range_gt.mean():.2%}")
+    ax.axvline(rel_range_pred.mean() * 100, color=plt.get_cmap(CMAP)(0.95), lw=1.4, label=f"pred mean = {rel_range_pred.mean():.2%}")
+    ax.set_xlabel(r"$(Q_\mathrm{max} - Q_\mathrm{min})/|Q_\mathrm{inlet}|$  [%]")
+    ax.set_ylabel("count")
+    ax.set_title("Cross-section flux spread (lower = better mass conservation)")
+    ax.legend(fontsize=8, frameon=False)
+    ax.grid(True, alpha=0.22)
+
+    ax = axes[1]
+    ax.scatter(rel_outlet_gt * 100, rel_outlet_pred * 100, s=12, alpha=0.5, color=plt.get_cmap(CMAP)(0.75), edgecolor="none")
+    lim = max(np.abs(np.r_[rel_outlet_gt, rel_outlet_pred] * 100).max(), 1.0)
+    ax.plot([-lim, lim], [-lim, lim], color="0.5", lw=0.8, linestyle="--", label="y = x")
+    ax.axhline(0.0, color="0.25", lw=0.7)
+    ax.axvline(0.0, color="0.25", lw=0.7)
+    ax.set_xlabel("GT  $(Q_\\mathrm{outlet}-Q_\\mathrm{inlet})/Q_\\mathrm{inlet}$  [%]")
+    ax.set_ylabel("pred  $(Q_\\mathrm{outlet}-Q_\\mathrm{inlet})/Q_\\mathrm{inlet}$  [%]")
+    ax.set_title("Per-sample outlet-inlet drift: pred vs GT")
+    ax.set_aspect("equal", adjustable="box")
+    ax.legend(fontsize=8, frameon=False, loc="upper left")
+    ax.grid(True, alpha=0.22)
+
+    fig.tight_layout()
+    out_path = FIGURES_DIR / "pipe_mass_conservation_transolver.png"
+    fig.savefig(out_path, bbox_inches="tight")
+    if IS_NOTEBOOK:
+        plt.show()
+    else:
+        plt.close(fig)
+    print(f"\nSaved to {out_path}")
+
+
 # %% Stream function boundary ansatz — g and l fields on the pipe mesh
 # PipeStreamFunctionBoundaryAnsatz uses psi = g + l * N where:
 #   g = psi_bc(eta)             : boundary lift (stream fn that recovers parabolic inlet)
