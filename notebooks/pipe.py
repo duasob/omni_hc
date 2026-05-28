@@ -126,7 +126,7 @@ print(f"Saved to {FIGURES_DIR / 'pipe_dataset_sample.png'}")
 
 
 # %% Mesh structure variation across samples (2×5 grid)
-N_MESH_ROWS, N_MESH_COLS = 2, 5
+N_MESH_ROWS, N_MESH_COLS = 3, 3
 MESH_SAMPLE_INDICES = np.linspace(0, N - 1, N_MESH_ROWS * N_MESH_COLS, dtype=int)
 
 fig, axes = plt.subplots(
@@ -159,7 +159,7 @@ for ax_idx, (ax, idx) in enumerate(zip(axes.ravel(), MESH_SAMPLE_INDICES)):
 
 fig.legend(
     handles=legend_handles,
-    fontsize=8,
+    fontsize=16,
     frameon=False,
     loc="lower center",
     ncol=4,
@@ -325,6 +325,8 @@ def wall_summary_rows(channel_values):
             edge_summary_stats(channel_values[:, :, -2]),
         ),
         ("top wall (j=W-1)", edge_summary_stats(channel_values[:, :, -1])),
+        ("inlet (i=0)", edge_summary_stats(channel_values[:, 0, :])),
+        ("outlet (i=L-1)", edge_summary_stats(channel_values[:, -1, :])),
     ]
 
 
@@ -332,7 +334,7 @@ def write_wall_statistics(channel_name, channel_values):
     columns = ["mean", "mean_abs", "max_abs", "min", "max", "std"]
     rows = wall_summary_rows(channel_values)
 
-    print(f"--- Pipe wall {channel_name} statistics for report table ---")
+    print(f"--- Pipe boundary {channel_name} statistics for report table ---")
     print_markdown_stats_table(rows, columns)
 
     stats_path = FIGURES_DIR / f"pipe_wall_{channel_name}_statistics.csv"
@@ -1148,11 +1150,21 @@ for i in range(N_MASS):
 rel_range = q_range_all / np.abs(q_inlet_all).clip(min=1e-12)
 rel_std = q_std_all / np.abs(q_inlet_all).clip(min=1e-12)
 rel_outlet = (q_outlet_all - q_inlet_all) / np.abs(q_inlet_all).clip(min=1e-12)
-print(f"  Q_inlet                 : mean={q_inlet_all.mean():+.3e}  std={q_inlet_all.std():.3e}")
-print(f"  Q_outlet                : mean={q_outlet_all.mean():+.3e}  std={q_outlet_all.std():.3e}")
-print(f"  (Q_outlet - Q_inlet)/Q_inlet: mean={rel_outlet.mean():+.2%}  |·| mean={np.abs(rel_outlet).mean():.2%}")
-print(f"  (max Q_i - min Q_i)/|Q_inlet|: mean={rel_range.mean():.2%}  median={np.median(rel_range):.2%}")
-print(f"  std(Q_i)/|Q_inlet|            : mean={rel_std.mean():.2%}  median={np.median(rel_std):.2%}")
+print(
+    f"  Q_inlet                 : mean={q_inlet_all.mean():+.3e}  std={q_inlet_all.std():.3e}"
+)
+print(
+    f"  Q_outlet                : mean={q_outlet_all.mean():+.3e}  std={q_outlet_all.std():.3e}"
+)
+print(
+    f"  (Q_outlet - Q_inlet)/Q_inlet: mean={rel_outlet.mean():+.2%}  |·| mean={np.abs(rel_outlet).mean():.2%}"
+)
+print(
+    f"  (max Q_i - min Q_i)/|Q_inlet|: mean={rel_range.mean():.2%}  median={np.median(rel_range):.2%}"
+)
+print(
+    f"  std(Q_i)/|Q_inlet|            : mean={rel_std.mean():.2%}  median={np.median(rel_std):.2%}"
+)
 
 # Visualise.
 xs0 = np.asarray(x_all[SAMPLE_IDX], dtype=np.float64)
@@ -1166,7 +1178,13 @@ fig, axes = plt.subplots(1, 3, figsize=(15, 4.0))
 
 ax = axes[0]
 ax.plot(i_axis, q_profile_0, color=plt.get_cmap(CMAP)(0.75), lw=1.6)
-ax.axhline(q_profile_0[0], color="0.25", lw=0.8, linestyle="--", label=f"$Q_\\mathrm{{inlet}}={q_profile_0[0]:.3e}$")
+ax.axhline(
+    q_profile_0[0],
+    color="0.25",
+    lw=0.8,
+    linestyle="--",
+    label=f"$Q_\\mathrm{{inlet}}={q_profile_0[0]:.3e}$",
+)
 ax.set_xlabel("streamwise index $i$")
 ax.set_ylabel("$Q_i$")
 _rel = (q_profile_0.max() - q_profile_0.min()) / max(abs(q_profile_0[0]), 1e-12)
@@ -1224,6 +1242,140 @@ ax.grid(True, alpha=0.22)
 
 fig.tight_layout()
 out_path = FIGURES_DIR / "pipe_mass_conservation.png"
+fig.savefig(out_path, bbox_inches="tight")
+if IS_NOTEBOOK:
+    plt.show()
+else:
+    plt.close(fig)
+print(f"Saved to {out_path}")
+
+
+# %% Divergence heatmaps for multiple samples
+DIV_SAMPLE_INDICES = PROFILE_SAMPLE_INDICES
+
+fig, axes = plt.subplots(
+    1, len(DIV_SAMPLE_INDICES), figsize=(5.0 * len(DIV_SAMPLE_INDICES), 4.0)
+)
+if len(DIV_SAMPLE_INDICES) == 1:
+    axes = [axes]
+for ax, idx in zip(axes, DIV_SAMPLE_INDICES):
+    xi = np.asarray(x_all[idx], dtype=np.float64)
+    yi = np.asarray(y_all[idx], dtype=np.float64)
+    ui = np.asarray(q_all[idx, 0], dtype=np.float64)
+    vi = np.asarray(q_all[idx, 1], dtype=np.float64)
+    div_i, _, _, _ = compute_divergence_field(xi, yi, ui, vi)
+    v_abs_i = float(np.percentile(np.abs(div_i), 99))
+    im = ax.pcolormesh(
+        xi, yi, div_i, shading="gouraud", cmap="RdBu_r", vmin=-v_abs_i, vmax=v_abs_i
+    )
+    fig.colorbar(im, ax=ax, shrink=0.85, label=r"$\nabla\cdot u$")
+    for sl in EDGE_SLICES.values():
+        ax.plot(xi[sl], yi[sl], color="0.15", lw=0.7)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlabel("$x$")
+    ax.set_ylabel("$y$")
+    ax.set_title(
+        f"sample {idx}: $\\nabla\\cdot u$\n"
+        rf"$|\nabla\cdot u|_\mathrm{{mean}}={np.abs(div_i).mean():.2e}$,"
+        rf"  rmse$={float(np.sqrt(np.mean(div_i**2))):.2e}$",
+        fontsize=10,
+    )
+
+fig.tight_layout()
+out_path = FIGURES_DIR / "pipe_divergence_samples.png"
+fig.savefig(out_path, bbox_inches="tight")
+if IS_NOTEBOOK:
+    plt.show()
+else:
+    plt.close(fig)
+print(f"Saved to {out_path}")
+
+
+# %% Mean streamwise flux Q_i averaged across all samples (with percentile bands)
+print(f"Computing per-sample Q_i profiles across {N_MASS} samples for averaged plot...")
+q_profiles_all = np.empty((N_MASS, H), dtype=np.float64)
+for i in range(N_MASS):
+    xi = np.asarray(x_all[i], dtype=np.float64)
+    yi = np.asarray(y_all[i], dtype=np.float64)
+    ui = np.asarray(q_all[i, 0], dtype=np.float64)
+    vi = np.asarray(q_all[i, 1], dtype=np.float64)
+    q_profiles_all[i] = streamwise_flux_profile(xi, yi, ui, vi)
+
+# Normalise each profile by its own inlet flux so samples with different scales
+# can be averaged meaningfully. Sign-correct by inlet direction.
+inlet_ref = q_profiles_all[:, 0]
+sign = np.where(inlet_ref >= 0, 1.0, -1.0)
+q_profiles_norm = (q_profiles_all * sign[:, None]) / np.abs(inlet_ref).clip(min=1e-12)[
+    :, None
+]
+
+q_mean = q_profiles_norm.mean(axis=0)
+q_p05 = np.quantile(q_profiles_norm, 0.05, axis=0)
+q_p95 = np.quantile(q_profiles_norm, 0.95, axis=0)
+q_p25 = np.quantile(q_profiles_norm, 0.25, axis=0)
+q_p75 = np.quantile(q_profiles_norm, 0.75, axis=0)
+
+fig, ax = plt.subplots(figsize=(6.0, 4.0))
+band_color = plt.get_cmap(CMAP)(0.55)
+line_color = plt.get_cmap(CMAP)(0.85)
+ax.fill_between(
+    i_axis, q_p05, q_p95, color=band_color, alpha=0.18, linewidth=0, label="5–95%"
+)
+# ax.fill_between(
+#     i_axis, q_p25, q_p75, color=band_color, alpha=0.32, linewidth=0, label="25–75%"
+# )
+ax.plot(i_axis, q_mean, color=line_color, lw=1.8, label="mean")
+ax.axhline(1.0, color="0.25", lw=0.8, linestyle="--", label=r"$Q_i/Q_\mathrm{inlet}=1$")
+ax.set_xlabel("streamwise index $i$")
+ax.set_ylabel(r"$Q_i / Q_\mathrm{inlet}$")
+ax.set_title(f"Normalised flux $Q_i/Q_\\mathrm{{inlet}}$ across {N_MASS} samples")
+ax.legend(fontsize=8, frameon=False)
+ax.grid(True, alpha=0.22)
+fig.tight_layout()
+out_path = FIGURES_DIR / "pipe_mass_conservation_mean.png"
+fig.savefig(out_path, bbox_inches="tight")
+if IS_NOTEBOOK:
+    plt.show()
+else:
+    plt.close(fig)
+print(f"Saved to {out_path}")
+
+
+# %% Cross-section flux Q_i painted on the pipe geometry for a few samples
+FLUX_SAMPLE_INDICES = PROFILE_SAMPLE_INDICES
+
+fig, axes = plt.subplots(
+    1, len(FLUX_SAMPLE_INDICES), figsize=(5.0 * len(FLUX_SAMPLE_INDICES), 4.0)
+)
+if len(FLUX_SAMPLE_INDICES) == 1:
+    axes = [axes]
+for ax, idx in zip(axes, FLUX_SAMPLE_INDICES):
+    xi = np.asarray(x_all[idx], dtype=np.float64)
+    yi = np.asarray(y_all[idx], dtype=np.float64)
+    ui = np.asarray(q_all[idx, 0], dtype=np.float64)
+    vi = np.asarray(q_all[idx, 1], dtype=np.float64)
+    qp = streamwise_flux_profile(xi, yi, ui, vi)  # (H,)
+    q_field = np.broadcast_to(qp[:, None], xi.shape)
+    v_abs_q = float(np.max(np.abs(qp)))
+    v_abs_q = v_abs_q if v_abs_q > 1e-12 else 1.0
+    im = ax.pcolormesh(
+        xi, yi, q_field, shading="gouraud", cmap="RdBu_r", vmin=-v_abs_q, vmax=v_abs_q
+    )
+    fig.colorbar(im, ax=ax, shrink=0.85, label="$Q_i$")
+    for sl in EDGE_SLICES.values():
+        ax.plot(xi[sl], yi[sl], color="0.15", lw=0.7)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlabel("$x$")
+    ax.set_ylabel("$y$")
+    _rel = (qp.max() - qp.min()) / max(abs(qp[0]), 1e-12)
+    ax.set_title(
+        f"sample {idx}: cross-section flux\n"
+        rf"$Q_\mathrm{{inlet}}={qp[0]:.2e}$,  "
+        rf"$(Q_\mathrm{{max}}-Q_\mathrm{{min}})/|Q_\mathrm{{inlet}}|$ = {_rel:.2%}",
+        fontsize=10,
+    )
+fig.tight_layout()
+out_path = FIGURES_DIR / "pipe_mass_conservation_samples.png"
 fig.savefig(out_path, bbox_inches="tight")
 if IS_NOTEBOOK:
     plt.show()
@@ -1325,8 +1477,12 @@ else:
                 )
 
             for b in range(B):
-                qp = streamwise_flux_profile(xy[b, ..., 0], xy[b, ..., 1], ux_pred[b], uy_pred[b])
-                qg = streamwise_flux_profile(xy[b, ..., 0], xy[b, ..., 1], ux_gt[b], uy_gt[b])
+                qp = streamwise_flux_profile(
+                    xy[b, ..., 0], xy[b, ..., 1], ux_pred[b], uy_pred[b]
+                )
+                qg = streamwise_flux_profile(
+                    xy[b, ..., 0], xy[b, ..., 1], ux_gt[b], uy_gt[b]
+                )
                 q0 = max(abs(qp[0]), 1e-12)
                 rel_range_pred.append((qp.max() - qp.min()) / q0)
                 rel_outlet_pred.append((qp[-1] - qp[0]) / q0)
@@ -1342,22 +1498,61 @@ else:
     q_inlet_pred = np.asarray(q_inlet_pred)
 
     print(f"\nMass conservation on {len(rel_range_pred)} test samples:")
-    print(f"  Q_inlet (pred)                            : mean={q_inlet_pred.mean():+.3e}  std={q_inlet_pred.std():.3e}")
+    print(
+        f"  Q_inlet (pred)                            : mean={q_inlet_pred.mean():+.3e}  std={q_inlet_pred.std():.3e}"
+    )
     print("  Predicted:")
-    print(f"    (Q_outlet - Q_inlet)/Q_inlet            : mean={rel_outlet_pred.mean():+.2%}  |·| mean={np.abs(rel_outlet_pred).mean():.2%}")
-    print(f"    (max Q_i - min Q_i)/|Q_inlet|           : mean={rel_range_pred.mean():.2%}  median={np.median(rel_range_pred):.2%}")
+    print(
+        f"    (Q_outlet - Q_inlet)/Q_inlet            : mean={rel_outlet_pred.mean():+.2%}  |·| mean={np.abs(rel_outlet_pred).mean():.2%}"
+    )
+    print(
+        f"    (max Q_i - min Q_i)/|Q_inlet|           : mean={rel_range_pred.mean():.2%}  median={np.median(rel_range_pred):.2%}"
+    )
     print("  Ground truth (same test split):")
-    print(f"    (Q_outlet - Q_inlet)/Q_inlet            : mean={rel_outlet_gt.mean():+.2%}  |·| mean={np.abs(rel_outlet_gt).mean():.2%}")
-    print(f"    (max Q_i - min Q_i)/|Q_inlet|           : mean={rel_range_gt.mean():.2%}  median={np.median(rel_range_gt):.2%}")
+    print(
+        f"    (Q_outlet - Q_inlet)/Q_inlet            : mean={rel_outlet_gt.mean():+.2%}  |·| mean={np.abs(rel_outlet_gt).mean():.2%}"
+    )
+    print(
+        f"    (max Q_i - min Q_i)/|Q_inlet|           : mean={rel_range_gt.mean():.2%}  median={np.median(rel_range_gt):.2%}"
+    )
 
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.0))
 
     ax = axes[0]
-    bins = np.linspace(0, np.percentile(np.r_[rel_range_pred, rel_range_gt] * 100, 99), 40)
-    ax.hist(rel_range_gt * 100, bins=bins, color="0.45", alpha=0.55, edgecolor="white", linewidth=0.4, label="GT")
-    ax.hist(rel_range_pred * 100, bins=bins, color=plt.get_cmap(CMAP)(0.7), alpha=0.7, edgecolor="white", linewidth=0.4, label="Transolver pred")
-    ax.axvline(rel_range_gt.mean() * 100, color="0.25", lw=1.2, linestyle="--", label=f"GT mean = {rel_range_gt.mean():.2%}")
-    ax.axvline(rel_range_pred.mean() * 100, color=plt.get_cmap(CMAP)(0.95), lw=1.4, label=f"pred mean = {rel_range_pred.mean():.2%}")
+    bins = np.linspace(
+        0, np.percentile(np.r_[rel_range_pred, rel_range_gt] * 100, 99), 40
+    )
+    ax.hist(
+        rel_range_gt * 100,
+        bins=bins,
+        color="0.45",
+        alpha=0.55,
+        edgecolor="white",
+        linewidth=0.4,
+        label="GT",
+    )
+    ax.hist(
+        rel_range_pred * 100,
+        bins=bins,
+        color=plt.get_cmap(CMAP)(0.7),
+        alpha=0.7,
+        edgecolor="white",
+        linewidth=0.4,
+        label="Transolver pred",
+    )
+    ax.axvline(
+        rel_range_gt.mean() * 100,
+        color="0.25",
+        lw=1.2,
+        linestyle="--",
+        label=f"GT mean = {rel_range_gt.mean():.2%}",
+    )
+    ax.axvline(
+        rel_range_pred.mean() * 100,
+        color=plt.get_cmap(CMAP)(0.95),
+        lw=1.4,
+        label=f"pred mean = {rel_range_pred.mean():.2%}",
+    )
     ax.set_xlabel(r"$(Q_\mathrm{max} - Q_\mathrm{min})/|Q_\mathrm{inlet}|$  [%]")
     ax.set_ylabel("count")
     ax.set_title("Cross-section flux spread (lower = better mass conservation)")
@@ -1365,13 +1560,24 @@ else:
     ax.grid(True, alpha=0.22)
 
     ax = axes[1]
-    ax.scatter(rel_outlet_gt * 100, rel_outlet_pred * 100, s=12, alpha=0.5, color=plt.get_cmap(CMAP)(0.75), edgecolor="none")
+    ax.scatter(
+        rel_outlet_gt * 100,
+        rel_outlet_pred * 100,
+        s=12,
+        alpha=0.5,
+        color=plt.get_cmap(CMAP)(0.75),
+        edgecolor="none",
+    )
     lim = max(np.abs(np.r_[rel_outlet_gt, rel_outlet_pred] * 100).max(), 1.0)
-    ax.plot([-lim, lim], [-lim, lim], color="0.5", lw=0.8, linestyle="--", label="y = x")
+    ax.plot(
+        [-lim, lim], [-lim, lim], color="0.5", lw=0.8, linestyle="--", label="y = x"
+    )
     ax.axhline(0.0, color="0.25", lw=0.7)
     ax.axvline(0.0, color="0.25", lw=0.7)
     ax.set_xlabel("GT  $(Q_\\mathrm{outlet}-Q_\\mathrm{inlet})/Q_\\mathrm{inlet}$  [%]")
-    ax.set_ylabel("pred  $(Q_\\mathrm{outlet}-Q_\\mathrm{inlet})/Q_\\mathrm{inlet}$  [%]")
+    ax.set_ylabel(
+        "pred  $(Q_\\mathrm{outlet}-Q_\\mathrm{inlet})/Q_\\mathrm{inlet}$  [%]"
+    )
     ax.set_title("Per-sample outlet-inlet drift: pred vs GT")
     ax.set_aspect("equal", adjustable="box")
     ax.legend(fontsize=8, frameon=False, loc="upper left")
