@@ -22,13 +22,12 @@ NS_BL = RunRef("outputs/navier_stokes/none/galerkin_transformer/final/seed_42")
 DARCY_DIRICHLET_HC = RunRef(
     "outputs/darcy/dirichlet_ansatz_zero/transolver/final/seed_42"
 )
-DARCY_DIRICHLET_CORNER_HC = RunRef(
-    "outputs/darcy/sine_boundary/transolver_latest_coeff_head_test"
-)
+DARCY_SINE_HC = RunRef("outputs/darcy/sine_boundary/transolver_latest_coeff_head_test")
 DARCY_FLUX_HC = RunRef("outputs/darcy/darcy_flux_constraint/transolver/final/seed_42")
 DARCY_BL = RunRef("outputs/darcy/none/transolver/final/seed_42")
 
-PIPE_HC = RunRef(
+PIPE_ANSATZ_HC = RunRef("outputs/pipe/experiments/fno_small_ux_boundary")
+PIPE_STREAM_HC = RunRef(
     "outputs/pipe/pipe_stream_function_boundary_ansatz/transolver/final/seed_42"
 )
 PIPE_BL = RunRef("outputs/pipe/none/transolver/final/seed_42")
@@ -41,7 +40,7 @@ ELAS_BL = RunRef("outputs/elasticity/none/transolver/final/seed_42")
 PLAS_HC = RunRef(
     "outputs/plasticity/plasticity_mesh_consistency_constraint/transolver/final/seed_42"
 )
-PLAS_BL = RunRef("outputs/plasticity/none/transolver/smoke/seed_42")
+PLAS_BL = RunRef("outputs/plasticity/none/transolver/final/seed_42")
 GT = MetricFileRef("ch5_gt_metrics.yaml")
 COST = MetricFileRef("ch5_cost_metrics.yaml")
 
@@ -123,7 +122,7 @@ cv_baseline = ReportArtifact(
 )
 
 
-# --- cv_constrained: hard-constrained models (the main first-cut deliverable) --
+# --- cv_constrained: hard-constrained models ----------------------------------
 cv_constrained = ReportArtifact(
     name="cv_constrained",
     chapter=5,
@@ -145,7 +144,7 @@ cv_constrained = ReportArtifact(
             macro=r"\cvHcDarcyDirichletStrict",
         ),
         Row(
-            run=DARCY_DIRICHLET_CORNER_HC,
+            run=DARCY_SINE_HC,
             metric_key=(
                 "constraint/dirichlet_corner_max",
                 "boundary_rmse",
@@ -153,24 +152,77 @@ cv_constrained = ReportArtifact(
             macro=r"\cvHcDarcyDirichletCorner",
         ),
         Row(
+            run=DARCY_DIRICHLET_HC,
+            metric_key=(
+                "constraint/dirichlet_strict_max",
+                "constraint/boundary_abs_max",
+                "boundary_rmse",
+            ),
+            macro=r"\cvHcDarcyDirichletStrictDirichlet",
+        ),
+        Row(
+            run=DARCY_SINE_HC,
+            metric_key="constraint/dirichlet_strict_max",
+            macro=r"\cvHcDarcyDirichletStrictSine",
+        ),
+        Row(
+            run=DARCY_DIRICHLET_HC,
+            metric_key=(
+                "constraint/dirichlet_corner_max",
+                "constraint/boundary_abs_max",
+                "boundary_rmse",
+            ),
+            macro=r"\cvHcDarcyDirichletCornerDirichlet",
+        ),
+        Row(
+            run=DARCY_SINE_HC,
+            metric_key="constraint/dirichlet_corner_max",
+            macro=r"\cvHcDarcyDirichletCornerSine",
+        ),
+        Row(
             run=DARCY_FLUX_HC,
             metric_key=("constraint/flux_rmse", "constraint/flux_div_abs_mean"),
             macro=r"\cvHcDarcyFlux",
         ),
         Row(
-            run=PIPE_HC,
+            run=PIPE_STREAM_HC,
             metric_key=("constraint/wall_abs_max", "constraint/stream_wall_ux_abs_max"),
             macro=r"\cvHcPipeWall",
         ),
         Row(
-            run=PIPE_HC,
+            run=PIPE_STREAM_HC,
             metric_key=("constraint/inlet_rmse", "constraint/stream_inlet_abs_mean"),
             macro=r"\cvHcPipeInlet",
         ),
         Row(
-            run=PIPE_HC,
+            run=PIPE_STREAM_HC,
             metric_key=("constraint/div_rmse", "constraint/stream_div_abs_mean"),
             macro=r"\cvHcPipeDiv",
+        ),
+        Row(
+            run=PIPE_ANSATZ_HC,
+            metric_key="constraint/wall_abs_max",
+            macro=r"\cvHcPipeWallAnsatz",
+        ),
+        Row(
+            run=PIPE_STREAM_HC,
+            metric_key=("constraint/wall_abs_max", "constraint/stream_wall_ux_abs_max"),
+            macro=r"\cvHcPipeWallStream",
+        ),
+        Row(
+            run=PIPE_ANSATZ_HC,
+            metric_key="constraint/inlet_rmse",
+            macro=r"\cvHcPipeInletAnsatz",
+        ),
+        Row(
+            run=PIPE_STREAM_HC,
+            metric_key="constraint/inlet_rmse",
+            macro=r"\cvHcPipeInletStream",
+        ),
+        Row(
+            run=PIPE_STREAM_HC,
+            metric_key=("constraint/div_rmse", "constraint/stream_div_abs_mean"),
+            macro=r"\cvHcPipeDivStream",
         ),
         Row(
             run=ELAS_HC,
@@ -287,7 +339,9 @@ def effective_training_samples(cfg: dict[str, Any]) -> int:
     return max(ntrain - min(max(val_size, 1), ntrain - 1), 1)
 
 
-def resolve_run_config(repo_root: Path, run: RunRef) -> tuple[Path, dict[str, Any] | None]:
+def resolve_run_config(
+    repo_root: Path, run: RunRef
+) -> tuple[Path, dict[str, Any] | None]:
     run_dir = run.resolve(repo_root)
     cfg_path = run_dir / "resolved_config.yaml"
     if not cfg_path.exists():
@@ -497,9 +551,13 @@ def compute_cost_metrics(repo_root: Path) -> tuple[dict[str, float], list[str]]:
         constrained_diag = _load_diagnostics(repo_root, spec.constrained)
         baseline_diag = _load_diagnostics(repo_root, spec.baseline)
         if constrained_diag is None:
-            warnings.append(f"missing diagnostics: {spec.constrained.path}/diagnostics.yaml")
+            warnings.append(
+                f"missing diagnostics: {spec.constrained.path}/diagnostics.yaml"
+            )
         if baseline_diag is None:
-            warnings.append(f"missing diagnostics: {spec.baseline.path}/diagnostics.yaml")
+            warnings.append(
+                f"missing diagnostics: {spec.baseline.path}/diagnostics.yaml"
+            )
         if constrained_diag is None or baseline_diag is None:
             continue
 

@@ -61,35 +61,12 @@ def _signed_cell_areas(coords: torch.Tensor) -> torch.Tensor:
     )
 
 
-def _reference_orientation(
-    coords: torch.Tensor,
-    batch: dict[str, Any],
-    meta: dict[str, Any],
-) -> torch.Tensor:
-    target = batch.get("target")
-    if isinstance(target, torch.Tensor):
-        try:
-            ref_coords = _reshape_coords(target, meta).to(
-                device=coords.device,
-                dtype=coords.dtype,
-            )
-            ref_area = _signed_cell_areas(ref_coords)
-            sign = torch.sign(ref_area.flatten(start_dim=2).median(dim=2).values)
-            return torch.where(sign == 0, torch.ones_like(sign), sign)
-        except ValueError:
-            pass
-
-    area0 = _signed_cell_areas(coords[:, :1])
-    sign = torch.sign(area0.flatten(start_dim=2).median(dim=2).values)
-    sign = torch.where(sign == 0, torch.ones_like(sign), sign)
-    return sign.expand(coords.shape[0], coords.shape[1])
-
-
 def compute(
     pred: torch.Tensor,
     batch: dict[str, Any],
     meta: dict[str, Any],
 ) -> dict[str, ConstraintDiagnostic]:
+    del batch
     coords = _reshape_coords(pred, meta)
     batch_size = int(coords.shape[0])
     dx = coords[:, :, :-1, :, 0] - coords[:, :, 1:, :, 0]
@@ -104,9 +81,7 @@ def compute(
     worst_sample_fraction = neg_per_sample.to(torch.float32).mean(dim=1).max()
 
     signed_area = _signed_cell_areas(coords)
-    orientation = _reference_orientation(coords, batch, meta)
-    oriented_area = signed_area * orientation[:, :, None, None]
-    flipped = oriented_area < 0
+    flipped = signed_area < 0
     flipped_per_frame = flipped.to(torch.float32).sum(dim=(-1, -2))
     flipped_fraction_per_frame = flipped.to(torch.float32).mean(dim=(-1, -2))
     return {
