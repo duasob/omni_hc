@@ -10,6 +10,8 @@ set -euo pipefail
 #
 # Optional environment overrides:
 #   RUNS_FILE=/path/to/runs.txt
+#   RUNS_FILES="a.txt b.txt c.txt"   # space-separated; runs are concatenated
+#   bash run_batch.sh a.txt b.txt    # positional args also accepted
 #   CONDA_ENV=omni-hc
 #   PYTHON=/path/to/python  # or "python", "python3", etc.
 #   DEVICE=auto
@@ -20,7 +22,19 @@ set -euo pipefail
 PROJECT_DIR="${PROJECT_DIR:-$PWD}"
 cd "$PROJECT_DIR"
 
-RUNS_FILE="${RUNS_FILE:-${1:-}}"
+RUNS_FILES_LIST=()
+if [ -n "${RUNS_FILE:-}" ]; then
+    RUNS_FILES_LIST+=("$RUNS_FILE")
+fi
+if [ -n "${RUNS_FILES:-}" ]; then
+    # shellcheck disable=SC2206
+    _runs_files_arr=( ${RUNS_FILES} )
+    RUNS_FILES_LIST+=("${_runs_files_arr[@]}")
+fi
+if [ "$#" -gt 0 ]; then
+    RUNS_FILES_LIST+=("$@")
+fi
+
 CONDA_ENV="${CONDA_ENV:-omni-hc}"
 DEVICE="${DEVICE:-auto}"
 OUT_ROOT="${OUT_ROOT:-artifacts/batch_runs/manual}"
@@ -44,14 +58,17 @@ slugify() {
 }
 
 check_environment() {
-    if [ -z "$RUNS_FILE" ]; then
-        echo "ERROR: provide RUNS_FILE=/path/to/runs.txt or pass the file as arg 1." >&2
+    local f
+    if [ "${#RUNS_FILES_LIST[@]}" -eq 0 ]; then
+        echo "ERROR: provide RUNS_FILE=/path/to/runs.txt, RUNS_FILES=\"a.txt b.txt\", or pass files as positional args." >&2
         exit 2
     fi
-    if [ ! -f "$RUNS_FILE" ]; then
-        echo "ERROR: RUNS_FILE does not exist: $RUNS_FILE" >&2
-        exit 2
-    fi
+    for f in "${RUNS_FILES_LIST[@]}"; do
+        if [ ! -f "$f" ]; then
+            echo "ERROR: runs file does not exist: $f" >&2
+            exit 2
+        fi
+    done
     if [ ! -f scripts/train.py ] || [ ! -f scripts/test.py ] || [ ! -f scripts/diagnose.py ]; then
         echo "ERROR: scripts/train.py, scripts/test.py, or scripts/diagnose.py was not found in $PROJECT_DIR" >&2
         exit 2
@@ -86,10 +103,12 @@ python_cmd() {
 
 runfile_meta() {
     local key="$1"
-    sed -n "s/^# ${key}: //p" "$RUNS_FILE" | head -n 1
+    local runs_file="$2"
+    sed -n "s/^# ${key}: //p" "$runs_file" | head -n 1
 }
 
 check_reporting_fingerprint() {
+    local runs_file="$1"
     local expected chapter name actual
     local -a py_parts fingerprint_cmd
 
@@ -97,7 +116,7 @@ check_reporting_fingerprint() {
         return 0
     fi
 
-    expected="$(runfile_meta reporting_fingerprint)"
+    expected="$(runfile_meta reporting_fingerprint "$runs_file")"
     if [ -z "$expected" ]; then
         return 0
     fi
@@ -105,8 +124,8 @@ check_reporting_fingerprint() {
         return 0
     fi
 
-    chapter="$(runfile_meta reporting_chapter)"
-    name="$(runfile_meta reporting_name)"
+    chapter="$(runfile_meta reporting_chapter "$runs_file")"
+    name="$(runfile_meta reporting_name "$runs_file")"
     read -r -a py_parts <<< "$(python_cmd)"
     fingerprint_cmd=("${py_parts[@]}" -m scripts.reporting.build --print-fingerprint)
     if [ -n "$chapter" ] && [ "$chapter" != "all" ]; then
@@ -117,7 +136,7 @@ check_reporting_fingerprint() {
     fi
     actual="$("${fingerprint_cmd[@]}")"
     if [ "$actual" != "$expected" ]; then
-        echo "ERROR: RUNS_FILE was generated from an older reporting registry." >&2
+        echo "ERROR: $runs_file was generated from an older reporting registry." >&2
         echo "Expected fingerprint: $expected" >&2
         echo "Current fingerprint:  $actual" >&2
         echo "Regenerate it with: python -m scripts.reporting.build --write-missing-runs missing_runs.txt" >&2
@@ -187,23 +206,29 @@ run_one() {
 }
 
 check_environment
-check_reporting_fingerprint
+for runs_file in "${RUNS_FILES_LIST[@]}"; do
+    check_reporting_fingerprint "$runs_file"
+done
 
 echo "Batch started: $(timestamp)"
 echo "Project dir: $PROJECT_DIR"
-echo "Runs file: $RUNS_FILE"
+echo "Runs files: ${RUNS_FILES_LIST[*]}"
 echo "Output dir: $OUT_ROOT"
 echo "Python command: $(python_cmd)"
 
 run_count=0
 FAILED_RUNS=()
-while IFS= read -r run_args || [ -n "$run_args" ]; do
-    if [ -z "${run_args// }" ] || [[ "$run_args" =~ ^[[:space:]]*# ]]; then
-        continue
-    fi
-    run_count=$((run_count + 1))
-    run_one "$run_count" "$run_args"
-done < "$RUNS_FILE"
+for runs_file in "${RUNS_FILES_LIST[@]}"; do
+    echo
+    echo "--- Loading runs from: $runs_file ---"
+    while IFS= read -r run_args || [ -n "$run_args" ]; do
+        if [ -z "${run_args// }" ] || [[ "$run_args" =~ ^[[:space:]]*# ]]; then
+            continue
+        fi
+        run_count=$((run_count + 1))
+        run_one "$run_count" "$run_args"
+    done < "$runs_file"
+done
 
 touch "$OUT_ROOT/RUNNER_FINISHED"
 echo
