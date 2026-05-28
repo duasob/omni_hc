@@ -13,6 +13,7 @@ from .utils.spectral import (
 )
 from .utils.stream_ops import (
     finite_volume_divergence_curvilinear,
+    gradient_xy_curvilinear,
     stream_velocity_from_psi_curvilinear,
 )
 
@@ -435,15 +436,32 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
         )
         psi_bc = self._stream_function_bc(eta=eta, inlet_extent=inlet_extent)
         correction_mask = self._correction_mask(xi=xi, eta=eta)
-        psi = psi_bc + correction_mask * pred_base
+        correction = correction_mask * pred_base
+        psi = psi_bc + correction
 
-        velocity, jac = stream_velocity_from_psi_curvilinear(
-            psi,
+        # Split-and-add reconstruction of u = curl(psi):
+        #   curl(psi_bc) is computed analytically. d(psi_bc)/d eta = 4 A H eta(1-eta)
+        #   vanishes at the walls (eta = 0, 1), so the product with the FD-evaluated
+        #   d eta / d {x,y} is exactly zero on the wall rows regardless of FD edge
+        #   noise. At the inlet, d(psi_bc)/d eta · d eta / d y reduces to the
+        #   parabolic target 4 A eta(1-eta) by construction.
+        # curl(l * N) is computed via the usual FD chain rule. The correction mask
+        # l = xi^p eta^2 (1 - eta)^2 vanishes to second order at the walls and as
+        # xi^p at the inlet, so its discretised curl contributes near-zero on the
+        # constrained boundaries.
+        dpsi_bc_deta = 4.0 * self.amplitude * inlet_extent * eta * (1.0 - eta)
+        deta_dx, deta_dy = gradient_xy_curvilinear(eta, coords_grid, eps=self.eps)
+        ux_bc = dpsi_bc_deta * deta_dy
+        uy_bc = -dpsi_bc_deta * deta_dx
+
+        velocity_corr, jac = stream_velocity_from_psi_curvilinear(
+            correction,
             coords_grid,
             eps=self.eps,
         )
-        ux = velocity[:, 0:1]
-        uy = velocity[:, 1:2]
+        ux = ux_bc + velocity_corr[:, 0:1]
+        uy = uy_bc + velocity_corr[:, 1:2]
+        velocity = torch.cat([ux, uy], dim=1)
         ux_flat = reshape_grid_to_channels_last(ux)
         ux_encoded = self._encode_target(ux_flat)
         uy_flat = reshape_grid_to_channels_last(uy)
@@ -543,10 +561,10 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
                     value=wall_ux.abs().max(),
                     reduce="max",
                 ),
-                "constraint/wall_abs_max": ConstraintDiagnostic(
-                    value=wall_ux.abs().max(),
-                    reduce="max",
-                ),
+                # "constraint/wall_abs_max": ConstraintDiagnostic(
+                #     value=wall_ux.abs().max(),
+                #     reduce="max",
+                # ),
                 # "constraint/stream_mask_mean": ConstraintDiagnostic(
                 #     value=correction_mask.mean(),
                 #     reduce="mean",

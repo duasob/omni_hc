@@ -20,6 +20,8 @@ set -euo pipefail
 #   DATA_PATH=$HOME/omni_hc/data
 #   OUT_ROOT=$HOME/omni-hc-results/$PBS_JOBID
 #   RUNS_FILE=/path/to/runs.txt
+#   RUNS_FILES="a.txt b.txt c.txt"   # space-separated; runs are concatenated
+#   bash runner.sh a.txt b.txt        # positional args also accepted
 #   DRY_RUN=1
 #   VERBOSE=1   # stream run output to the console as well as the per-run log
 
@@ -107,15 +109,35 @@ check_environment() {
 }
 
 load_run_lines() {
+    local -a files=()
+    local f
+
     if [ -n "${RUNS_FILE:-}" ]; then
-        if [ ! -f "$RUNS_FILE" ]; then
-            echo "ERROR: RUNS_FILE does not exist: $RUNS_FILE" >&2
+        files+=("$RUNS_FILE")
+    fi
+    if [ -n "${RUNS_FILES:-}" ]; then
+        # shellcheck disable=SC2206
+        local -a runs_files_arr=( ${RUNS_FILES} )
+        files+=("${runs_files_arr[@]}")
+    fi
+    if [ "$#" -gt 0 ]; then
+        files+=("$@")
+    fi
+
+    if [ "${#files[@]}" -eq 0 ]; then
+        RUN_LINES=("${RUNS[@]}")
+        return 0
+    fi
+
+    RUN_LINES=()
+    for f in "${files[@]}"; do
+        if [ ! -f "$f" ]; then
+            echo "ERROR: runs file does not exist: $f" >&2
             exit 2
         fi
-        mapfile -t RUN_LINES < "$RUNS_FILE"
-    else
-        RUN_LINES=("${RUNS[@]}")
-    fi
+        echo "Loading runs from: $f"
+        mapfile -t -O "${#RUN_LINES[@]}" RUN_LINES < "$f"
+    done
 }
 
 run_one() {
@@ -194,7 +216,7 @@ run_one() {
 
 check_environment
 print_header
-load_run_lines
+load_run_lines "$@"
 
 run_count=0
 for run_args in "${RUN_LINES[@]}"; do

@@ -94,6 +94,58 @@ def stream_velocity_from_psi_curvilinear(
     return torch.cat([ux, uy], dim=1), jac
 
 
+def gradient_xy_curvilinear(
+    scalar: torch.Tensor,
+    coords_grid: torch.Tensor,
+    *,
+    eps: float = 1e-12,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Chain-rule FD gradient of a scalar grid w.r.t. physical (x, y).
+
+    Mirrors :func:`stream_velocity_from_psi_curvilinear`'s metric machinery but
+    returns (∂s/∂x, ∂s/∂y) instead of (∂s/∂y, −∂s/∂x). Used to evaluate
+    analytical-primitive contributions on the curvilinear mesh without taking
+    finite differences of the primitive itself.
+    """
+    if scalar.ndim != 4 or scalar.shape[1] != 1:
+        raise ValueError(
+            "Expected a scalar field with shape (batch, 1, height, width), "
+            f"got {tuple(scalar.shape)!r}"
+        )
+    if coords_grid.ndim != 4 or coords_grid.shape[1] != 2:
+        raise ValueError(
+            "Expected coordinates with shape (batch, 2, height, width), "
+            f"got {tuple(coords_grid.shape)!r}"
+        )
+    if (
+        scalar.shape[0] != coords_grid.shape[0]
+        or scalar.shape[-2:] != coords_grid.shape[-2:]
+    ):
+        raise ValueError(
+            f"scalar shape {tuple(scalar.shape)!r} and coords shape "
+            f"{tuple(coords_grid.shape)!r} must share batch/height/width"
+        )
+
+    x = coords_grid[:, 0:1]
+    y = coords_grid[:, 1:2]
+    x_s = finite_difference_derivative_2d(x, spacing=1.0, axis=-2)
+    x_t = finite_difference_derivative_2d(x, spacing=1.0, axis=-1)
+    y_s = finite_difference_derivative_2d(y, spacing=1.0, axis=-2)
+    y_t = finite_difference_derivative_2d(y, spacing=1.0, axis=-1)
+    s_s = finite_difference_derivative_2d(scalar, spacing=1.0, axis=-2)
+    s_t = finite_difference_derivative_2d(scalar, spacing=1.0, axis=-1)
+
+    jac = x_s * y_t - x_t * y_s
+    safe_jac = torch.where(
+        jac.abs() < eps,
+        torch.full_like(jac, eps) * torch.where(jac >= 0, 1.0, -1.0),
+        jac,
+    )
+    ds_dx = (y_t * s_s - y_s * s_t) / safe_jac
+    ds_dy = (-x_t * s_s + x_s * s_t) / safe_jac
+    return ds_dx, ds_dy
+
+
 def finite_volume_divergence_curvilinear(
     field: torch.Tensor,
     coords_grid: torch.Tensor,

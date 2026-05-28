@@ -200,10 +200,13 @@ def test_pipe_stream_function_boundary_constraint_emits_boundary_diagnostics():
     assert "constraint/stream_inlet_abs_max" in out.diagnostics
     assert "constraint/inlet_rmse" in out.diagnostics
     assert "constraint/stream_wall_ux_abs_max" in out.diagnostics
-    assert "constraint/wall_abs_max" in out.diagnostics
-    assert "constraint/stream_mask_max" in out.diagnostics
     assert "stream_psi" in out.aux
     assert "stream_uy" in out.aux
     assert "stream_div" in out.aux
-    assert "stream_psi_bc" in out.aux
-    assert "stream_mask" in out.aux
+
+    # Analytical split: with pred=0 the correction l·N vanishes, so u reduces to
+    # curl(psi_bc) — analytically zero at the walls and exactly parabolic at the
+    # inlet, regardless of mesh-FD edge stencils.
+    assert out.diagnostics["constraint/stream_wall_ux_abs_max"].value.item() < 1e-6
+    assert out.diagnostics["constraint/stream_inlet_abs_max"].value.item() < 1e-6
+    assert out.diagnostics["constraint/stream_div_abs_mean"].value.item() < 1e-6

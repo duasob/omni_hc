@@ -1,0 +1,5 @@
+# Smoke verification of the analytical-split PipeStreamFunctionBoundaryAnsatz.
+# Two runs for direct W&B comparison: unconstrained baseline + the new ansatz.
+
+train: --benchmark pipe --backbone Transolver --constraint none --budget smoke
+train: --benchmark pipe --backbone Transolver --constraint pipe_stream_function_boundary_ansatz --budget smoke
