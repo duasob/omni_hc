@@ -34,9 +34,10 @@ def make_benchmark_diagnostic_fn(
         pred: torch.Tensor,
         coords: torch.Tensor | None = None,
         fx: torch.Tensor | None = None,
+        target: torch.Tensor | None = None,
         **extra: Any,
     ) -> dict[str, ConstraintDiagnostic]:
-        batch = {"coords": coords, "x": fx, **extra}
+        batch = {"coords": coords, "x": fx, "target": target, **extra}
         return fn(pred, batch, meta)
 
     return call

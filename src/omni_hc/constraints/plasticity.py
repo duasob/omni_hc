@@ -186,6 +186,9 @@ class PlasticityMeshConsistencyConstraint(ConstraintModule):
             axis_order_margin = torch.minimum(dx.min(), dy.min())
             neg_spacing = torch.cat([dx.reshape(-1), dy.reshape(-1)], dim=0) < 0
             neg_spacing_count = neg_spacing.to(torch.float32).sum()
+            flipped_cell = oriented_cell_area < 0
+            flipped_cell_count = flipped_cell.to(torch.float32).sum(dim=(-1, -2))
+            flipped_cell_fraction = flipped_cell.to(torch.float32).mean(dim=(-1, -2))
             diagnostics = {
                 "constraint/min_dx": ConstraintDiagnostic(
                     value=dx.min(),
@@ -211,9 +214,29 @@ class PlasticityMeshConsistencyConstraint(ConstraintModule):
                     value=neg_spacing_count,
                     reduce="sum",
                 ),
+                "constraint/neg_spacing_worst_sample_fraction": ConstraintDiagnostic(
+                    value=neg_spacing.to(torch.float32).mean(),
+                    reduce="max",
+                ),
                 "constraint/neg_spacing_fraction": ConstraintDiagnostic(
                     value=neg_spacing.to(torch.float32).mean(),
+                    reduce="max",
+                ),
+                "constraint/flipped_cell_count_mean": ConstraintDiagnostic(
+                    value=flipped_cell_count.mean(),
                     reduce="mean",
+                ),
+                "constraint/flipped_cell_count_worst": ConstraintDiagnostic(
+                    value=flipped_cell_count.max(),
+                    reduce="max",
+                ),
+                "constraint/flipped_cell_fraction_mean": ConstraintDiagnostic(
+                    value=flipped_cell_fraction.mean(),
+                    reduce="mean",
+                ),
+                "constraint/flipped_cell_fraction_worst": ConstraintDiagnostic(
+                    value=flipped_cell_fraction.max(),
+                    reduce="max",
                 ),
             }
             return self.as_output(

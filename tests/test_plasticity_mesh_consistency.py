@@ -49,3 +49,5 @@ def test_plasticity_mesh_consistency_aux_reports_invariant_diagnostics():
     assert output.diagnostics["constraint/bottom_y_abs_error_max"].value == 0.0
     assert output.diagnostics["constraint/axis_order_margin_min"].value > 0.0
     assert output.diagnostics["constraint/min_oriented_cell_area"].value > 0.0
+    assert output.diagnostics["constraint/flipped_cell_count_worst"].value == 0.0
+    assert output.diagnostics["constraint/flipped_cell_fraction_worst"].value == 0.0

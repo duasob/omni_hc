@@ -21,6 +21,20 @@ class CellResult:
     ok: bool
 
 
+def _format_flops(value: float) -> str:
+    abs_value = abs(value)
+    for scale, suffix in (
+        (1e15, "PFLOPs"),
+        (1e12, "TFLOPs"),
+        (1e9, "GFLOPs"),
+        (1e6, "MFLOPs"),
+        (1e3, "KFLOPs"),
+    ):
+        if abs_value >= scale:
+            return rf"\ensuremath{{{value / scale:.2f}\,\mathrm{{{suffix}}}}}"
+    return rf"\ensuremath{{{value:.2f}\,\mathrm{{FLOPs}}}}"
+
+
 def _format_scientific(value: float, fmt: str) -> str:
     """Format a float and rewrite Python's 'e' notation as LaTeX \\times 10^{...}.
 
@@ -34,6 +48,12 @@ def _format_scientific(value: float, fmt: str) -> str:
     mantissa, sign, exp_digits = m.groups()
     exp = ("-" if sign == "-" else "") + (exp_digits or "0")
     return rf"\ensuremath{{{mantissa}\times 10^{{{exp}}}}}"
+
+
+def _format_value(value: float, fmt: str) -> str:
+    if fmt == "flops":
+        return _format_flops(value)
+    return _format_scientific(value, fmt)
 
 
 def _git_sha(repo_root: Path) -> str:
@@ -96,7 +116,7 @@ def render_macro_table(
                 CellResult(row.macro, TBD, source=f"missing metric: {e}", ok=False)
             )
             continue
-        formatted = _format_scientific(value, row.format)
+        formatted = _format_value(value, row.format)
         results.append(
             CellResult(row.macro, formatted, source=source, ok=True)
         )

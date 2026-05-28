@@ -22,6 +22,9 @@ NS_BL = RunRef("outputs/navier_stokes/none/galerkin_transformer/final/seed_42")
 DARCY_DIRICHLET_HC = RunRef(
     "outputs/darcy/dirichlet_ansatz_zero/transolver/final/seed_42"
 )
+DARCY_DIRICHLET_CORNER_HC = RunRef(
+    "outputs/darcy/sine_boundary/transolver_latest_coeff_head_test"
+)
 DARCY_FLUX_HC = RunRef("outputs/darcy/darcy_flux_constraint/transolver/final/seed_42")
 DARCY_BL = RunRef("outputs/darcy/none/transolver/final/seed_42")
 
@@ -72,8 +75,9 @@ cv_gt = ReportArtifact(
         Row(run=None, metric_key=None, macro=r"\cvGtElasticity", literal="/"),
         Row(
             run=GT,
-            metric_key="constraint/neg_spacing_fraction",
+            metric_key="constraint/flipped_cell_count_worst",
             macro=r"\cvGtPlasticity",
+            format="{:.0f}",
         ),
     ],
 )
@@ -97,7 +101,12 @@ cv_baseline = ReportArtifact(
         Row(
             run=DARCY_BL,
             metric_key=("constraint/dirichlet_strict_max", "boundary_rmse"),
-            macro=r"\cvBlDarcyDirichlet",
+            macro=r"\cvBlDarcyDirichletStrict",
+        ),
+        Row(
+            run=DARCY_BL,
+            metric_key="constraint/dirichlet_corner_max",
+            macro=r"\cvBlDarcyDirichletCorner",
         ),
         Row(run=DARCY_BL, metric_key="constraint/flux_rmse", macro=r"\cvBlDarcyFlux"),
         Row(run=PIPE_BL, metric_key="constraint/wall_abs_max", macro=r"\cvBlPipeWall"),
@@ -106,8 +115,9 @@ cv_baseline = ReportArtifact(
         Row(run=ELAS_BL, metric_key=None, macro=r"\cvBlElasticity", literal="/"),
         Row(
             run=PLAS_BL,
-            metric_key="constraint/neg_spacing_fraction",
+            metric_key="constraint/flipped_cell_count_worst",
             macro=r"\cvBlPlasticity",
+            format="{:.0f}",
         ),
     ],
 )
@@ -132,7 +142,15 @@ cv_constrained = ReportArtifact(
                 "constraint/boundary_abs_max",
                 "boundary_rmse",
             ),
-            macro=r"\cvHcDarcyDirichlet",
+            macro=r"\cvHcDarcyDirichletStrict",
+        ),
+        Row(
+            run=DARCY_DIRICHLET_CORNER_HC,
+            metric_key=(
+                "constraint/dirichlet_corner_max",
+                "boundary_rmse",
+            ),
+            macro=r"\cvHcDarcyDirichletCorner",
         ),
         Row(
             run=DARCY_FLUX_HC,
@@ -161,8 +179,9 @@ cv_constrained = ReportArtifact(
         ),
         Row(
             run=PLAS_HC,
-            metric_key="constraint/neg_spacing_fraction",
+            metric_key="constraint/flipped_cell_count_worst",
             macro=r"\cvHcPlasticity",
+            format="{:.0f}",
         ),
     ],
 )
@@ -185,7 +204,7 @@ cv_cost = ReportArtifact(
             run=COST,
             metric_key="ns/flops_overhead",
             macro=r"\cvCostFlopsNs",
-            format="{:.0f}",
+            format="flops",
         ),
         Row(
             run=None, metric_key=None, macro=r"\cvCostParamsDarcyDirichlet", literal="0"
@@ -194,28 +213,28 @@ cv_cost = ReportArtifact(
             run=COST,
             metric_key="darcy_dirichlet/flops_overhead",
             macro=r"\cvCostFlopsDarcyDirichlet",
-            format="{:.0f}",
+            format="flops",
         ),
         Row(run=None, metric_key=None, macro=r"\cvCostParamsDarcyFlux", literal="0"),
         Row(
             run=COST,
             metric_key="darcy_flux/flops_overhead",
             macro=r"\cvCostFlopsDarcyFlux",
-            format="{:.0f}",
+            format="flops",
         ),
         Row(run=None, metric_key=None, macro=r"\cvCostParamsPipeWall", literal="0"),
         Row(
             run=COST,
             metric_key="pipe_wall/flops_overhead",
             macro=r"\cvCostFlopsPipeWall",
-            format="{:.0f}",
+            format="flops",
         ),
         Row(run=None, metric_key=None, macro=r"\cvCostParamsPipeStream", literal="0"),
         Row(
             run=COST,
             metric_key="pipe_stream/flops_overhead",
             macro=r"\cvCostFlopsPipeStream",
-            format="{:.0f}",
+            format="flops",
         ),
         Row(
             run=COST,
@@ -227,14 +246,14 @@ cv_cost = ReportArtifact(
             run=COST,
             metric_key="elasticity/flops_overhead",
             macro=r"\cvCostFlopsElasticity",
-            format="{:.0f}",
+            format="flops",
         ),
         Row(run=None, metric_key=None, macro=r"\cvCostParamsPlasticity", literal="0"),
         Row(
             run=COST,
             metric_key="plasticity/flops_overhead",
             macro=r"\cvCostFlopsPlasticity",
-            format="{:.0f}",
+            format="flops",
         ),
     ],
 )
@@ -489,8 +508,8 @@ def compute_cost_metrics(repo_root: Path) -> tuple[dict[str, float], list[str]]:
             _cost_number(baseline_diag, "trainable_params"),
         )
         flops_overhead = _overhead(
-            _cost_number(constrained_diag, "epoch_flops"),
-            _cost_number(baseline_diag, "epoch_flops"),
+            _cost_number(constrained_diag, "step_flops"),
+            _cost_number(baseline_diag, "step_flops"),
         )
         if params_overhead is not None:
             metrics[f"{spec.key}/params_overhead"] = params_overhead

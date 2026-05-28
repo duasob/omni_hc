@@ -164,7 +164,11 @@ def evaluate_dynamic_conditional(
             diag_metrics.update(summary["diagnostics"], weight=batch_size)
             if compute_extra_diagnostics is not None:
                 extra = compute_extra_diagnostics(
-                    pred=pred_decoded, coords=coords, fx=fx, time=time
+                    pred=pred_decoded,
+                    coords=coords,
+                    fx=fx,
+                    target=target_decoded,
+                    time=time,
                 )
                 if extra:
                     diag_metrics.update(extra, weight=batch_size)

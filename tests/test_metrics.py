@@ -30,6 +30,23 @@ def test_metric_accumulator_respects_mean_and_max_reductions():
 def test_plasticity_metric_reports_zero_for_monotone_grid():
     pred = _plasticity_pred_from_coords(
         [
+            [[1.0, 1.0], [1.0, 0.0]],
+            [[0.0, 1.0], [0.0, 0.0]],
+        ]
+    )
+
+    metrics = compute_plasticity_metrics(pred, {}, {"shapelist": (2, 2), "t_out": 1, "out_dim": 4})
+
+    assert metrics["constraint/neg_spacing_count"].value == 0
+    assert metrics["constraint/neg_spacing_worst_sample_fraction"].value == 0
+    assert metrics["constraint/neg_spacing_fraction"].value == 0
+    assert metrics["constraint/flipped_cell_count_worst"].value == 0
+    assert metrics["constraint/flipped_cell_fraction_worst"].value == 0
+
+
+def test_plasticity_metric_reports_fraction_for_inverted_grid():
+    pred = _plasticity_pred_from_coords(
+        [
             [[0.0, 0.0], [0.0, 1.0]],
             [[1.0, 0.0], [1.0, 1.0]],
         ]
@@ -37,22 +54,39 @@ def test_plasticity_metric_reports_zero_for_monotone_grid():
 
     metrics = compute_plasticity_metrics(pred, {}, {"shapelist": (2, 2), "t_out": 1, "out_dim": 4})
 
-    assert metrics["constraint/neg_spacing_count"].value == 0
-    assert metrics["constraint/neg_spacing_fraction"].value == 0
+    assert metrics["constraint/neg_spacing_count"].value == 4
+    assert metrics["constraint/neg_spacing_worst_sample_fraction"].value == 1
+    assert metrics["constraint/neg_spacing_fraction"].value == 1
 
 
-def test_plasticity_metric_reports_fraction_for_inverted_grid():
-    pred = _plasticity_pred_from_coords(
+def test_plasticity_metric_reports_worst_sample_flip_count():
+    import torch
+
+    valid = _plasticity_pred_from_coords(
         [
-            [[0.0, 0.0], [0.0, -1.0]],
-            [[-1.0, 0.0], [-1.0, -1.0]],
+            [[1.0, 1.0], [1.0, 0.0]],
+            [[0.0, 1.0], [0.0, 0.0]],
         ]
     )
+    invalid = _plasticity_pred_from_coords(
+        [
+            [[0.0, 1.0], [0.0, 0.0]],
+            [[1.0, 1.0], [1.0, 0.0]],
+        ]
+    )
+    pred = torch.cat([valid, invalid], dim=0)
+    target = torch.cat([valid, valid], dim=0)
 
-    metrics = compute_plasticity_metrics(pred, {}, {"shapelist": (2, 2), "t_out": 1, "out_dim": 4})
+    metrics = compute_plasticity_metrics(
+        pred,
+        {"target": target},
+        {"shapelist": (2, 2), "t_out": 1, "out_dim": 4},
+    )
 
-    assert metrics["constraint/neg_spacing_count"].value == 4
-    assert metrics["constraint/neg_spacing_fraction"].value == 1
+    assert metrics["constraint/flipped_cell_count_mean"].value == 0.5
+    assert metrics["constraint/flipped_cell_count_worst"].value == 1
+    assert metrics["constraint/flipped_cell_fraction_mean"].value == 0.5
+    assert metrics["constraint/flipped_cell_fraction_worst"].value == 1
 
 
 def _plasticity_pred_from_coords(coords):

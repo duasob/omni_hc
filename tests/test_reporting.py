@@ -81,6 +81,33 @@ def test_macro_rendering_uses_metric_fallbacks(tmp_path: Path):
     assert results[0].ok
 
 
+def test_macro_rendering_formats_flops(tmp_path: Path):
+    metrics_dir = tmp_path / "report" / "metrics"
+    metrics_dir.mkdir(parents=True)
+    (metrics_dir / "generated.yaml").write_text(
+        yaml.safe_dump({"metrics": {"cost/flops": 1.25e12}})
+    )
+    artifact = ReportArtifact(
+        name="demo",
+        chapter=5,
+        kind="tex_macros",
+        output_subpath="macros/demo.tex",
+        rows=[
+            Row(
+                run=MetricFileRef("generated.yaml"),
+                metric_key="cost/flops",
+                macro=r"\Flops",
+                format="flops",
+            ),
+        ],
+    )
+
+    content, results = render_macro_table(artifact, tmp_path, metrics_dir=metrics_dir)
+
+    assert r"\newcommand{\Flops}{\ensuremath{1.25\,\mathrm{TFLOPs}}}" in content
+    assert results[0].ok
+
+
 def test_plasticity_neg_spacing_fraction_can_be_derived(tmp_path: Path):
     run_dir = tmp_path / "outputs" / "plasticity"
     run_dir.mkdir(parents=True)
@@ -92,7 +119,22 @@ def test_plasticity_neg_spacing_fraction_can_be_derived(tmp_path: Path):
 
     value = get_metric(
         load_run(RunRef("outputs/plasticity"), tmp_path),
-        "constraint/neg_spacing_fraction",
+        "constraint/neg_spacing_worst_sample_fraction",
+    )
+
+    assert value == 0.0
+
+
+def test_plasticity_flipped_cell_count_can_be_derived(tmp_path: Path):
+    run_dir = tmp_path / "outputs" / "plasticity"
+    run_dir.mkdir(parents=True)
+    (run_dir / "test_metrics.yaml").write_text(
+        yaml.safe_dump({"metrics": {"constraint/min_oriented_cell_area": 0.1}})
+    )
+
+    value = get_metric(
+        load_run(RunRef("outputs/plasticity"), tmp_path),
+        "constraint/flipped_cell_count_worst",
     )
 
     assert value == 0.0

@@ -47,12 +47,22 @@ def load_metric_file(ref: MetricFileRef, metrics_dir: Path) -> RunData:
 
 
 def _derived_metric(data: RunData, key: str) -> float | None:
-    if key == "constraint/neg_spacing_fraction":
+    if key in {
+        "constraint/neg_spacing_fraction",
+        "constraint/neg_spacing_worst_sample_fraction",
+    }:
         min_dx = data.metrics.get("constraint/min_dx")
         min_dy = data.metrics.get("constraint/min_dy")
         if isinstance(min_dx, (int, float)) and isinstance(min_dy, (int, float)):
             if min(float(min_dx), float(min_dy)) >= 0.0:
                 return 0.0
+    if key in {
+        "constraint/flipped_cell_count_worst",
+        "constraint/flipped_cell_fraction_worst",
+    }:
+        min_area = data.metrics.get("constraint/min_oriented_cell_area")
+        if isinstance(min_area, (int, float)) and float(min_area) >= 0.0:
+            return 0.0
     return None
 
 

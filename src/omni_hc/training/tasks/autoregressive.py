@@ -124,7 +124,12 @@ def evaluate_autoregressive(
             step_rel_l2_sum += float(step_rel_l2.item())
             diag_metrics.update(summary["diagnostics"], weight=batch_size)
             if compute_extra_diagnostics is not None:
-                extra = compute_extra_diagnostics(pred=pred, coords=coords, fx=fx)
+                extra = compute_extra_diagnostics(
+                    pred=pred,
+                    coords=coords,
+                    fx=fx,
+                    target=target,
+                )
                 if extra:
                     diag_metrics.update(extra, weight=batch_size)
             samples += batch_size
