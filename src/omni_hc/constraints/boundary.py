@@ -874,46 +874,6 @@ class PipeUxBoundaryAnsatz(PipeInletParabolicAnsatz):
                     value=wall_base_stats["wall_abs_max"],
                     reduce="max",
                 ),
-                "constraint/boundary_distance_mean": ConstraintDiagnostic(
-                    value=distance.mean(),
-                    reduce="mean",
-                ),
-                "constraint/boundary_distance_min": ConstraintDiagnostic(
-                    value=distance.min(),
-                    reduce="min",
-                ),
-                "constraint/boundary_distance_max": ConstraintDiagnostic(
-                    value=distance.max(),
-                    reduce="max",
-                ),
-                "constraint/inlet_alpha_mean": ConstraintDiagnostic(
-                    value=alpha.mean(),
-                    reduce="mean",
-                ),
-                "constraint/inlet_alpha_min": ConstraintDiagnostic(
-                    value=alpha.min(),
-                    reduce="min",
-                ),
-                "constraint/inlet_alpha_max": ConstraintDiagnostic(
-                    value=alpha.max(),
-                    reduce="max",
-                ),
-                "constraint/inlet_decay_power": ConstraintDiagnostic(
-                    value=pred.new_tensor(self.decay_power),
-                    reduce="mean",
-                ),
-                "constraint/wall_distance_mean": ConstraintDiagnostic(
-                    value=wall_distance.mean(),
-                    reduce="mean",
-                ),
-                "constraint/wall_distance_min": ConstraintDiagnostic(
-                    value=wall_distance.min(),
-                    reduce="min",
-                ),
-                "constraint/wall_distance_max": ConstraintDiagnostic(
-                    value=wall_distance.max(),
-                    reduce="max",
-                ),
             }
             return self.as_output(
                 out,

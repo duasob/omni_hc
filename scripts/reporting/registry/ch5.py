@@ -70,7 +70,7 @@ cv_gt = ReportArtifact(
         Row(run=GT, metric_key="constraint/flux_rmse", macro=r"\cvGtDarcyFlux"),
         Row(run=GT, metric_key="constraint/wall_abs_max", macro=r"\cvGtPipeWall"),
         Row(run=GT, metric_key="constraint/inlet_rmse", macro=r"\cvGtPipeInlet"),
-        Row(run=GT, metric_key="constraint/div_rmse", macro=r"\cvGtPipeDiv"),
+        Row(run=GT, metric_key="constraint/div_rel_mean", macro=r"\cvGtPipeDiv"),
         Row(run=None, metric_key=None, macro=r"\cvGtElasticity", literal="/"),
         Row(
             run=GT,
@@ -196,7 +196,7 @@ cv_constrained = ReportArtifact(
         ),
         Row(
             run=PIPE_STREAM_HC,
-            metric_key=("constraint/div_rmse", "constraint/stream_div_abs_mean"),
+            metric_key=("constraint/div_rel_mean", "constraint/stream_div_abs_mean"),
             macro=r"\cvHcPipeDiv",
         ),
         Row(
@@ -221,7 +221,7 @@ cv_constrained = ReportArtifact(
         ),
         Row(
             run=PIPE_STREAM_HC,
-            metric_key=("constraint/div_rmse", "constraint/stream_div_abs_mean"),
+            metric_key=("constraint/div_rel_mean", "constraint/stream_div_abs_mean"),
             macro=r"\cvHcPipeDivStream",
         ),
         Row(

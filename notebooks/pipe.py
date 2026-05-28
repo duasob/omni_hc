@@ -958,6 +958,158 @@ else:
     plt.close(fig)
 print(f"Saved to {out_path}")
 
+# %% Ground-truth divergence ∇·u on the curvilinear mesh
+# Replicates the metric used by omni_hc.constraints.metrics.pipe.compute (curvilinear
+# chain rule via the Jacobian). ch5 GT reports div_rmse ≈ 6.62e-1; we want to see
+# whether that is intrinsic to the dataset or a discretisation/normalisation issue.
+
+SAMPLE_IDX = 1000
+
+
+def compute_divergence_field(x, y, ux, uy):
+    x_xi = np.gradient(x, axis=0)
+    x_eta = np.gradient(x, axis=1)
+    y_xi = np.gradient(y, axis=0)
+    y_eta = np.gradient(y, axis=1)
+    det_J = x_xi * y_eta - x_eta * y_xi
+    det_J_safe = np.where(np.abs(det_J) < 1e-12, 1e-12, det_J)
+
+    u_xi = np.gradient(ux, axis=0)
+    u_eta = np.gradient(ux, axis=1)
+    v_xi = np.gradient(uy, axis=0)
+    v_eta = np.gradient(uy, axis=1)
+
+    du_dx = (y_eta * u_xi - y_xi * u_eta) / det_J_safe
+    dv_dy = (-x_eta * v_xi + x_xi * v_eta) / det_J_safe
+    return du_dx + dv_dy, du_dx, dv_dy, det_J
+
+
+N_DIV = min(N, 1000)
+print(f"Computing ∇·u over {N_DIV} samples...")
+div_abs_mean = np.empty(N_DIV)
+div_abs_max = np.empty(N_DIV)
+div_rmse = np.empty(N_DIV)
+speed_mean = np.empty(N_DIV)
+dudx_abs_mean = np.empty(N_DIV)
+dvdy_abs_mean = np.empty(N_DIV)
+for i in range(N_DIV):
+    xi = np.asarray(x_all[i], dtype=np.float64)
+    yi = np.asarray(y_all[i], dtype=np.float64)
+    ui = np.asarray(q_all[i, 0], dtype=np.float64)
+    vi = np.asarray(q_all[i, 1], dtype=np.float64)
+    div_i, dudx_i, dvdy_i, _ = compute_divergence_field(xi, yi, ui, vi)
+    div_abs_mean[i] = np.abs(div_i).mean()
+    div_abs_max[i] = np.abs(div_i).max()
+    div_rmse[i] = float(np.sqrt(np.mean(div_i**2)))
+    speed_mean[i] = float(np.mean(np.hypot(ui, vi)))
+    dudx_abs_mean[i] = np.abs(dudx_i).mean()
+    dvdy_abs_mean[i] = np.abs(dvdy_i).mean()
+
+# Reference scales for interpretation.
+# 1. |∂u/∂x| + |∂v/∂y| sets the natural denominator (catastrophic cancellation upper bound).
+# 2. mean speed gives a "is the field even close to zero" sanity check.
+ref_grad = (dudx_abs_mean + dvdy_abs_mean).mean()
+print(
+    f"  |∇·u| mean             : {div_abs_mean.mean():.3e}"
+    f"  (std {div_abs_mean.std():.3e})"
+)
+print(
+    f"  |∇·u| max              : {div_abs_max.mean():.3e}"
+    f"  (std {div_abs_max.std():.3e})"
+)
+print(f"  ‖∇·u‖₂ per sample (rmse): {div_rmse.mean():.3e}  (std {div_rmse.std():.3e})")
+print(
+    f"  reference |∂u/∂x|+|∂v/∂y| mean = {ref_grad:.3e}"
+    f"  → relative |∇·u|/ref = {div_abs_mean.mean() / max(ref_grad, 1e-12):.2%}"
+)
+print(
+    f"  mean speed |u|         : {speed_mean.mean():.3e}"
+    f"  → ‖∇·u‖₂ / mean|u|     = {div_rmse.mean() / max(speed_mean.mean(), 1e-12):.2%}"
+)
+
+# Sample 0 visualisation.
+xs0 = np.asarray(x_all[SAMPLE_IDX], dtype=np.float64)
+ys0 = np.asarray(y_all[SAMPLE_IDX], dtype=np.float64)
+u0 = np.asarray(q_all[SAMPLE_IDX, 0], dtype=np.float64)
+v0 = np.asarray(q_all[SAMPLE_IDX, 1], dtype=np.float64)
+div0, dudx0, dvdy0, det0 = compute_divergence_field(xs0, ys0, u0, v0)
+v_abs = float(np.percentile(np.abs(div0), 99))
+
+fig, axes = plt.subplots(1, 3, figsize=(15, 4.0))
+
+ax = axes[0]
+im = ax.pcolormesh(
+    xs0, ys0, div0, shading="gouraud", cmap="RdBu_r", vmin=-v_abs, vmax=v_abs
+)
+fig.colorbar(im, ax=ax, shrink=0.85, label=r"$\nabla\cdot u$")
+for sl in EDGE_SLICES.values():
+    ax.plot(xs0[sl], ys0[sl], color="0.15", lw=0.7)
+ax.set_aspect("equal", adjustable="box")
+ax.set_xlabel("$x$")
+ax.set_ylabel("$y$")
+ax.set_title(
+    f"sample {SAMPLE_IDX}: $\\nabla\\cdot u$\n"
+    rf"$|\nabla\cdot u|_\mathrm{{mean}}={np.abs(div0).mean():.2e}$,"
+    rf"  rmse$={float(np.sqrt(np.mean(div0**2))):.2e}$",
+    fontsize=10,
+)
+
+ax = axes[1]
+ax.hist(
+    div_rmse,
+    bins=40,
+    color=plt.get_cmap(CMAP)(0.55),
+    alpha=0.85,
+    edgecolor="white",
+    linewidth=0.4,
+    label=r"$\|\nabla\cdot u\|_2$ per sample",
+)
+ax.axvline(
+    div_rmse.mean(),
+    color=plt.get_cmap(CMAP)(0.85),
+    lw=1.5,
+    label=f"mean = {div_rmse.mean():.2e}",
+)
+ax.set_xlabel(r"$\|\nabla\cdot u\|_2$")
+ax.set_ylabel("count")
+ax.set_title(f"Per-sample divergence RMSE across {N_DIV} samples")
+ax.legend(fontsize=8, frameon=False)
+ax.grid(True, alpha=0.22)
+
+ax = axes[2]
+lim = max(np.abs(dudx0).max(), np.abs(dvdy0).max())
+ax.plot(
+    [-lim, lim],
+    [lim, -lim],
+    color="0.5",
+    lw=0.8,
+    linestyle="--",
+    label=r"$\partial_x u=-\partial_y v$",
+)
+ax.scatter(
+    dudx0.ravel(),
+    dvdy0.ravel(),
+    s=6,
+    alpha=0.35,
+    color=plt.get_cmap(CMAP)(0.7),
+    edgecolor="none",
+)
+ax.set_xlabel(r"$\partial u_x/\partial x$")
+ax.set_ylabel(r"$\partial u_y/\partial y$")
+ax.set_title(f"sample {SAMPLE_IDX}: incompressibility scatter")
+ax.set_aspect("equal", adjustable="box")
+ax.grid(True, alpha=0.22)
+ax.legend(fontsize=8, frameon=False, loc="upper left")
+
+fig.tight_layout()
+out_path = FIGURES_DIR / "pipe_divergence.png"
+fig.savefig(out_path, bbox_inches="tight")
+if IS_NOTEBOOK:
+    plt.show()
+else:
+    plt.close(fig)
+print(f"Saved to {out_path}")
+
 
 # %% Stream function boundary ansatz — g and l fields on the pipe mesh
 # PipeStreamFunctionBoundaryAnsatz uses psi = g + l * N where:

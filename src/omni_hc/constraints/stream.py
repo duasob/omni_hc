@@ -91,7 +91,9 @@ class PipeStreamFunctionUxConstraint(ConstraintModule):
             return target
         return self.target_normalizer.encode(target)
 
-    def forward(self, *, pred, coords=None, return_aux=False, uy_target=None, **_unused):
+    def forward(
+        self, *, pred, coords=None, return_aux=False, uy_target=None, **_unused
+    ):
         if coords is None:
             raise ValueError("coords are required for PipeStreamFunctionUxConstraint")
         if pred.ndim != 3 or pred.shape[-1] != 1:
@@ -203,18 +205,31 @@ class PipeStreamFunctionUxConstraint(ConstraintModule):
         uy_target = aux.get("stream_uy_target")
         if ctx.out_dir is None:
             from omni_hc.training.logging_utils import log_pipe_stream_images
+
             log_pipe_stream_images(
-                ctx.coords, h, w,
-                prefix=ctx.prefix, epoch=ctx.epoch, step=ctx.step,
-                psi=aux["stream_psi"], uy=aux["stream_uy"], divergence=aux["stream_div"],
+                ctx.coords,
+                h,
+                w,
+                prefix=ctx.prefix,
+                epoch=ctx.epoch,
+                step=ctx.step,
+                psi=aux["stream_psi"],
+                uy=aux["stream_uy"],
+                divergence=aux["stream_div"],
                 uy_target=uy_target,
             )
             return {}
         from omni_hc.training.logging_utils import save_pipe_stream_images
+
         return save_pipe_stream_images(
-            ctx.coords, h, w,
-            out_dir=ctx.out_dir, prefix=ctx.prefix,
-            psi=aux["stream_psi"], uy=aux["stream_uy"], divergence=aux["stream_div"],
+            ctx.coords,
+            h,
+            w,
+            out_dir=ctx.out_dir,
+            prefix=ctx.prefix,
+            psi=aux["stream_psi"],
+            uy=aux["stream_uy"],
+            divergence=aux["stream_div"],
             uy_target=uy_target,
         )
 
@@ -316,8 +331,8 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
         h, w = int(self.shapelist[0]), int(self.shapelist[1])
         grid = torch.arange(h * w).reshape(h, w)
         if self.inlet_axis == 0:
-            inlet = grid[0, :]       # inlet face (streamwise start)
-            wall_a = grid[1:, 0]     # walls run along the streamwise axis
+            inlet = grid[0, :]  # inlet face (streamwise start)
+            wall_a = grid[1:, 0]  # walls run along the streamwise axis
             wall_b = grid[1:, -1]
         else:
             inlet = grid[:, 0]
@@ -386,7 +401,9 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
     def _correction_mask(self, *, xi: torch.Tensor, eta: torch.Tensor) -> torch.Tensor:
         return xi.pow(self.decay_power) * eta.square() * (1.0 - eta).square()
 
-    def forward(self, *, pred, coords=None, return_aux=False, uy_target=None, **_unused):
+    def forward(
+        self, *, pred, coords=None, return_aux=False, uy_target=None, **_unused
+    ):
         if coords is None:
             raise ValueError("coords are required for PipeStreamFunctionBoundaryAnsatz")
         if pred.ndim != 3 or pred.shape[-1] != 1:
@@ -482,30 +499,30 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
                     value=div_rmse.mean(),
                     reduce="mean",
                 ),
-                "constraint/stream_uy_abs_mean": ConstraintDiagnostic(
-                    value=uy.abs().mean(),
-                    reduce="mean",
-                ),
-                "constraint/stream_uy_abs_max": ConstraintDiagnostic(
-                    value=uy.abs().max(),
-                    reduce="max",
-                ),
-                "constraint/stream_jac_min": ConstraintDiagnostic(
-                    value=jac.min(),
-                    reduce="min",
-                ),
-                "constraint/stream_jac_max": ConstraintDiagnostic(
-                    value=jac.max(),
-                    reduce="max",
-                ),
-                "constraint/stream_psi_mean": ConstraintDiagnostic(
-                    value=psi.mean(),
-                    reduce="mean",
-                ),
-                "constraint/stream_psi_std": ConstraintDiagnostic(
-                    value=psi.std(unbiased=False),
-                    reduce="mean",
-                ),
+                # "constraint/stream_uy_abs_mean": ConstraintDiagnostic(
+                #     value=uy.abs().mean(),
+                #     reduce="mean",
+                # ),
+                # "constraint/stream_uy_abs_max": ConstraintDiagnostic(
+                #     value=uy.abs().max(),
+                #     reduce="max",
+                # ),
+                # "constraint/stream_jac_min": ConstraintDiagnostic(
+                #     value=jac.min(),
+                #     reduce="min",
+                # ),
+                # "constraint/stream_jac_max": ConstraintDiagnostic(
+                #     value=jac.max(),
+                #     reduce="max",
+                # ),
+                # "constraint/stream_psi_mean": ConstraintDiagnostic(
+                #     value=psi.mean(),
+                #     reduce="mean",
+                # ),
+                # "constraint/stream_psi_std": ConstraintDiagnostic(
+                #     value=psi.std(unbiased=False),
+                #     reduce="mean",
+                # ),
                 "constraint/stream_inlet_abs_mean": ConstraintDiagnostic(
                     value=inlet_residual.mean(),
                     reduce="mean",
@@ -530,14 +547,14 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
                     value=wall_ux.abs().max(),
                     reduce="max",
                 ),
-                "constraint/stream_mask_mean": ConstraintDiagnostic(
-                    value=correction_mask.mean(),
-                    reduce="mean",
-                ),
-                "constraint/stream_mask_max": ConstraintDiagnostic(
-                    value=correction_mask.max(),
-                    reduce="max",
-                ),
+                # "constraint/stream_mask_mean": ConstraintDiagnostic(
+                #     value=correction_mask.mean(),
+                #     reduce="mean",
+                # ),
+                # "constraint/stream_mask_max": ConstraintDiagnostic(
+                #     value=correction_mask.max(),
+                #     reduce="max",
+                # ),
             }
             aux_out = {
                 "pred_base": pred,
@@ -575,19 +592,34 @@ class PipeStreamFunctionBoundaryAnsatz(ConstraintModule):
         uy_target = aux.get("stream_uy_target")
         if ctx.out_dir is None:
             from omni_hc.training.logging_utils import log_pipe_stream_images
+
             log_pipe_stream_images(
-                ctx.coords, h, w,
-                prefix=ctx.prefix, epoch=ctx.epoch, step=ctx.step,
-                psi=aux["stream_psi"], uy=aux["stream_uy"], divergence=aux["stream_div"],
-                psi_bc=aux.get("stream_psi_bc"), mask=aux.get("stream_mask"),
+                ctx.coords,
+                h,
+                w,
+                prefix=ctx.prefix,
+                epoch=ctx.epoch,
+                step=ctx.step,
+                psi=aux["stream_psi"],
+                uy=aux["stream_uy"],
+                divergence=aux["stream_div"],
+                psi_bc=aux.get("stream_psi_bc"),
+                mask=aux.get("stream_mask"),
                 uy_target=uy_target,
             )
             return {}
         from omni_hc.training.logging_utils import save_pipe_stream_images
+
         return save_pipe_stream_images(
-            ctx.coords, h, w,
-            out_dir=ctx.out_dir, prefix=ctx.prefix,
-            psi=aux["stream_psi"], uy=aux["stream_uy"], divergence=aux["stream_div"],
-            psi_bc=aux.get("stream_psi_bc"), mask=aux.get("stream_mask"),
+            ctx.coords,
+            h,
+            w,
+            out_dir=ctx.out_dir,
+            prefix=ctx.prefix,
+            psi=aux["stream_psi"],
+            uy=aux["stream_uy"],
+            divergence=aux["stream_div"],
+            psi_bc=aux.get("stream_psi_bc"),
+            mask=aux.get("stream_mask"),
             uy_target=uy_target,
         )

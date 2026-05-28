@@ -123,4 +123,16 @@ def compute(
             value=rmse_per_sample.mean(), reduce="mean"
         )
 
+        # Relative divergence: fraction of the local gradient budget that fails
+        # to cancel. Dimensionless, robust to mesh stretching and dataset scale.
+        # Per sample: mean_grid(|div|) / mean_grid(|du/dx| + |dv/dy|), then mean
+        # over samples.
+        grad_budget = (du_dx.abs() + dv_dy.abs())
+        num = div_abs.reshape(div_abs.shape[0], -1).mean(dim=-1)
+        den = grad_budget.reshape(grad_budget.shape[0], -1).mean(dim=-1)
+        rel_per_sample = num / den.clamp_min(1e-12)
+        out["constraint/div_rel_mean"] = ConstraintDiagnostic(
+            value=rel_per_sample.mean(), reduce="mean"
+        )
+
     return out
