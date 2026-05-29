@@ -27,5 +27,5 @@ train: --benchmark pipe --backbone Transolver --constraint pipe_ux_boundary_ansa
 test: --config outputs/pipe/pipe_ux_boundary_ansatz/transolver/e100_t900/seed_42/resolved_config.yaml --checkpoint outputs/pipe/pipe_ux_boundary_ansatz/transolver/e100_t900/seed_42/best.pt
 
 # --- final: 500 epochs, 1000 train ---
-train: --benchmark pipe --backbone Transolver --constraint pipe_ux_boundary_ansatz --budget final
-test: --config outputs/pipe/pipe_ux_boundary_ansatz/transolver/final/seed_42/resolved_config.yaml --checkpoint outputs/pipe/pipe_ux_boundary_ansatz/transolver/final/seed_42/best.pt
+# train: --benchmark pipe --backbone Transolver --constraint pipe_ux_boundary_ansatz --budget final
+# test: --config outputs/pipe/pipe_ux_boundary_ansatz/transolver/final/seed_42/resolved_config.yaml --checkpoint outputs/pipe/pipe_ux_boundary_ansatz/transolver/final/seed_42/best.pt
