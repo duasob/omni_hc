@@ -121,6 +121,9 @@ def render_macro_table(
             CellResult(row.macro, formatted, source=source, ok=True)
         )
 
+    if artifact.postprocess is not None:
+        artifact.postprocess(results)
+
     sha = _git_sha(repo_root)
     timestamp = dt.datetime.now().isoformat(timespec="seconds")
     lines = [

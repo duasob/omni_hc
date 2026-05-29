@@ -162,7 +162,7 @@ cv_constrained = ReportArtifact(
         ),
         Row(
             run=DARCY_SINE_HC,
-            metric_key="constraint/dirichlet_strict_max",
+            metric_key=("constraint/dirichlet_strict_max", "boundary_rmse"),
             macro=r"\cvHcDarcyDirichletStrictSine",
         ),
         Row(
@@ -176,7 +176,7 @@ cv_constrained = ReportArtifact(
         ),
         Row(
             run=DARCY_SINE_HC,
-            metric_key="constraint/dirichlet_corner_max",
+            metric_key=("constraint/dirichlet_corner_max", "boundary_rmse"),
             macro=r"\cvHcDarcyDirichletCornerSine",
         ),
         Row(

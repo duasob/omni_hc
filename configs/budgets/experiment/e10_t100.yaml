@@ -1,10 +1,11 @@
+# Train target 100: ntrain = 100 train + 20 val (val is carved out of ntrain).
 data:
-  ntrain: 100
+  ntrain: 120
   ntest: 200
 
 training:
   batch_size: 4
-  val_size: 100
+  val_size: 20
   num_epochs: 10
   seed: 42
 

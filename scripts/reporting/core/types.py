@@ -45,3 +45,6 @@ class ReportArtifact:
     output_subpath: str  # relative to --output-dir
     rows: Sequence[Row] = field(default_factory=list)
     render: Callable | None = None  # for kind="figure"
+    # for kind="tex_macros": optional hook to mutate the resolved cell values
+    # before they are written (e.g. bold the minimum within a row group).
+    postprocess: Callable | None = None

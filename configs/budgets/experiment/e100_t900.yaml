@@ -1,5 +1,6 @@
+# Train target 900: ntrain = 900 train + 100 val (val is carved out of ntrain).
 data:
-  ntrain: 900
+  ntrain: 1000
   ntest: 200
 
 training:
