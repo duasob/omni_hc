@@ -1,0 +1,6 @@
+# Smoke verification for Navier-Stokes Transolver mean correction.
+# Two runs for direct comparison: unconstrained baseline + engineered latent
+# mean correction.
+
+train: --benchmark navier_stokes --backbone Transolver --constraint none --budget smoke
+train: --config configs/experiments/navier_stokes/transolver_mean_latent_engineered.yaml --budget smoke --override wandb_logging.run_name=navier_stokes_transolver_mean_latent_engineered_smoke
