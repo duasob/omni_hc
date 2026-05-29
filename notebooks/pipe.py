@@ -122,6 +122,7 @@ if IS_NOTEBOOK:
     plt.show()
 else:
     plt.close(fig)
+
 print(f"Saved to {FIGURES_DIR / 'pipe_dataset_sample.png'}")
 
 
@@ -1392,7 +1393,288 @@ from omni_hc.benchmarks.pipe import adapter as pipe_adapter
 from omni_hc.benchmarks.pipe.data import build_test_loader as build_pipe_test_loader
 from omni_hc.core import load_yaml_file
 from omni_hc.integrations.nsl.modeling import create_model
-from omni_hc.training.common import load_checkpoint_state, load_model_state_dict
+from omni_hc.training.common import (
+    forward_with_optional_aux,
+    load_checkpoint_state,
+    load_model_state_dict,
+)
+
+# %% Qualitative pipe predictions - GT / prediction / error across models
+QUALITATIVE_SAMPLE_INDICES = (0, 100)
+QUALITATIVE_MODEL_SPECS = (
+    ("Unconstrained", "outputs/pipe/none/transolver/{budget}/seed_42"),
+    (
+        "$u_x$ ansatz",
+        "outputs/pipe/pipe_ux_boundary_ansatz/transolver/{budget}/seed_42",
+    ),
+    (
+        "Stream ansatz",
+        "outputs/pipe/pipe_stream_function_boundary_ansatz/transolver/{budget}/seed_42",
+    ),
+)
+QUALITATIVE_BUDGETS = (
+    ("e50_t500", "50 epochs / 500 train samples", "pipe_qualitative_e50.png"),
+    ("final", "500 epochs / 1000 train samples", "pipe_qualitative_final.png"),
+)
+
+
+def _move_normalizer_to_device(loader, name, device):
+    normalizer = getattr(loader, name, None)
+    return normalizer.to(device) if normalizer is not None else None
+
+
+def _decode_tensor(normalizer, tensor):
+    return normalizer.decode(tensor) if normalizer is not None else tensor
+
+
+def _configure_pipe_constraint_for_plot(
+    model, *, meta, x_normalizer, y_normalizer, uy_normalizer
+):
+    constraint = getattr(model, "constraint", None)
+    if constraint is None:
+        return
+    if y_normalizer is not None and hasattr(constraint, "set_target_normalizer"):
+        constraint.set_target_normalizer(y_normalizer)
+    if x_normalizer is not None and hasattr(constraint, "set_input_normalizer"):
+        constraint.set_input_normalizer(x_normalizer)
+    if uy_normalizer is not None and hasattr(constraint, "set_uy_normalizer"):
+        constraint.set_uy_normalizer(uy_normalizer)
+    if hasattr(constraint, "set_grid_shape"):
+        constraint.set_grid_shape(tuple(meta["shapelist"]))
+    if hasattr(constraint, "set_domain_bounds"):
+        domain_bounds = meta.get("domain_bounds")
+        if domain_bounds is not None and len(domain_bounds) == 2:
+            constraint.set_domain_bounds(
+                float(domain_bounds[0]), float(domain_bounds[1])
+            )
+
+
+def load_pipe_predictions_for_samples(run_dir, sample_indices):
+    """Load decoded x/y mesh, GT ux, and predicted ux for test samples."""
+    ckpt_path = run_dir / "best.pt"
+    cfg_path = run_dir / "resolved_config.yaml"
+    if not ckpt_path.exists() or not cfg_path.exists():
+        return None
+
+    cfg = load_yaml_file(cfg_path)
+    cfg.setdefault("paths", {})["output_dir"] = str(run_dir)
+    cfg["paths"]["root_dir"] = str(DATA_DIR)
+    cfg.setdefault("data", {})["load_uy"] = True
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    loader = build_pipe_test_loader(cfg)
+    meta = pipe_adapter._get_meta(loader)
+    h_grid, w_grid = tuple(meta["shapelist"])
+
+    x_normalizer = _move_normalizer_to_device(loader, "x_normalizer", device)
+    y_normalizer = _move_normalizer_to_device(loader, "y_normalizer", device)
+    uy_normalizer = _move_normalizer_to_device(loader, "uy_normalizer", device)
+
+    model, _, _ = create_model(
+        cfg, device=device, runtime_overrides=pipe_adapter._runtime_overrides(meta)
+    )
+    _configure_pipe_constraint_for_plot(
+        model,
+        meta=meta,
+        x_normalizer=x_normalizer,
+        y_normalizer=y_normalizer,
+        uy_normalizer=uy_normalizer,
+    )
+    ckpt = load_checkpoint_state(ckpt_path, device=device)
+    load_model_state_dict(model, ckpt["model_state_dict"])
+    model.eval()
+
+    wanted = set(int(i) for i in sample_indices)
+    found = {}
+    seen = 0
+    with torch.no_grad():
+        for batch in loader:
+            batch_size = int(batch["coords"].shape[0])
+            needed = [i for i in range(batch_size) if seen + i in wanted]
+            if not needed:
+                seen += batch_size
+                continue
+
+            coords = batch["coords"].to(device)
+            fx = batch["x"].to(device)
+            uy_target = batch.get("y_uy")
+            if uy_target is not None:
+                uy_target = uy_target.to(device)
+            out = forward_with_optional_aux(model, coords, fx, uy_target=uy_target)
+            pred_decoded = _decode_tensor(y_normalizer, out["pred"])
+            target_decoded = _decode_tensor(y_normalizer, batch["y"].to(device))
+            coords_decoded = _decode_tensor(x_normalizer, coords)
+
+            for local_idx in needed:
+                sample_idx = seen + local_idx
+                found[sample_idx] = {
+                    "x": coords_decoded[local_idx, :, 0]
+                    .reshape(h_grid, w_grid)
+                    .detach()
+                    .cpu()
+                    .numpy(),
+                    "y": coords_decoded[local_idx, :, 1]
+                    .reshape(h_grid, w_grid)
+                    .detach()
+                    .cpu()
+                    .numpy(),
+                    "gt": target_decoded[local_idx, :, 0]
+                    .reshape(h_grid, w_grid)
+                    .detach()
+                    .cpu()
+                    .numpy(),
+                    "pred": pred_decoded[local_idx, :, 0]
+                    .reshape(h_grid, w_grid)
+                    .detach()
+                    .cpu()
+                    .numpy(),
+                }
+            if wanted.issubset(found):
+                break
+            seen += batch_size
+    return found
+
+
+def _plot_pipe_qual_field(ax, x_grid, y_grid, values, *, cmap, vmin, vmax):
+    mesh = ax.pcolormesh(
+        x_grid,
+        y_grid,
+        values,
+        shading="gouraud",
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+    )
+    ax.plot(x_grid[0, :], y_grid[0, :], color="0.18", lw=0.45)
+    ax.plot(x_grid[-1, :], y_grid[-1, :], color="0.18", lw=0.45)
+    ax.plot(x_grid[:, 0], y_grid[:, 0], color="0.18", lw=0.45)
+    ax.plot(x_grid[:, -1], y_grid[:, -1], color="0.18", lw=0.45)
+    ax.set_aspect("equal", adjustable="box")
+    ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    return mesh
+
+
+def plot_pipe_qualitative_budget(budget, title, out_name, *, sample_indices):
+    loaded = []
+    for model_label, path_template in QUALITATIVE_MODEL_SPECS:
+        run_dir = REPO_ROOT / path_template.format(budget=budget)
+        samples = load_pipe_predictions_for_samples(run_dir, sample_indices)
+        loaded.append((model_label, run_dir, samples))
+        if samples is None:
+            print(f"{title} | {model_label}: missing checkpoint/config at {run_dir}")
+        else:
+            print(f"{title} | {model_label}: loaded {len(samples)} sample(s)")
+
+    available = [
+        sample
+        for _label, _run_dir, samples in loaded
+        if samples is not None
+        for sample in samples.values()
+    ]
+    if not available:
+        print(f"{title}: no available predictions; skipping qualitative plot")
+        return None
+
+    field_values = np.concatenate(
+        [np.ravel(sample["gt"]) for sample in available]
+        + [np.ravel(sample["pred"]) for sample in available]
+    )
+    field_vmin = float(np.nanmin(field_values))
+    field_vmax = float(np.nanmax(field_values))
+    error_scale = max(
+        float(np.nanmax(np.abs(sample["pred"] - sample["gt"]))) for sample in available
+    )
+    error_scale = max(error_scale, 1e-12)
+
+    row_count = len(sample_indices) * len(QUALITATIVE_MODEL_SPECS)
+    fig, axes = plt.subplots(
+        row_count,
+        3,
+        figsize=(10.2, 2.15 * row_count),
+        squeeze=False,
+        constrained_layout=True,
+    )
+    for sample_pos, sample_idx in enumerate(sample_indices):
+        for model_pos, (model_label, _run_dir, samples) in enumerate(loaded):
+            row = sample_pos * len(QUALITATIVE_MODEL_SPECS) + model_pos
+            row_axes = axes[row]
+            row_axes[0].set_ylabel(
+                f"sample {sample_idx}\n{model_label}",
+                rotation=0,
+                ha="right",
+                va="center",
+                labelpad=48,
+                fontsize=9,
+            )
+            if samples is None or sample_idx not in samples:
+                for ax in row_axes:
+                    ax.axis("off")
+                    ax.text(
+                        0.5,
+                        0.5,
+                        "missing run",
+                        ha="center",
+                        va="center",
+                        transform=ax.transAxes,
+                        color="0.35",
+                    )
+                continue
+
+            sample = samples[sample_idx]
+            error = sample["pred"] - sample["gt"]
+            field_mesh = _plot_pipe_qual_field(
+                row_axes[0],
+                sample["x"],
+                sample["y"],
+                sample["gt"],
+                cmap=CMAP,
+                vmin=field_vmin,
+                vmax=field_vmax,
+            )
+            _plot_pipe_qual_field(
+                row_axes[1],
+                sample["x"],
+                sample["y"],
+                sample["pred"],
+                cmap=CMAP,
+                vmin=field_vmin,
+                vmax=field_vmax,
+            )
+            error_mesh = _plot_pipe_qual_field(
+                row_axes[2],
+                sample["x"],
+                sample["y"],
+                error,
+                cmap="coolwarm",
+                vmin=-error_scale,
+                vmax=error_scale,
+            )
+            fig.colorbar(field_mesh, ax=row_axes[:2].tolist(), shrink=0.82, pad=0.01)
+            fig.colorbar(error_mesh, ax=row_axes[2], shrink=0.82, pad=0.01)
+
+    for ax, col_title in zip(axes[0], ("GT $u_x$", "Pred $u_x$", "Pred - GT")):
+        ax.set_title(col_title, fontsize=11)
+    fig.suptitle(f"Pipe qualitative predictions ({title})", fontsize=13)
+
+    out_path = FIGURES_DIR / out_name
+    fig.savefig(out_path, bbox_inches="tight")
+    if IS_NOTEBOOK:
+        plt.show()
+    else:
+        plt.close(fig)
+    print(f"Saved to {out_path}")
+    return out_path
+
+
+for qualitative_budget, qualitative_title, qualitative_out_name in QUALITATIVE_BUDGETS:
+    plot_pipe_qualitative_budget(
+        qualitative_budget,
+        qualitative_title,
+        qualitative_out_name,
+        sample_indices=QUALITATIVE_SAMPLE_INDICES,
+    )
 
 candidates = sorted(REPO_ROOT.glob("outputs/pipe/none/transolver/*/seed_*/best.pt"))
 print(f"Found {len(candidates)} trained transolver pipe checkpoints (constraint=none):")
@@ -1651,3 +1933,161 @@ if IS_NOTEBOOK:
 else:
     plt.close(fig)
 print(f"Saved to {out_path}")
+
+# %% Validation rel-L2 curves — e100_t900 across constraint families
+# Reads the W&B-exported val_rel_l2.csv in each e100 run directory and overlays
+# the constraint families on one axes. If a run has no exported CSV, fall back
+# to the best validation rel-L2 recorded in checkpoint_summary.txt.
+import csv as _csv
+
+VAL_CURVE_RUNS = {
+    "Unconstrained": REPO_ROOT / "outputs/pipe/none/transolver/e100_t900/seed_42",
+    "$u_x$ ansatz": REPO_ROOT
+    / "outputs/pipe/pipe_ux_boundary_ansatz/transolver/e100_t900/seed_42",
+    "Stream ansatz": REPO_ROOT
+    / "outputs/pipe/pipe_stream_function_boundary_ansatz/transolver/e100_t900/seed_42",
+    "Stream + $u_y$": REPO_ROOT
+    / "outputs/pipe/pipe_stream_function_boundary_ansatz_uy/transolver/e100_t900/seed_42",
+}
+VAL_CURVE_COLORS = dict(
+    zip(
+        VAL_CURVE_RUNS, plt.get_cmap(CMAP)(np.linspace(0.45, 0.95, len(VAL_CURVE_RUNS)))
+    )
+)
+
+
+def _is_float(token):
+    try:
+        float(token)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def read_val_curve(csv_path):
+    """Return (steps, values) from a W&B-exported val_rel_l2.csv.
+
+    The value column is the first whose header contains both "val" and "rel"
+    (skipping the ``__MIN``/``__MAX`` aggregates, which come later); the x-axis
+    uses the "Step" column when present, else the 1-based row index.
+    """
+    with open(csv_path, newline="") as fh:
+        rows = [r for r in _csv.reader(fh) if r]
+    if not rows:
+        raise ValueError(f"empty csv: {csv_path}")
+
+    header = None
+    if not all(_is_float(tok) for tok in rows[0]):
+        header, rows = rows[0], rows[1:]
+
+    def _col(predicate, default):
+        if header is None:
+            return default
+        for i, name in enumerate(header):
+            if predicate(name.strip().lower()):
+                return i
+        return default
+
+    val_col = _col(
+        lambda n: "val" in n and "rel" in n and not n.endswith(("__min", "__max")),
+        len(rows[0]) - 1,
+    )
+    step_col = _col(
+        lambda n: n in {"step", "epoch", "epochs", "iter", "iteration"}, None
+    )
+
+    values = np.array([float(r[val_col]) for r in rows], dtype=float)
+    if step_col is not None:
+        steps = np.array([float(r[step_col]) for r in rows], dtype=float)
+    else:
+        steps = np.arange(1, len(values) + 1, dtype=float)
+    return steps, values
+
+
+def read_checkpoint_summary_val(summary_path):
+    """Return a single best-val point from checkpoint_summary.txt."""
+    section = None
+    in_val_metrics = False
+    epoch = None
+    rel_l2 = None
+    for raw_line in summary_path.read_text().splitlines():
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if stripped == "[BEST]":
+            section = "best"
+            in_val_metrics = False
+            continue
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = None
+            in_val_metrics = False
+            continue
+        if section != "best":
+            continue
+        if stripped.startswith("epoch:"):
+            epoch = float(stripped.split(":", 1)[1])
+            continue
+        if stripped == "val_metrics:":
+            in_val_metrics = True
+            continue
+        if in_val_metrics and stripped.startswith("rel_l2:"):
+            rel_l2 = float(stripped.split(":", 1)[1])
+            break
+    if epoch is None or rel_l2 is None:
+        raise ValueError(f"could not read BEST val rel-L2 from {summary_path}")
+    return np.array([epoch], dtype=float), np.array([rel_l2], dtype=float)
+
+
+def read_val_run(run_dir):
+    csv_path = run_dir / "val_rel_l2.csv"
+    if csv_path.exists():
+        steps, values = read_val_curve(csv_path)
+        return steps, values, "curve"
+    summary_path = run_dir / "checkpoint_summary.txt"
+    if summary_path.exists():
+        steps, values = read_checkpoint_summary_val(summary_path)
+        return steps, values, "summary"
+    raise FileNotFoundError(
+        f"missing val_rel_l2.csv and checkpoint_summary.txt: {run_dir}"
+    )
+
+
+fig, ax = plt.subplots(figsize=(6.4, 4.0))
+plotted = 0
+for label, run_dir in VAL_CURVE_RUNS.items():
+    if not run_dir.exists():
+        print(f"skip (missing): {run_dir}")
+        continue
+    steps, values, source = read_val_run(run_dir)
+    if source == "curve":
+        ax.plot(steps, values, label=label, color=VAL_CURVE_COLORS[label], lw=1.8)
+    else:
+        ax.scatter(
+            steps,
+            values,
+            label=f"{label} (best)",
+            color=VAL_CURVE_COLORS[label],
+            s=34,
+            zorder=5,
+        )
+    print(
+        f"{label}: {len(values)} {source} point(s), best val rel-L2 = {values.min():.4g}"
+    )
+    plotted += 1
+
+ax.set_yscale("log")
+ax.set_xlabel("Training step")
+ax.set_ylabel(r"Validation relative $L_2$")
+ax.grid(True, which="both", ls=":", lw=0.5, alpha=0.6)
+if plotted:
+    ax.legend(frameon=False)
+
+out_path = FIGURES_DIR / "pipe_val_rel_l2_e100.png"
+if plotted:
+    fig.savefig(out_path, bbox_inches="tight")
+    print(f"Saved to {out_path}")
+else:
+    print("no val curves found — nothing saved")
+if IS_NOTEBOOK:
+    plt.show()
+else:
+    plt.close(fig)
