@@ -25,3 +25,7 @@ test: --config outputs/pipe/none/transolver/e50_t500/seed_42/resolved_config.yam
 # --- e100_t900: 100 epochs, 900 train ---
 train: --benchmark pipe --backbone Transolver --constraint none --budget e100_t900
 test: --config outputs/pipe/none/transolver/e100_t900/seed_42/resolved_config.yaml --checkpoint outputs/pipe/none/transolver/e100_t900/seed_42/best.pt
+
+# --- final: 500 epochs, 1000 train ---
+train: --benchmark pipe --backbone Transolver --constraint none --budget final
+test: --config outputs/pipe/none/transolver/final/seed_42/resolved_config.yaml --checkpoint outputs/pipe/none/transolver/final/seed_42/best.pt
