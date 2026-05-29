@@ -1,8 +1,7 @@
 # Transolver with PipeStreamFunctionBoundaryAnsatz on the pipe flow benchmark
 # across four data budgets, additionally training on u_y with weight 0.1.
 # Mirrors transolver_stream_ansatz_data.txt with `data.load_uy=true` and
-# `constraint.uy_loss_weight=0.1` overrides, and routes outputs to a distinct
-# directory so results stay separate.
+# `constraint.uy_loss_weight=0.1` overrides.
 #
 # Run via the HPC runner:
 #   RUNS_FILE=experiments/pipe/transolver_stream_ansatz_uy_data.txt bash scripts/hpc/runner.sh
@@ -10,24 +9,24 @@
 #   bash scripts/run_batch.sh experiments/pipe/transolver_stream_ansatz_uy_data.txt
 #
 # Output layout:
-#   outputs/pipe/pipe_stream_function_boundary_ansatz_uy/transolver/<budget>/seed_42/{resolved_config.yaml,best.pt}
+#   outputs/pipe/pipe_stream_function_boundary_ansatz/transolver/<budget>/seed_42/{resolved_config.yaml,best.pt}
 
 # --- e5_t50: 5 epochs, 50 train ---
-train: --benchmark pipe --backbone Transolver --constraint pipe_stream_function_boundary_ansatz --budget e5_t50 --override data.load_uy=true --override constraint.uy_loss_weight=0.1 --override paths.output_dir=outputs/pipe/pipe_stream_function_boundary_ansatz_uy
-test: --config outputs/pipe/pipe_stream_function_boundary_ansatz_uy/transolver/e5_t50/seed_42/resolved_config.yaml --checkpoint outputs/pipe/pipe_stream_function_boundary_ansatz_uy/transolver/e5_t50/seed_42/best.pt
+train: --benchmark pipe --backbone Transolver --constraint pipe_stream_function_boundary_ansatz --budget e5_t50 --override data.load_uy=true --override constraint.uy_loss_weight=0.1
+test: --config outputs/pipe/pipe_stream_function_boundary_ansatz/transolver/e5_t50/seed_42/resolved_config.yaml --checkpoint outputs/pipe/pipe_stream_function_boundary_ansatz/transolver/e5_t50/seed_42/best.pt
 
 # --- e10_t100: 10 epochs, 100 train ---
-train: --benchmark pipe --backbone Transolver --constraint pipe_stream_function_boundary_ansatz --budget e10_t100 --override data.load_uy=true --override constraint.uy_loss_weight=0.1 --override paths.output_dir=outputs/pipe/pipe_stream_function_boundary_ansatz_uy
-test: --config outputs/pipe/pipe_stream_function_boundary_ansatz_uy/transolver/e10_t100/seed_42/resolved_config.yaml --checkpoint outputs/pipe/pipe_stream_function_boundary_ansatz_uy/transolver/e10_t100/seed_42/best.pt
+train: --benchmark pipe --backbone Transolver --constraint pipe_stream_function_boundary_ansatz --budget e10_t100 --override data.load_uy=true --override constraint.uy_loss_weight=0.1
+test: --config outputs/pipe/pipe_stream_function_boundary_ansatz/transolver/e10_t100/seed_42/resolved_config.yaml --checkpoint outputs/pipe/pipe_stream_function_boundary_ansatz/transolver/e10_t100/seed_42/best.pt
 
 # --- e50_t500: 50 epochs, 500 train ---
-train: --benchmark pipe --backbone Transolver --constraint pipe_stream_function_boundary_ansatz --budget e50_t500 --override data.load_uy=true --override constraint.uy_loss_weight=0.1 --override paths.output_dir=outputs/pipe/pipe_stream_function_boundary_ansatz_uy
-test: --config outputs/pipe/pipe_stream_function_boundary_ansatz_uy/transolver/e50_t500/seed_42/resolved_config.yaml --checkpoint outputs/pipe/pipe_stream_function_boundary_ansatz_uy/transolver/e50_t500/seed_42/best.pt
+train: --benchmark pipe --backbone Transolver --constraint pipe_stream_function_boundary_ansatz --budget e50_t500 --override data.load_uy=true --override constraint.uy_loss_weight=0.1
+test: --config outputs/pipe/pipe_stream_function_boundary_ansatz/transolver/e50_t500/seed_42/resolved_config.yaml --checkpoint outputs/pipe/pipe_stream_function_boundary_ansatz/transolver/e50_t500/seed_42/best.pt
 
 # --- e100_t900: 100 epochs, 900 train ---
-train: --benchmark pipe --backbone Transolver --constraint pipe_stream_function_boundary_ansatz --budget e100_t900 --override data.load_uy=true --override constraint.uy_loss_weight=0.1 --override paths.output_dir=outputs/pipe/pipe_stream_function_boundary_ansatz_uy
-test: --config outputs/pipe/pipe_stream_function_boundary_ansatz_uy/transolver/e100_t900/seed_42/resolved_config.yaml --checkpoint outputs/pipe/pipe_stream_function_boundary_ansatz_uy/transolver/e100_t900/seed_42/best.pt
+train: --benchmark pipe --backbone Transolver --constraint pipe_stream_function_boundary_ansatz --budget e100_t900 --override data.load_uy=true --override constraint.uy_loss_weight=0.1
+test: --config outputs/pipe/pipe_stream_function_boundary_ansatz/transolver/e100_t900/seed_42/resolved_config.yaml --checkpoint outputs/pipe/pipe_stream_function_boundary_ansatz/transolver/e100_t900/seed_42/best.pt
 
 # --- final: 500 epochs, 1000 train ---
-train: --benchmark pipe --backbone Transolver --constraint pipe_stream_function_boundary_ansatz --budget final --override data.load_uy=true --override constraint.uy_loss_weight=0.1 --override paths.output_dir=outputs/pipe/pipe_stream_function_boundary_ansatz_uy
-test: --config outputs/pipe/pipe_stream_function_boundary_ansatz_uy/transolver/final/seed_42/resolved_config.yaml --checkpoint outputs/pipe/pipe_stream_function_boundary_ansatz_uy/transolver/final/seed_42/best.pt
+train: --benchmark pipe --backbone Transolver --constraint pipe_stream_function_boundary_ansatz --budget final --override data.load_uy=true --override constraint.uy_loss_weight=0.1
+test: --config outputs/pipe/pipe_stream_function_boundary_ansatz/transolver/final/seed_42/resolved_config.yaml --checkpoint outputs/pipe/pipe_stream_function_boundary_ansatz/transolver/final/seed_42/best.pt
