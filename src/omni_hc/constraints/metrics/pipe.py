@@ -1,9 +1,11 @@
 """Constraint-error metrics for the Pipe 2D benchmark.
 
-Methodology table rows:
-    Pipe / Zero wall velocity  -> ‖û|wall‖∞
-    Pipe / Parabolic inlet     -> ‖û_x|inlet - u_x_par‖₂
-    Pipe / Divergence-free     -> ‖∇·û‖₂
+Methodology table rows (primary, mean-based metrics):
+    Pipe / Zero wall velocity  -> mean |û_x| at wall nodes
+    Pipe / Parabolic inlet     -> mean |û_x|inlet - u_x_par|
+    Pipe / Divergence-free     -> mean |∇·û|
+
+(max / rmse / relative variants are also emitted as secondary diagnostics.)
 
 Channel convention: pred channel 0 is u_x (streamwise velocity). For
 out_dim == 1 (stream-function ansatz output) and for the unconstrained

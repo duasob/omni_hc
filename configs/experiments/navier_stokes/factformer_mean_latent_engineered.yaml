@@ -1,0 +1,17 @@
+name: "navier_stokes_factformer_mean_latent_engineered"
+benchmark: "navier_stokes"
+backbone: "Factformer"
+constraint: "mean_constraint"
+budget: "final"
+
+overrides:
+  constraint:
+    mode: "latent_head"
+    latent_module:
+      - "blocks.-1.ln_3"   # final representation before projection
+    latent_dim: 256
+    correction_hidden: 512
+    correction_layers: 2
+    correction_act: "gelu"
+  wandb_logging:
+    run_name: "navier_stokes_factformer_mean_latent_engineered"
