@@ -27,6 +27,7 @@ if __package__ in {None, ""}:
         write_provenance_table,
     )
     from scripts.reporting.registry.ns_report import (
+        diagnose_command_for_ns_run,
         ns_cost_diagnostic_runs,
         write_ns_cost_metrics,
     )
@@ -41,6 +42,7 @@ else:
         write_provenance_table,
     )
     from .registry.ns_report import (
+        diagnose_command_for_ns_run,
         ns_cost_diagnostic_runs,
         write_ns_cost_metrics,
     )
@@ -197,7 +199,7 @@ def _write_missing_runs_file(
                             if run.path in seen_diagnose_runs:
                                 continue
                             seen_diagnose_runs.add(run.path)
-                            command = diagnose_command_for_run(run, repo_root)
+                            command = diagnose_command_for_ns_run(run, repo_root)
                             if command is None:
                                 lines.append(
                                     f"# ns_cost: no resolved_config.yaml and checkpoint "

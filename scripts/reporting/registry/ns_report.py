@@ -239,16 +239,29 @@ NS_COST_RUNS = {
     ),
 }
 
-# Hook-ablation table: variant stem -> run profiled for its params/FLOPs. The ONO
-# last-block hook was never profiled separately, so it is omitted here and its
-# params/FLOPs cells stay TBD.
+# Hook-ablation table: variant stem -> run profiled for its params/FLOPs.
 NS_HOOK_PROFILE_RUNS = {
     "TransolverBase": "outputs/navier_stokes/none/transolver/final/seed_42",
     "TransolverLast": "outputs/navier_stokes/mean_constraint/transolver/experiments/latent_head_500e/seed_42",
     "TransolverEng": "outputs/navier_stokes/mean_constraint/transolver/final/seed_42",
     "OnoBase": "outputs/navier_stokes/none/ono/final/seed_42",
+    "OnoLast": "outputs/navier_stokes/mean_constraint/ono/experiements/final/seed_42",
     "OnoEng": "outputs/navier_stokes/mean_constraint/ono/final/seed_42",
 }
+
+_NS_MODEL_BACKBONES = {
+    "factformer": "Factformer",
+    "galerkin_transformer": "Galerkin_Transformer",
+    "ono": "ONO",
+    "transolver": "Transolver",
+}
+
+
+def _rel(path: Path, root: Path) -> str:
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
 def _load_run_cost(repo_root: Path, run_path: str) -> tuple[float, float] | None:
@@ -319,6 +332,57 @@ def ns_cost_diagnostic_runs() -> tuple[RunRef, ...]:
     return tuple(runs)
 
 
+def diagnose_command_for_ns_run(run: RunRef, repo_root: Path) -> str | None:
+    """Return a diagnostics RUNS_FILE command for an NS cost/hook source.
+
+    Existing profiled runs use their resolved config and checkpoint. For standard
+    baseline/constrained NS paths that do not exist locally, fall back to the
+    component config because parameter count and FLOPs do not require trained
+    checkpoint weights.
+    """
+    run_dir = run.resolve(repo_root)
+    config_path = run_dir / "resolved_config.yaml"
+    checkpoint_path = run_dir / "best.pt"
+    if not checkpoint_path.exists():
+        checkpoint_path = run_dir / "latest.pt"
+    if config_path.exists() and checkpoint_path.exists():
+        return (
+            "diagnose: "
+            f"--config {_rel(config_path, repo_root)} "
+            f"--checkpoint {_rel(checkpoint_path, repo_root)} "
+            "--write-yaml"
+        )
+
+    parts = Path(run.path).parts
+    if (
+        len(parts) == 6
+        and parts[0] == "outputs"
+        and parts[1] == "navier_stokes"
+        and parts[5].startswith("seed_")
+    ):
+        constraint_dir, model_dir, budget_dir, seed_dir = (
+            parts[2],
+            parts[3],
+            parts[4],
+            parts[5],
+        )
+        backbone = _NS_MODEL_BACKBONES.get(model_dir)
+        if backbone is not None:
+            seed = seed_dir.removeprefix("seed_")
+            return (
+                "diagnose: "
+                "--benchmark navier_stokes "
+                f"--backbone {backbone} "
+                f"--constraint {constraint_dir} "
+                f"--budget {budget_dir} "
+                f"--seed {seed} "
+                f"--override paths.output_dir={run.path} "
+                "--write-yaml"
+            )
+
+    return None
+
+
 # --- ns_cost: ΔParams and ΔFLOPs of the latent-head constraint -----------------
 def _cost_rows() -> list[Row]:
     rows: list[Row] = []
@@ -354,8 +418,7 @@ ns_cost = ReportArtifact(
 # --- ns_hook: params, FLOPs, Rel L2 per hook variant (appendix) ----------------
 # Rel L2 comes from the runs where available, and from the reported paper baseline
 # (literal) for the unconstrained rows. Params/FLOPs resolve from the generated
-# diagnostics metrics; the ONO last-block hook is not profiled, so its
-# params/FLOPs are declared without a source and render as TBD.
+# diagnostics metrics.
 HOOK_RELL2: dict[str, str | RunRef] = {
     "TransolverBase": "0.0900",
     "TransolverLast": RunRef(

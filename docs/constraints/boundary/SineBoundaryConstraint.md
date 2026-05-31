@@ -165,7 +165,8 @@ trials on the 200-sample Darcy test split:
 ```bash
 conda run -n omni-hc python scripts/diagnostics/darcy/darcy_sine_boundary_search.py \
   --device cpu \
-  --max-trials 48 \
+  --search-method tpe \
+  --max-trials 100 \
   --epochs 800 \
   --early-stopping-patience 100
 ```

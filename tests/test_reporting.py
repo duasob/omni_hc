@@ -11,6 +11,7 @@ from scripts.reporting.registry.ch5 import (
     effective_training_samples,
     render_provenance_table,
 )
+from scripts.reporting.registry.ns_report import diagnose_command_for_ns_run
 
 
 def test_reporting_collector_reads_run_and_generated_metrics(tmp_path: Path):
@@ -245,6 +246,58 @@ def test_missing_runs_file_keeps_test_and_diagnose_commands_distinct(monkeypatch
     assert count == 2
     assert "test: --config outputs/a/resolved_config.yaml" in content
     assert "diagnose: --config outputs/a/resolved_config.yaml" in content
+
+
+def test_ns_diagnose_command_falls_back_to_component_config(tmp_path: Path):
+    command = diagnose_command_for_ns_run(
+        RunRef("outputs/navier_stokes/none/ono/final/seed_42"),
+        tmp_path,
+    )
+
+    assert command == (
+        "diagnose: --benchmark navier_stokes --backbone ONO --constraint none "
+        "--budget final --seed 42 "
+        "--override paths.output_dir=outputs/navier_stokes/none/ono/final/seed_42 "
+        "--write-yaml"
+    )
+
+
+def test_missing_runs_file_uses_ns_diagnose_fallback(monkeypatch, tmp_path: Path):
+    artifact = ReportArtifact(
+        name="ns_hook",
+        chapter=4,
+        kind="tex_macros",
+        output_subpath="macros/demo.tex",
+        rows=[
+            Row(
+                run=MetricFileRef("ch4_ns_cost_metrics.yaml"),
+                metric_key="hook/OnoBase/params_m",
+                macro=r"\C",
+            ),
+        ],
+    )
+    results = [
+        CellResult(
+            r"\C",
+            TBD,
+            "missing metric: hook/OnoBase/params_m",
+            False,
+        ),
+    ]
+    monkeypatch.setattr(
+        "scripts.reporting.build.ns_cost_diagnostic_runs",
+        lambda: (RunRef("outputs/navier_stokes/none/ono/final/seed_42"),),
+    )
+
+    output_path = tmp_path / "missing_runs.txt"
+    count = _write_missing_runs_file(
+        output_path, [artifact], {"ns_hook": results}, tmp_path
+    )
+
+    content = output_path.read_text()
+    assert count == 1
+    assert "# ns_cost: outputs/navier_stokes/none/ono/final/seed_42" in content
+    assert "diagnose: --benchmark navier_stokes --backbone ONO" in content
 
 
 def test_effective_training_samples_honours_validation_split():
