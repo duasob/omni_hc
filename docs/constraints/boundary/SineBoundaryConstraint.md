@@ -158,13 +158,16 @@ constraint:
 ## Boundary-only search
 
 The fastest way to tune this constraint is to train only the coefficient head
-on boundary targets before running full backbone experiments:
+on boundary targets before running full backbone experiments. The default
+diagnostic protocol trains on the first 1000 Darcy train samples and ranks
+trials on the 200-sample Darcy test split:
 
 ```bash
 conda run -n omni-hc python scripts/diagnostics/darcy/darcy_sine_boundary_search.py \
   --device cpu \
-  --max-trials 32 \
-  --epochs 200
+  --max-trials 48 \
+  --epochs 800 \
+  --early-stopping-patience 100
 ```
 
 This writes:
