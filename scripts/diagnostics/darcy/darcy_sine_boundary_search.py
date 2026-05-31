@@ -32,7 +32,7 @@ def _str_list(value: str) -> list[str]:
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=(
-            "Random/grid search for SineBoundaryConstraint coeff_head pretraining. "
+            "TPE/random/grid search for SineBoundaryConstraint coeff_head pretraining. "
             "This trains only the boundary head on Darcy train samples and ranks "
             "trials by boundary rel-L2 on a separate validation split. For the "
             "current Darcy diagnostic workflow, the default validation split is "
@@ -86,8 +86,23 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--max-trials",
         type=int,
-        default=48,
-        help="Randomly sample this many grid points. Use 0 with --exhaustive for all.",
+        default=100,
+        help=(
+            "Number of trials for random/TPE search. For random search, use 0 "
+            "with --exhaustive for all grid points."
+        ),
+    )
+    p.add_argument(
+        "--search-method",
+        choices=("tpe", "random"),
+        default="tpe",
+        help="Hyperparameter search strategy. TPE uses Optuna's TPESampler.",
+    )
+    p.add_argument(
+        "--tpe-startup-trials",
+        type=int,
+        default=10,
+        help="Number of random startup trials before TPE begins modelling.",
     )
     p.add_argument("--exhaustive", action="store_true")
     p.add_argument(
@@ -134,6 +149,38 @@ def _select_trials(args: argparse.Namespace, grid: list[dict[str, object]]):
     rng = np.random.default_rng(args.seed)
     chosen = rng.choice(len(grid), size=args.max_trials, replace=False)
     return [grid[int(i)] for i in chosen]
+
+
+def _suggest_tpe_trial(optuna_trial, args: argparse.Namespace) -> dict[str, object]:
+    return {
+        "feature_mode": optuna_trial.suggest_categorical(
+            "feature_mode", args.feature_modes
+        ),
+        "n_modes": optuna_trial.suggest_categorical("n_modes", args.n_modes),
+        "hidden_dim": optuna_trial.suggest_categorical(
+            "hidden_dim", args.hidden_dims
+        ),
+        "n_layers": optuna_trial.suggest_categorical("n_layers", args.n_layers),
+        "lr": optuna_trial.suggest_categorical("lr", args.lrs),
+        "weight_decay": optuna_trial.suggest_categorical(
+            "weight_decay", args.weight_decays
+        ),
+        "batch_size": optuna_trial.suggest_categorical(
+            "batch_size", args.batch_sizes
+        ),
+    }
+
+
+def _trial_key(trial: dict[str, object]) -> tuple[object, ...]:
+    return (
+        trial["feature_mode"],
+        int(trial["n_modes"]),
+        int(trial["hidden_dim"]),
+        int(trial["n_layers"]),
+        float(trial["lr"]),
+        float(trial["weight_decay"]),
+        int(trial["batch_size"]),
+    )
 
 
 def _load_split(
@@ -407,36 +454,98 @@ def main() -> None:
         )
 
     grid = _trial_grid(args)
-    trials = _select_trials(args, grid)
+    use_tpe = args.search_method == "tpe" and not args.exhaustive
+    trials = [] if use_tpe else _select_trials(args, grid)
+    n_trials = min(args.max_trials, len(grid)) if use_tpe else len(trials)
+    if use_tpe and n_trials <= 0:
+        raise ValueError("--max-trials must be > 0 when --search-method tpe")
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     print(
         f"Loaded Darcy: train_path={train_path}, validation_path={validation_path}, "
         f"grid={H}x{W}, train_samples={len(sol_train)}, "
         f"validation_samples={len(sol_val)}, "
-        f"grid_size={len(grid)}, trials={len(trials)}, device={device}"
+        f"grid_size={len(grid)}, trials={n_trials}, search_method={args.search_method}, "
+        f"device={device}"
     )
 
     rows: list[dict[str, object]] = []
-    for i, trial in enumerate(trials):
-        print(f"\n[trial {i + 1}/{len(trials)}] {trial}")
-        row = _train_trial(
-            coeff_train,
-            sol_train,
-            coeff_val,
-            sol_val,
-            H=H,
-            W=W,
-            device=device,
-            args=args,
-            trial=trial,
-            trial_number=i,
+    if use_tpe:
+        import optuna
+
+        sampler = optuna.samplers.TPESampler(
+            seed=args.seed,
+            n_startup_trials=args.tpe_startup_trials,
         )
-        rows.append(row)
-        print(
-            f"[trial {i}] best_val_rel_l2={row['best_val_rel_l2']:.4e} "
-            f"params={row['param_count']}"
-        )
+        study = optuna.create_study(direction="minimize", sampler=sampler)
+        target_trials = n_trials
+        seen_scores: dict[tuple[object, ...], float] = {}
+        max_suggestions = max(target_trials * 20, target_trials + 100)
+        n_suggestions = 0
+        while len(rows) < target_trials:
+            if n_suggestions >= max_suggestions:
+                print(
+                    f"[tpe] stopped after {n_suggestions} suggestions because "
+                    f"unique configs stalled at {len(rows)}/{target_trials}",
+                    flush=True,
+                )
+                break
+            n_suggestions += 1
+            optuna_trial = study.ask()
+            trial = _suggest_tpe_trial(optuna_trial, args)
+            key = _trial_key(trial)
+            if key in seen_scores:
+                study.tell(optuna_trial, seen_scores[key])
+                print(
+                    f"[tpe] skipped duplicate suggestion optuna_trial="
+                    f"{optuna_trial.number}: {trial}",
+                    flush=True,
+                )
+                continue
+
+            i = len(rows)
+            print(f"\n[trial {i + 1}/{target_trials}] {trial}")
+            row = _train_trial(
+                coeff_train,
+                sol_train,
+                coeff_val,
+                sol_val,
+                H=H,
+                W=W,
+                device=device,
+                args=args,
+                trial=trial,
+                trial_number=i,
+            )
+            row["optuna_trial"] = int(optuna_trial.number)
+            rows.append(row)
+            score = float(row["best_val_rel_l2"])
+            seen_scores[key] = score
+            study.tell(optuna_trial, score)
+            print(
+                f"[trial {i}] best_val_rel_l2={score:.4e} "
+                f"params={row['param_count']}"
+            )
+    else:
+        for i, trial in enumerate(trials):
+            print(f"\n[trial {i + 1}/{len(trials)}] {trial}")
+            row = _train_trial(
+                coeff_train,
+                sol_train,
+                coeff_val,
+                sol_val,
+                H=H,
+                W=W,
+                device=device,
+                args=args,
+                trial=trial,
+                trial_number=i,
+            )
+            rows.append(row)
+            print(
+                f"[trial {i}] best_val_rel_l2={row['best_val_rel_l2']:.4e} "
+                f"params={row['param_count']}"
+            )
 
     rows.sort(key=lambda r: float(r["best_val_rel_l2"]))
     csv_path = args.out_dir / "sine_boundary_search.csv"
@@ -447,6 +556,8 @@ def main() -> None:
         "best_trial": best,
         "num_trials": len(rows),
         "grid_size": len(grid),
+        "search_method": args.search_method,
+        "tpe_startup_trials": args.tpe_startup_trials if use_tpe else None,
         "data": {
             "train_path": str(train_path),
             "validation_path": str(validation_path),
