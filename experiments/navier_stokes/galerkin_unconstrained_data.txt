@@ -1,0 +1,31 @@
+# Unconstrained Galerkin Transformer baseline on the Navier-Stokes benchmark
+# across four data budgets. Pair with galerkin_mean_latent_engineered_data.txt
+# for the mean-corrected side of the comparison.
+#
+# Submit on the GPU cluster:
+#   qsub scripts/hpc/gpu.pbs experiments/navier_stokes/galerkin_unconstrained_data.txt
+# Or locally via the batch runner:
+#   bash scripts/run_batch.sh experiments/navier_stokes/galerkin_unconstrained_data.txt
+#
+# Output layout:
+#   outputs/navier_stokes/none/galerkin_transformer/<budget>/seed_42/{resolved_config.yaml,best.pt}
+
+# --- e5_t50: 5 epochs, 50 train ---
+train: --benchmark navier_stokes --backbone Galerkin_Transformer --constraint none --budget e5_t50
+test: --config outputs/navier_stokes/none/galerkin_transformer/e5_t50/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/none/galerkin_transformer/e5_t50/seed_42/best.pt
+
+# --- e10_t100: 10 epochs, 100 train ---
+train: --benchmark navier_stokes --backbone Galerkin_Transformer --constraint none --budget e10_t100
+test: --config outputs/navier_stokes/none/galerkin_transformer/e10_t100/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/none/galerkin_transformer/e10_t100/seed_42/best.pt
+
+# --- e50_t500: 50 epochs, 500 train ---
+train: --benchmark navier_stokes --backbone Galerkin_Transformer --constraint none --budget e50_t500
+test: --config outputs/navier_stokes/none/galerkin_transformer/e50_t500/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/none/galerkin_transformer/e50_t500/seed_42/best.pt
+
+# --- e100_t900: 100 epochs, 900 train ---
+train: --benchmark navier_stokes --backbone Galerkin_Transformer --constraint none --budget e100_t900
+test: --config outputs/navier_stokes/none/galerkin_transformer/e100_t900/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/none/galerkin_transformer/e100_t900/seed_42/best.pt
+
+# --- final: 500 epochs, 1000 train ---
+# train: --benchmark navier_stokes --backbone Galerkin_Transformer --constraint none --budget final
+# test: --config outputs/navier_stokes/none/galerkin_transformer/final/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/none/galerkin_transformer/final/seed_42/best.pt
