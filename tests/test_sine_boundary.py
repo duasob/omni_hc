@@ -128,3 +128,39 @@ def test_return_aux_contract():
     assert "boundary_pred" in out.aux
     assert "constraint/boundary_correction_mean_abs" in out.diagnostics
     assert torch.equal(out.pred, c(pred=pred, fx=fx))
+
+
+def test_feature_modes_preserve_forward_shape():
+    pred = torch.randn(2, 7 * 9, 1)
+    fx = torch.randn(2, 7 * 9, 1)
+    for mode in (
+        "boundary",
+        "boundary_inner",
+        "boundary_stats",
+        "boundary_inner_stats",
+        "full",
+    ):
+        c = SineBoundaryConstraint(
+            n_modes=4,
+            grid_shape=(7, 9),
+            hidden_dim=16,
+            n_layers=1,
+            feature_mode=mode,
+        )
+        with torch.no_grad():
+            out = c(pred=pred, fx=fx)
+        assert out.shape == pred.shape
+
+
+def test_unknown_feature_mode_fails_fast():
+    try:
+        SineBoundaryConstraint(
+            n_modes=4,
+            grid_shape=(7, 9),
+            hidden_dim=16,
+            feature_mode="unknown",
+        )
+    except ValueError as exc:
+        assert "feature_mode" in str(exc)
+    else:
+        raise AssertionError("unknown feature_mode should fail")

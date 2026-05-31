@@ -65,6 +65,7 @@ class SineBoundaryConstraint(ConstraintModule):
         n_layers: int = 0,
         act: str = "gelu",
         latent_dim: int = 0,
+        feature_mode: str = "boundary",
         extractor=None,
     ):
         super().__init__()
@@ -72,6 +73,7 @@ class SineBoundaryConstraint(ConstraintModule):
         self.H, self.W = H, W
         self.n_modes = n_modes
         self.latent_dim = latent_dim
+        self.feature_mode = str(feature_mode)
         self.extractor = extractor
 
         # Sine basis matrices — (n_points, n_modes)
@@ -113,8 +115,8 @@ class SineBoundaryConstraint(ConstraintModule):
         self.register_buffer("_feat_mean", None)
         self.register_buffer("_feat_std",  None)
 
-        # MLP input: bottom(W) + top(W) + left_inner(H-2) + right_inner(H-2) + latent
-        boundary_feat_dim = 2 * W + 2 * (H - 2) + latent_dim
+        # MLP input: selected physical-space permeability features + latent.
+        boundary_feat_dim = self._permeability_feature_dim() + latent_dim
         self.coeff_head = build_mlp(
             boundary_feat_dim, hidden_dim, 4 * n_modes, n_layers=n_layers, act=act
         )
@@ -152,7 +154,7 @@ class SineBoundaryConstraint(ConstraintModule):
         val_seed: int = 0,
         save_path=None,
         log_path=None,
-    ) -> None:
+    ) -> dict[str, Any]:
         """Train coeff_head standalone from raw numpy arrays (physical space).
 
         fx_arr:   [N, H, W] or [N, H*W] permeability (physical units)
@@ -190,14 +192,9 @@ class SineBoundaryConstraint(ConstraintModule):
         fx_tr, sol_tr = fx_t[train_idx], sol_t[train_idx]
         fx_va, sol_va = (fx_t[val_idx], sol_t[val_idx]) if n_val > 0 else (None, None)
 
-        # Compute Z-score stats from the training boundary permeability only.
+        # Compute Z-score stats from the selected training permeability features.
         with torch.no_grad():
-            raw_feats = torch.cat([
-                fx_tr[:, self.idx_bottom,       0],
-                fx_tr[:, self.idx_top,          0],
-                fx_tr[:, self.idx_left[1:-1],   0],
-                fx_tr[:, self.idx_right[1:-1],  0],
-            ], dim=-1)  # [n_train, 2W + 2(H-2)]
+            raw_feats = self._raw_permeability_feats(fx_tr)
             self._feat_mean = raw_feats.mean(0)
             self._feat_std  = raw_feats.std(0).clamp(min=1e-6)
 
@@ -369,6 +366,7 @@ class SineBoundaryConstraint(ConstraintModule):
             log_path = Path(log_path)
             log_path.parent.mkdir(parents=True, exist_ok=True)
             log = {
+                "feature_mode": self.feature_mode,
                 "n_train": n_train,
                 "n_val": n_val,
                 "epochs": epochs,
@@ -388,9 +386,29 @@ class SineBoundaryConstraint(ConstraintModule):
             with open(log_path, "w") as f:
                 yaml.safe_dump(log, f, sort_keys=False)
             print(f"[coeff_head pretrain] log written to {log_path}", flush=True)
+        else:
+            log = {
+                "feature_mode": self.feature_mode,
+                "n_train": n_train,
+                "n_val": n_val,
+                "epochs": epochs,
+                "lr": lr,
+                "weight_decay": weight_decay,
+                "batch_size": batch_size,
+                "val_frac": val_frac,
+                "val_seed": val_seed,
+                "best_epoch":        best_epoch if best_state is not None else None,
+                "best_val_rel_l2":   best_rl2   if best_state is not None else None,
+                "final_train_mse":    history[-1]["train_mse"]    if history else None,
+                "final_train_rel_l2": history[-1]["train_rel_l2"] if history else None,
+                "final_val_mse":      history[-1]["val_mse"]      if history else None,
+                "final_val_rel_l2":   history[-1]["val_rel_l2"]   if history else None,
+                "history": history,
+            }
 
         self.freeze_coeff_head()
         print("[coeff_head pretrain] coeff_head frozen", flush=True)
+        return log
 
     # ------------------------------------------------------------------
     # build
@@ -472,18 +490,82 @@ class SineBoundaryConstraint(ConstraintModule):
     # forward
     # ------------------------------------------------------------------
 
-    def _boundary_feats(self, fx: torch.Tensor) -> torch.Tensor:
-        # Decode to physical space if the benchmark normalizer was applied upstream.
-        # coeff_head always expects physical-space inputs, Z-score normalised.
-        if self.input_normalizer is not None:
-            fx = self.input_normalizer.decode(fx)
-        a = fx[:, :, 0]
-        feats = torch.cat([
+    def _permeability_feature_dim(self) -> int:
+        base = 2 * self.W + 2 * (self.H - 2)
+        mode = self.feature_mode
+        if mode == "boundary":
+            return base
+        if mode == "boundary_inner":
+            return 2 * base
+        if mode == "boundary_stats":
+            return base + 8
+        if mode == "boundary_inner_stats":
+            return 2 * base + 8
+        if mode == "full":
+            return self.H * self.W
+        raise ValueError(
+            f"Unknown sine boundary feature_mode={mode!r}. "
+            "Use one of: boundary, boundary_inner, boundary_stats, "
+            "boundary_inner_stats, full."
+        )
+
+    def _edge_feats(self, a: torch.Tensor) -> torch.Tensor:
+        return torch.cat([
             a[:, self.idx_bottom],          # [B, W]
             a[:, self.idx_top],             # [B, W]
             a[:, self.idx_left[1:-1]],      # [B, H-2]
             a[:, self.idx_right[1:-1]],     # [B, H-2]
         ], dim=-1)
+
+    def _inner_edge_feats(self, a: torch.Tensor) -> torch.Tensor:
+        if self.H < 3 or self.W < 3:
+            raise ValueError("feature_mode with inner ring requires H >= 3 and W >= 3")
+        return torch.cat([
+            a[:, 1 * self.W : 2 * self.W],
+            a[:, (self.H - 2) * self.W : (self.H - 1) * self.W],
+            a[:, self.idx_left[1:-1] + 1],
+            a[:, self.idx_right[1:-1] - 1],
+        ], dim=-1)
+
+    def _global_stats_feats(self, a: torch.Tensor) -> torch.Tensor:
+        field = a.view(a.shape[0], self.H, self.W)
+        flat = field.reshape(field.shape[0], -1)
+        interior = field[:, 1:-1, 1:-1].reshape(field.shape[0], -1)
+        return torch.stack(
+            [
+                flat.mean(dim=-1),
+                flat.std(dim=-1),
+                flat.amin(dim=-1),
+                flat.amax(dim=-1),
+                interior.mean(dim=-1),
+                interior.std(dim=-1),
+                interior.amin(dim=-1),
+                interior.amax(dim=-1),
+            ],
+            dim=-1,
+        )
+
+    def _raw_permeability_feats(self, fx: torch.Tensor) -> torch.Tensor:
+        a = fx[:, :, 0]
+        mode = self.feature_mode
+        if mode == "full":
+            return a
+
+        pieces = [self._edge_feats(a)]
+        if mode in {"boundary_inner", "boundary_inner_stats"}:
+            pieces.append(self._inner_edge_feats(a))
+        if mode in {"boundary_stats", "boundary_inner_stats"}:
+            pieces.append(self._global_stats_feats(a))
+        if mode == "boundary" or len(pieces) > 1:
+            return torch.cat(pieces, dim=-1)
+        raise ValueError(f"Unknown sine boundary feature_mode={mode!r}")
+
+    def _boundary_feats(self, fx: torch.Tensor) -> torch.Tensor:
+        # Decode to physical space if the benchmark normalizer was applied upstream.
+        # coeff_head always expects physical-space inputs, Z-score normalised.
+        if self.input_normalizer is not None:
+            fx = self.input_normalizer.decode(fx)
+        feats = self._raw_permeability_feats(fx)
         if self._feat_std is not None:
             feats = (feats - self._feat_mean) / self._feat_std
         return feats

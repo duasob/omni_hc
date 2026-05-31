@@ -37,9 +37,11 @@ for all integer $k$, the profile is **zero at both corners** by construction —
 no special corner handling is needed.
 
 The coefficient vectors $c_k \in \mathbb{R}^{4K}$ (one set per edge) are
-predicted by a small MLP that takes as input the **boundary permeability
-features**: the permeability values $a(x)$ sampled at all boundary nodes. This
-gives the model direct access to the physical driver of the boundary shape.
+predicted by a small MLP that takes as input the **permeability features**. The
+default is the previous boundary-only input: $a(x)$ sampled at all boundary
+nodes. For ablations, `feature_mode` can add one adjacent interior ring,
+global/interior summary statistics, or the full permeability grid. This lets
+the boundary-only assumption be tested directly instead of assumed.
 
 Optionally, a latent representation from the backbone transformer can be wired
 in via `ForwardHookLatentExtractor`. The latent is **mean-pooled over boundary
@@ -121,6 +123,7 @@ constraint:
   n_modes: 16        # number of sine basis functions per edge
   hidden_dim: 128    # MLP hidden width
   n_layers: 2        # number of hidden layers (total depth = n_layers + 2)
+  feature_mode: "boundary"
   act: "gelu"
 ```
 
@@ -148,8 +151,30 @@ constraint:
 | `hidden_dim` | — | MLP hidden width |
 | `n_layers` | `0` | Extra hidden layers (total MLP depth = `n_layers + 2`) |
 | `act` | `"gelu"` | Activation function |
+| `feature_mode` | `"boundary"` | Permeability features for the coefficient head: `boundary`, `boundary_inner`, `boundary_stats`, `boundary_inner_stats`, or `full` |
 | `latent_dim` | `0` | Latent dimension to concatenate; `0` disables latent hook |
 | `latent_module` | `None` | Dotted path to the backbone module to hook |
+
+## Boundary-only search
+
+The fastest way to tune this constraint is to train only the coefficient head
+on boundary targets before running full backbone experiments:
+
+```bash
+conda run -n omni-hc python scripts/diagnostics/darcy/darcy_sine_boundary_search.py \
+  --device cpu \
+  --max-trials 32 \
+  --epochs 200
+```
+
+This writes:
+
+- `artifacts/darcy/darcy_sine_boundary_search/sine_boundary_search.csv`
+- `artifacts/darcy/darcy_sine_boundary_search/best_sine_boundary_trial.yaml`
+
+For a final checkpoint after selecting the search space, add `--save-best
+outputs/darcy/coeff_head.pt` and copy the reported `recommended_constraint`
+block into the experiment config.
 
 ## Diagnostics
 

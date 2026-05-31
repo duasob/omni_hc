@@ -4,6 +4,13 @@ constraint:
   hidden_dim: 256
   n_layers: 3
   act: "gelu"
+  # Permeability features used by coeff_head:
+  #   boundary              boundary nodes only (previous behavior)
+  #   boundary_inner        boundary plus one adjacent interior ring
+  #   boundary_stats        boundary plus global/interior permeability stats
+  #   boundary_inner_stats  boundary + inner ring + stats
+  #   full                  all grid permeability values
+  feature_mode: "boundary"
 
   # --- Option A: load a previously saved coeff_head and keep it frozen ---
   # The .pt file must have been produced by coeff_head_pretrain (see Option B).

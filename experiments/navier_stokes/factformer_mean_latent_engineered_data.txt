@@ -3,8 +3,8 @@
 # configs/experiments/navier_stokes/factformer_mean_latent_engineered.yaml:
 # latent_head mode with a Factformer hook on the final block (blocks.-1.ln_3).
 #
-# Run via the HPC runner:
-#   RUNS_FILE=experiments/navier_stokes/factformer_mean_latent_engineered_data.txt bash scripts/hpc/runner.sh
+# Submit on the GPU cluster:
+#   qsub scripts/hpc/gpu.pbs experiments/navier_stokes/factformer_mean_latent_engineered_data.txt
 # Or locally via the batch runner:
 #   bash scripts/run_batch.sh experiments/navier_stokes/factformer_mean_latent_engineered_data.txt
 #

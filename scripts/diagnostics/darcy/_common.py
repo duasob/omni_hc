@@ -49,11 +49,20 @@ def load_darcy_arrays(
     split: str,
     downsamplex: int,
     downsampley: int,
+    verbose: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, Path]:
     mat_path = resolve_darcy_mat(data_dir, split)
-    raw = scio.loadmat(str(mat_path))
+    if verbose:
+        print(f"loading Darcy variables coeff/sol from {mat_path}", flush=True)
+    raw = scio.loadmat(str(mat_path), variable_names=("coeff", "sol"))
     if "coeff" not in raw or "sol" not in raw:
         raise KeyError(f"Expected 'coeff' and 'sol' variables in {mat_path}")
+    if verbose:
+        print(
+            f"loaded raw coeff={raw['coeff'].shape} sol={raw['sol'].shape}; "
+            "downsampling now",
+            flush=True,
+        )
 
     coeff = np.asarray(raw["coeff"], dtype=np.float64)
     sol = np.asarray(raw["sol"], dtype=np.float64)
@@ -73,6 +82,8 @@ def load_darcy_arrays(
     s2 = int(((w_full - 1) / r2) + 1)
     coeff = coeff[:, ::r1, ::r2][:, :s1, :s2]
     sol = sol[:, ::r1, ::r2][:, :s1, :s2]
+    if verbose:
+        print(f"downsampled coeff={coeff.shape} sol={sol.shape}", flush=True)
     return coeff, sol, mat_path
 
 

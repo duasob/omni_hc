@@ -9,4 +9,6 @@ set -euo pipefail
 PROJECT_DIR="${PROJECT_DIR:-${PBS_O_WORKDIR:-$PWD}}"
 cd "$PROJECT_DIR"
 
-DEVICE="${DEVICE:-auto}" bash scripts/hpc/runner.sh #runner.sh
+# Runs files are passed positionally, e.g.:
+#   qsub scripts/hpc/gpu.pbs experiments/navier_stokes/transolver_mean_latent_engineered_data.txt
+DEVICE="${DEVICE:-auto}" bash scripts/hpc/runner.sh "$@"
