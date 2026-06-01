@@ -1,0 +1,31 @@
+# Transolver with DarcyFluxConstraint on the Darcy benchmark across four
+# data budgets. Pair with transolver_unconstrained_data.txt for the
+# unconstrained side of the comparison.
+#
+# Run via the HPC runner:
+#   RUNS_FILE=experiments/darcy/transolver_flux_constraint_data.txt bash scripts/hpc/runner.sh
+# Or locally via the batch runner:
+#   bash scripts/run_batch.sh experiments/darcy/transolver_flux_constraint_data.txt
+#
+# Output layout:
+#   outputs/darcy/darcy_flux_constraint/transolver/<budget>/seed_42/{resolved_config.yaml,best.pt}
+
+# --- e5_t50: 5 epochs, 50 train ---
+train: --benchmark darcy --backbone Transolver --constraint darcy_flux_constraint --budget e5_t50
+test: --config outputs/darcy/darcy_flux_constraint/transolver/e5_t50/seed_42/resolved_config.yaml --checkpoint outputs/darcy/darcy_flux_constraint/transolver/e5_t50/seed_42/best.pt
+
+# --- e10_t100: 10 epochs, 100 train ---
+train: --benchmark darcy --backbone Transolver --constraint darcy_flux_constraint --budget e10_t100
+test: --config outputs/darcy/darcy_flux_constraint/transolver/e10_t100/seed_42/resolved_config.yaml --checkpoint outputs/darcy/darcy_flux_constraint/transolver/e10_t100/seed_42/best.pt
+
+# --- e50_t500: 50 epochs, 500 train ---
+train: --benchmark darcy --backbone Transolver --constraint darcy_flux_constraint --budget e50_t500
+test: --config outputs/darcy/darcy_flux_constraint/transolver/e50_t500/seed_42/resolved_config.yaml --checkpoint outputs/darcy/darcy_flux_constraint/transolver/e50_t500/seed_42/best.pt
+
+# --- e100_t900: 100 epochs, 900 train ---
+train: --benchmark darcy --backbone Transolver --constraint darcy_flux_constraint --budget e100_t900
+test: --config outputs/darcy/darcy_flux_constraint/transolver/e100_t900/seed_42/resolved_config.yaml --checkpoint outputs/darcy/darcy_flux_constraint/transolver/e100_t900/seed_42/best.pt
+
+# --- final: 500 epochs, 1000 train ---
+# train: --benchmark darcy --backbone Transolver --constraint darcy_flux_constraint --budget final
+# test: --config outputs/darcy/darcy_flux_constraint/transolver/final/seed_42/resolved_config.yaml --checkpoint outputs/darcy/darcy_flux_constraint/transolver/final/seed_42/best.pt
