@@ -148,3 +148,31 @@ def test_darcy_flux_constraint_emits_helmholtz_diagnostics():
     assert "constraint/boundary_abs_mean" in out.diagnostics
     assert float(out.diagnostics["constraint/stream_div_abs_mean"].value) < 1.0e-3
     assert float(out.diagnostics["constraint/boundary_abs_max"].value) == 0.0
+
+
+def test_darcy_flux_curl_loss_is_configurable_extra_loss():
+    torch.manual_seed(0)
+    height = width = 8
+    n_points = height * width
+
+    constraint = DarcyFluxConstraint(
+        stream_derivative="fd",
+        padding=0,
+        curl_loss_weight=0.25,
+        shapelist=(height, width),
+    )
+
+    psi_pred = torch.randn(2, n_points, 1)
+    permeability_physical = torch.full((2, n_points, 1), 4.0)
+
+    out = constraint(
+        pred=psi_pred,
+        fx=permeability_physical,
+        return_aux=True,
+    )
+
+    assert out.extra_loss is not None
+    assert out.extra_loss.ndim == 0
+    assert float(out.extra_loss) > 0.0
+    assert "constraint/w_curl_mse" in out.diagnostics
+    assert float(out.diagnostics["constraint/w_curl_mse"].value) > 0.0

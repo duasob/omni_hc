@@ -15,6 +15,7 @@ _BUILD_META_KEYS: frozenset[str] = frozenset({"name", "freeze_base"})
 # kwargs passed to ConstrainedModel.forward that are meant for the constraint only
 # and must not be forwarded to the backbone.
 _CONSTRAINT_ONLY_KWARGS: frozenset[str] = frozenset({"uy_target"})
+_RESOLVED_CONSTRAINT_KWARGS: frozenset[str] = frozenset({"coords", "fx"})
 
 
 @dataclass
@@ -122,10 +123,13 @@ class ConstrainedModel(nn.Module):
         pred = self.backbone(*args, **backbone_kwargs)
         coords = args[0] if len(args) > 0 else kwargs.get("coords")
         fx = args[1] if len(args) > 1 else kwargs.get("fx")
+        constraint_kwargs = {
+            k: v for k, v in kwargs.items() if k not in _RESOLVED_CONSTRAINT_KWARGS
+        }
         return self.constraint(
             pred=pred,
             coords=coords,
             fx=fx,
             return_aux=return_aux,
-            **kwargs,
+            **constraint_kwargs,
         )

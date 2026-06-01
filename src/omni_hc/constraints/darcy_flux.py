@@ -59,6 +59,7 @@ class DarcyFluxConstraint(ConstraintModule):
         enforce_boundary: bool = True,
         boundary_value: float = 0.0,
         particular_field: str = "y_only",
+        curl_loss_weight: float = 0.0,
         shapelist: Sequence[int] | None = None,
         lower: float = 0.0,
         upper: float = 1.0,
@@ -90,6 +91,7 @@ class DarcyFluxConstraint(ConstraintModule):
         self.enforce_boundary = bool(enforce_boundary)
         self.boundary_value = float(boundary_value)
         self.particular_field = str(particular_field).lower()
+        self.curl_loss_weight = float(curl_loss_weight)
         self.shapelist = None if shapelist is None else tuple(int(v) for v in shapelist)
         self.lower = float(lower)
         self.upper = float(upper)
@@ -239,6 +241,17 @@ class DarcyFluxConstraint(ConstraintModule):
     ) -> torch.Tensor:
         return (pred - target).square().sum(dim=1, keepdim=True).sqrt()
 
+    def _curl_loss(
+        self,
+        gradient: torch.Tensor,
+        *,
+        dy: float,
+        dx: float,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        curl = finite_difference_curl_2d(gradient, dy=dy, dx=dx)
+        per_sample = curl.square().reshape(curl.shape[0], -1).mean(dim=1)
+        return self.curl_loss_weight * per_sample.sum(), per_sample.mean()
+
     def forward(self, *, pred, fx=None, return_aux=False, **_unused):
         if fx is None:
             raise ValueError("fx is required for DarcyFluxConstraint")
@@ -295,6 +308,15 @@ class DarcyFluxConstraint(ConstraintModule):
         )
         pressure_flat = reshape_grid_to_channels_last(pressure)
         pressure_encoded = self._encode_pressure(pressure_flat)
+
+        extra_loss = None
+        curl_loss_unweighted = None
+        if self.curl_loss_weight > 0.0:
+            extra_loss, curl_loss_unweighted = self._curl_loss(
+                gradient_input,
+                dy=dy,
+                dx=dx,
+            )
 
         if return_aux:
             stream_correction = crop_spatial_2d(stream_correction_padded, self.padding)
@@ -385,6 +407,11 @@ class DarcyFluxConstraint(ConstraintModule):
                     reduce="max",
                 ),
             }
+            if curl_loss_unweighted is not None:
+                diagnostics["constraint/w_curl_mse"] = ConstraintDiagnostic(
+                    value=curl_loss_unweighted,
+                    reduce="mean",
+                )
             return self.as_output(
                 pressure_encoded,
                 aux={
@@ -393,6 +420,7 @@ class DarcyFluxConstraint(ConstraintModule):
                     "constrained_flux": reshape_grid_to_channels_last(constrained_flux),
                 },
                 diagnostics=diagnostics,
+                extra_loss=extra_loss,
             )
         return pressure_encoded
 

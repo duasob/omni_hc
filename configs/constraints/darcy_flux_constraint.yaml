@@ -14,5 +14,6 @@ constraint:
   padding: 0
   padding_mode: "reflect"
   particular_field: "y_only"
+  curl_loss_weight: 0.05
   enforce_boundary: true
   boundary_value: 0.0
