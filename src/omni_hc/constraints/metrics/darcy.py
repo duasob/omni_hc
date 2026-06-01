@@ -3,7 +3,7 @@
 Methodology table rows:
     Darcy / Dirichlet strict       -> ‖û|∂Ω‖∞
     Darcy / Dirichlet corner-only  -> ‖û|corners‖∞
-    Darcy / Flux constraint        -> ‖∇·v̂ - 1‖₂
+    Darcy / Darcy residual         -> ‖∇·(-a∇û) - 1‖₂
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ def compute(
     Returns:
         ``constraint/dirichlet_strict_{mean,max}``,
         ``constraint/dirichlet_corner_{mean,max}``.
-        Flux L2 metric is not yet implemented — see TODO below.
+        ``constraint/darcy_res_{abs_mean,abs_max,rmse}``.
     """
     h, w = tuple(meta["shapelist"])
     grid = _reshape_to_grid(pred, (h, w))  # (B, H, W, C)
@@ -83,7 +83,7 @@ def compute(
         ),
     }
 
-    # Flux residual: ∇·(-k ∇û) - 1
+    # Pressure-induced Darcy residual: ∇·(-k ∇û) - 1.
     fx = batch.get("x")
     if fx is not None:
         k = _reshape_to_grid(fx, (h, w))[..., 0]  # (B, H, W) permeability (channel 0)
@@ -97,15 +97,27 @@ def compute(
         flux = -k_nchw * grad  # (B, 2, H, W) -- [v_x, v_y]
         div = finite_difference_divergence_2d(flux, dy=dy, dx=dx_)  # (B, 1, H, W)
         residual = (div - 1.0).abs()  # source term = 1
+        out["constraint/darcy_res_abs_mean"] = ConstraintDiagnostic(
+            value=residual.mean(), reduce="mean"
+        )
+        out["constraint/darcy_res_abs_max"] = ConstraintDiagnostic(
+            value=residual.max(), reduce="max"
+        )
+        residual2 = (div - 1.0).square().reshape(div.shape[0], -1)
+        rmse_per_sample = residual2.mean(dim=-1).sqrt()
+        out["constraint/darcy_res_rmse"] = ConstraintDiagnostic(
+            value=rmse_per_sample.mean(), reduce="mean"
+        )
+
+        # Backwards-compatible aliases for existing report artifacts. New report
+        # rows should prefer the darcy_res_* keys to avoid confusing this
+        # pressure-induced residual with the flux constraint's constructed flux.
         out["constraint/flux_abs_mean"] = ConstraintDiagnostic(
             value=residual.mean(), reduce="mean"
         )
         out["constraint/flux_abs_max"] = ConstraintDiagnostic(
             value=residual.max(), reduce="max"
         )
-        # RMSE = sqrt(mean(residual^2)) per sample, averaged.
-        residual2 = (div - 1.0).square().reshape(div.shape[0], -1)
-        rmse_per_sample = residual2.mean(dim=-1).sqrt()
         out["constraint/flux_rmse"] = ConstraintDiagnostic(
             value=rmse_per_sample.mean(), reduce="mean"
         )

@@ -97,6 +97,7 @@ def evaluate_steady(
     device,
     y_normalizer,
     prepare_batch,
+    x_normalizer=None,
     shapelist: tuple[int, int] | None = None,
     debug_nan_checks: bool = False,
     raise_on_nonfinite: bool = True,
@@ -162,10 +163,11 @@ def evaluate_steady(
                 )
             diag_metrics.update(out["diagnostics"], weight=batch_size)
             if compute_extra_diagnostics is not None:
+                fx_for_diagnostics = _decode_if_needed(x_normalizer, fx)
                 extra = compute_extra_diagnostics(
                     pred=pred,
                     coords=coords,
-                    fx=fx,
+                    fx=fx_for_diagnostics,
                     target=target_decoded,
                 )
                 if extra:
@@ -489,6 +491,7 @@ def train_steady_task(
                     device=device,
                     y_normalizer=y_normalizer,
                     prepare_batch=prepare_batch,
+                    x_normalizer=x_normalizer,
                     shapelist=tuple(meta.get("shapelist", ())) or None,
                     debug_nan_checks=debug_nan_checks,
                     raise_on_nonfinite=raise_on_nonfinite,
@@ -640,6 +643,7 @@ def test_steady_task(
         device=device,
         y_normalizer=y_normalizer,
         prepare_batch=prepare_batch,
+        x_normalizer=x_normalizer,
         shapelist=tuple(meta.get("shapelist", ())) or None,
         debug_nan_checks=debug_nan_checks,
         compute_extra_diagnostics=make_benchmark_diagnostic_fn(cfg, meta),

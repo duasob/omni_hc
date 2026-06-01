@@ -142,9 +142,11 @@ def test_darcy_flux_constraint_emits_helmholtz_diagnostics():
     assert "constraint/stream_div_abs_mean" in out.diagnostics
     assert "constraint/flux_div_abs_mean" in out.diagnostics
     assert "constraint/flux_rmse" in out.diagnostics
+    assert "constraint/constructed_flux_rmse" in out.diagnostics
     assert "constraint/w_error_abs_mean" in out.diagnostics
     assert "constraint/w_curl_abs_mean" in out.diagnostics
     assert "constraint/darcy_res_abs_mean" in out.diagnostics
+    assert "constraint/darcy_res_rmse" in out.diagnostics
     assert "constraint/boundary_abs_mean" in out.diagnostics
     assert float(out.diagnostics["constraint/stream_div_abs_mean"].value) < 1.0e-3
     assert float(out.diagnostics["constraint/boundary_abs_max"].value) == 0.0

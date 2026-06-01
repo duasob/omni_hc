@@ -1,4 +1,5 @@
 from omni_hc.constraints import ConstraintDiagnostic
+from omni_hc.constraints.metrics.darcy import compute as compute_darcy_metrics
 from omni_hc.constraints.metrics.plasticity import compute as compute_plasticity_metrics
 from omni_hc.training.common import MetricAccumulator
 
@@ -25,6 +26,29 @@ def test_metric_accumulator_respects_mean_and_max_reductions():
 
     assert reduced["constraint/a"] == (2.0 * 2.0 + 4.0) / 3.0
     assert reduced["constraint/b"] == 3.0
+
+
+def test_darcy_metric_reports_pressure_induced_residual_keys():
+    import torch
+
+    h = w = 5
+    x = torch.linspace(0.0, 1.0, w)
+    y = torch.linspace(0.0, 1.0, h)
+    yy, xx = torch.meshgrid(y, x, indexing="ij")
+    pressure = 0.25 * (xx * (1.0 - xx) + yy * (1.0 - yy))
+    pred = pressure.reshape(1, h * w, 1)
+    permeability = torch.ones_like(pred)
+
+    metrics = compute_darcy_metrics(
+        pred,
+        {"x": permeability},
+        {"shapelist": (h, w)},
+    )
+
+    assert "constraint/darcy_res_abs_mean" in metrics
+    assert "constraint/darcy_res_abs_max" in metrics
+    assert "constraint/darcy_res_rmse" in metrics
+    assert "constraint/flux_rmse" in metrics
 
 
 def test_plasticity_metric_reports_zero_for_monotone_grid():

@@ -67,7 +67,7 @@ cv_gt = ReportArtifact(
             metric_key="constraint/dirichlet_corner_max",
             macro=r"\cvGtDarcyDirichletCorner",
         ),
-        Row(run=GT, metric_key="constraint/flux_rmse", macro=r"\cvGtDarcyFlux"),
+        Row(run=GT, metric_key="constraint/darcy_res_abs_mean", macro=r"\cvGtDarcyFlux"),
         Row(run=GT, metric_key="constraint/wall_abs_max", macro=r"\cvGtPipeWall"),
         Row(run=GT, metric_key="constraint/inlet_rmse", macro=r"\cvGtPipeInlet"),
         Row(run=GT, metric_key="constraint/div_rel_mean", macro=r"\cvGtPipeDiv"),
@@ -107,7 +107,11 @@ cv_baseline = ReportArtifact(
             metric_key="constraint/dirichlet_corner_max",
             macro=r"\cvBlDarcyDirichletCorner",
         ),
-        Row(run=DARCY_BL, metric_key="constraint/flux_rmse", macro=r"\cvBlDarcyFlux"),
+        Row(
+            run=DARCY_BL,
+            metric_key="constraint/darcy_res_abs_mean",
+            macro=r"\cvBlDarcyFlux",
+        ),
         Row(run=PIPE_BL, metric_key="constraint/wall_abs_max", macro=r"\cvBlPipeWall"),
         Row(run=PIPE_BL, metric_key="constraint/inlet_rmse", macro=r"\cvBlPipeInlet"),
         Row(run=None, metric_key=None, macro=r"\cvBlPipeDiv", literal="/"),
@@ -181,7 +185,7 @@ cv_constrained = ReportArtifact(
         ),
         Row(
             run=DARCY_FLUX_HC,
-            metric_key=("constraint/flux_rmse", "constraint/flux_div_abs_mean"),
+            metric_key="constraint/darcy_res_abs_mean",
             macro=r"\cvHcDarcyFlux",
         ),
         Row(

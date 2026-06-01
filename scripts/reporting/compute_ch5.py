@@ -57,6 +57,19 @@ def _decode_uy_if_needed(loader, tensor: torch.Tensor, device: torch.device) -> 
     return normalizer.to(device).decode(tensor)
 
 
+def _decode_x_if_needed(
+    loader,
+    tensor: torch.Tensor | None,
+    device: torch.device,
+) -> torch.Tensor | None:
+    if tensor is None:
+        return None
+    normalizer = getattr(loader, "x_normalizer", None)
+    if normalizer is None:
+        return tensor
+    return normalizer.to(device).decode(tensor)
+
+
 def _target_for_metric(benchmark: str, target: torch.Tensor, meta: dict[str, Any]) -> torch.Tensor:
     if benchmark == "navier_stokes_2d":
         b, n, c = target.shape
@@ -85,6 +98,7 @@ def _accumulate_gt(
         if max_batches is not None and batch_idx >= max_batches:
             break
         coords, fx, target = batch_tensors(batch, device)
+        fx = _decode_x_if_needed(loader, fx, device)
         target = _decode_if_needed(loader, target.to(device), device)
         pred = _target_for_metric(benchmark, target, meta)
         diagnostics = metric_fn(pred, {"coords": coords, "x": fx}, meta)

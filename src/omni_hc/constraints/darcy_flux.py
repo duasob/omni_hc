@@ -348,6 +348,9 @@ class DarcyFluxConstraint(ConstraintModule):
                 dy=dy,
                 dx=dx,
             ) - self.force_value
+            darcy_res_rmse = darcy_residual.square().reshape(
+                darcy_residual.shape[0], -1
+            ).mean(dim=-1).sqrt()
             boundary_residual = self._boundary_residual(pressure)
             flux_rmse = flux_divergence_residual.square().reshape(
                 flux_divergence_residual.shape[0], -1
@@ -374,6 +377,10 @@ class DarcyFluxConstraint(ConstraintModule):
                     value=flux_rmse.mean(),
                     reduce="mean",
                 ),
+                "constraint/constructed_flux_rmse": ConstraintDiagnostic(
+                    value=flux_rmse.mean(),
+                    reduce="mean",
+                ),
                 "constraint/w_error_abs_mean": ConstraintDiagnostic(
                     value=w_error.mean(),
                     reduce="mean",
@@ -397,6 +404,10 @@ class DarcyFluxConstraint(ConstraintModule):
                 "constraint/darcy_res_abs_max": ConstraintDiagnostic(
                     value=darcy_residual.abs().max(),
                     reduce="max",
+                ),
+                "constraint/darcy_res_rmse": ConstraintDiagnostic(
+                    value=darcy_res_rmse.mean(),
+                    reduce="mean",
                 ),
                 "constraint/boundary_abs_mean": ConstraintDiagnostic(
                     value=boundary_residual.mean(),
