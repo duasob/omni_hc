@@ -1,7 +1,8 @@
-# Factformer with the Navier-Stokes mean correction across four data budgets.
+# Factformer with the Navier-Stokes mean correction across all data budgets.
 # The model/constraint hookup comes from
 # configs/experiments/navier_stokes/factformer_mean_latent_engineered.yaml:
-# latent_head mode with a Factformer hook on the final block (blocks.-1.ln_3).
+# latent_head mode with ONO-inspired Factformer hooks on blocks.-2,
+# blocks.-1.ln_1, blocks.-1.Attn, and blocks.-1.ln_3.
 #
 # Submit on the GPU cluster:
 #   qsub scripts/hpc/gpu.pbs experiments/navier_stokes/factformer_mean_latent_engineered_data.txt
@@ -12,21 +13,21 @@
 #   outputs/navier_stokes/mean_constraint/factformer/<budget>/seed_42/{resolved_config.yaml,best.pt}
 
 # --- e5_t50: 5 epochs, 50 train ---
-train: --config configs/experiments/navier_stokes/factformer_mean_latent_engineered.yaml --budget e5_t50 --override wandb_logging.run_name=navier_stokes_factformer_mean_latent_engineered_e5_t50
+train: --config configs/experiments/navier_stokes/factformer_mean_latent_engineered.yaml --budget e5_t50
 test: --config outputs/navier_stokes/mean_constraint/factformer/e5_t50/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/mean_constraint/factformer/e5_t50/seed_42/best.pt
 
 # --- e10_t100: 10 epochs, 100 train ---
-train: --config configs/experiments/navier_stokes/factformer_mean_latent_engineered.yaml --budget e10_t100 --override wandb_logging.run_name=navier_stokes_factformer_mean_latent_engineered_e10_t100
+train: --config configs/experiments/navier_stokes/factformer_mean_latent_engineered.yaml --budget e10_t100
 test: --config outputs/navier_stokes/mean_constraint/factformer/e10_t100/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/mean_constraint/factformer/e10_t100/seed_42/best.pt
 
 # --- e50_t500: 50 epochs, 500 train ---
-train: --config configs/experiments/navier_stokes/factformer_mean_latent_engineered.yaml --budget e50_t500 --override wandb_logging.run_name=navier_stokes_factformer_mean_latent_engineered_e50_t500
+train: --config configs/experiments/navier_stokes/factformer_mean_latent_engineered.yaml --budget e50_t500
 test: --config outputs/navier_stokes/mean_constraint/factformer/e50_t500/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/mean_constraint/factformer/e50_t500/seed_42/best.pt
 
 # --- e100_t900: 100 epochs, 900 train ---
-train: --config configs/experiments/navier_stokes/factformer_mean_latent_engineered.yaml --budget e100_t900 --override wandb_logging.run_name=navier_stokes_factformer_mean_latent_engineered_e100_t900
+train: --config configs/experiments/navier_stokes/factformer_mean_latent_engineered.yaml --budget e100_t900
 test: --config outputs/navier_stokes/mean_constraint/factformer/e100_t900/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/mean_constraint/factformer/e100_t900/seed_42/best.pt
 
 # --- final: 500 epochs, 1000 train ---
-# train: --config configs/experiments/navier_stokes/factformer_mean_latent_engineered.yaml --budget final --override wandb_logging.run_name=navier_stokes_factformer_mean_latent_engineered_final
-# test: --config outputs/navier_stokes/mean_constraint/factformer/final/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/mean_constraint/factformer/final/seed_42/best.pt
+train: --config configs/experiments/navier_stokes/factformer_mean_latent_engineered.yaml --budget final
+test: --config outputs/navier_stokes/mean_constraint/factformer/final/seed_42/resolved_config.yaml --checkpoint outputs/navier_stokes/mean_constraint/factformer/final/seed_42/best.pt

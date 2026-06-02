@@ -8,8 +8,11 @@ overrides:
   constraint:
     mode: "latent_head"
     latent_module:
+      - "blocks.-2"        # penultimate propagated full-grid state
+      - "blocks.-1.ln_1"   # state feeding the final axial K/Q projections and values
+      - "blocks.-1.Attn"   # final factorized axial update on the full grid
       - "blocks.-1.ln_3"   # final representation before projection
-    latent_dim: 256
+    latent_dim: 1024
     correction_hidden: 512
     correction_layers: 2
     correction_act: "gelu"
