@@ -1,0 +1,27 @@
+# FNO with DarcyFluxConstraint using spectral curl on the Darcy benchmark.
+# Small data-budget comparison to measure how reflect-padding changes
+# spectral-curl performance.
+#
+# Run via the HPC runner:
+#   RUNS_FILE=experiments/darcy/fno_flux_spectral_padding_small.txt bash scripts/hpc/runner.sh
+# Or locally via the batch runner:
+#   bash scripts/run_batch.sh experiments/darcy/fno_flux_spectral_padding_small.txt
+#
+# Output layout:
+#   outputs/darcy/darcy_flux_constraint_spectral/fno_padding/smoke/pad_<N>/seed_42/{resolved_config.yaml,best.pt}
+
+# --- pad_0: no padding around the spectral curl domain ---
+train: --benchmark darcy --backbone FNO --constraint darcy_flux_constraint_spectral --budget smoke --override constraint.padding=32 --override paths.output_dir=outputs/darcy/darcy_flux_constraint_spectral/fno_padding/smoke/pad_0/seed_42 --override wandb_logging.run_name=darcy_fno_flux_spectral_pad_0_smoke
+test: --config outputs/darcy/darcy_flux_constraint_spectral/fno_padding/smoke/pad_0/seed_42/resolved_config.yaml --checkpoint outputs/darcy/darcy_flux_constraint_spectral/fno_padding/smoke/pad_0/seed_42/best.pt
+
+# --- pad_4: light reflect padding ---
+train: --benchmark darcy --backbone FNO --constraint darcy_flux_constraint_spectral --budget smoke --override constraint.padding=4 --override paths.output_dir=outputs/darcy/darcy_flux_constraint_spectral/fno_padding/smoke/pad_4/seed_42 --override wandb_logging.run_name=darcy_fno_flux_spectral_pad_4_smoke
+test: --config outputs/darcy/darcy_flux_constraint_spectral/fno_padding/smoke/pad_4/seed_42/resolved_config.yaml --checkpoint outputs/darcy/darcy_flux_constraint_spectral/fno_padding/smoke/pad_4/seed_42/best.pt
+
+# --- pad_8: current spectral padded baseline ---
+train: --benchmark darcy --backbone FNO --constraint darcy_flux_constraint_spectral --budget smoke --override constraint.padding=8 --override paths.output_dir=outputs/darcy/darcy_flux_constraint_spectral/fno_padding/smoke/pad_8/seed_42 --override wandb_logging.run_name=darcy_fno_flux_spectral_pad_8_smoke
+test: --config outputs/darcy/darcy_flux_constraint_spectral/fno_padding/smoke/pad_8/seed_42/resolved_config.yaml --checkpoint outputs/darcy/darcy_flux_constraint_spectral/fno_padding/smoke/pad_8/seed_42/best.pt
+
+# --- pad_12: heavier reflect padding ---
+train: --benchmark darcy --backbone FNO --constraint darcy_flux_constraint_spectral --budget smoke --override constraint.padding=12 --override paths.output_dir=outputs/darcy/darcy_flux_constraint_spectral/fno_padding/smoke/pad_12/seed_42 --override wandb_logging.run_name=darcy_fno_flux_spectral_pad_12_smoke
+test: --config outputs/darcy/darcy_flux_constraint_spectral/fno_padding/smoke/pad_12/seed_42/resolved_config.yaml --checkpoint outputs/darcy/darcy_flux_constraint_spectral/fno_padding/smoke/pad_12/seed_42/best.pt
