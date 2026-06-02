@@ -1,0 +1,20 @@
+training:
+  max_grad_norm: 1.0
+
+constraint:
+  name: "darcy_flux_constraint"
+  spectral_backend: "helmholtz_sine"
+  # grad_perp(psi) via the spectral FFT derivative (ik) instead of finite
+  # differences. The FFT derivative needs a padded computational box so the
+  # reflect-padded field is smooth at the periodic seam; otherwise it amplifies
+  # grid-scale modes and produces high-frequency striping. Pair with non-zero
+  # padding (see fno/gt *_flux_fft_pad experiments).
+  stream_derivative: "spectral"
+  pressure_out_dim: 1
+  force_value: 1.0
+  permeability_eps: 1.0e-6
+  padding: 32
+  padding_mode: "reflect"
+  particular_field: "y_only"
+  enforce_boundary: true
+  boundary_value: 0.0
