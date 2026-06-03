@@ -67,6 +67,16 @@ def parse_args() -> argparse.Namespace:
             "so the first search isolates larger coeff_head capacity."
         ),
     )
+    p.add_argument(
+        "--inner-depths",
+        type=_int_list,
+        default=_int_list("1"),
+        help=(
+            "Comma-separated number of interior rings (depth 1..d) fed to the "
+            "coeff_head for the *_inner feature modes. depth 1 is the ring "
+            "adjacent to the edge. Ignored for feature modes without 'inner'."
+        ),
+    )
     p.add_argument("--epochs", type=int, default=800)
     p.add_argument(
         "--early-stopping-patience",
@@ -122,6 +132,7 @@ def parse_args() -> argparse.Namespace:
 def _trial_grid(args: argparse.Namespace) -> list[dict[str, object]]:
     keys = (
         "feature_mode",
+        "inner_depth",
         "n_modes",
         "hidden_dim",
         "n_layers",
@@ -131,6 +142,7 @@ def _trial_grid(args: argparse.Namespace) -> list[dict[str, object]]:
     )
     values = (
         args.feature_modes,
+        args.inner_depths,
         args.n_modes,
         args.hidden_dims,
         args.n_layers,
@@ -156,6 +168,9 @@ def _suggest_tpe_trial(optuna_trial, args: argparse.Namespace) -> dict[str, obje
         "feature_mode": optuna_trial.suggest_categorical(
             "feature_mode", args.feature_modes
         ),
+        "inner_depth": optuna_trial.suggest_categorical(
+            "inner_depth", args.inner_depths
+        ),
         "n_modes": optuna_trial.suggest_categorical("n_modes", args.n_modes),
         "hidden_dim": optuna_trial.suggest_categorical(
             "hidden_dim", args.hidden_dims
@@ -172,8 +187,13 @@ def _suggest_tpe_trial(optuna_trial, args: argparse.Namespace) -> dict[str, obje
 
 
 def _trial_key(trial: dict[str, object]) -> tuple[object, ...]:
+    feature_mode = str(trial["feature_mode"])
+    # inner_depth only affects modes that use interior rings; collapse it for
+    # the rest so otherwise-identical configs are treated as duplicates.
+    inner_depth = int(trial["inner_depth"]) if "inner" in feature_mode else 1
     return (
-        trial["feature_mode"],
+        feature_mode,
+        inner_depth,
         int(trial["n_modes"]),
         int(trial["hidden_dim"]),
         int(trial["n_layers"]),
@@ -297,6 +317,7 @@ def _train_trial(
         hidden_dim=int(trial["hidden_dim"]),
         n_layers=int(trial["n_layers"]),
         feature_mode=str(trial["feature_mode"]),
+        inner_depth=int(trial.get("inner_depth", 1)),
     ).to(device)
 
     n_train = coeff_train.shape[0]
@@ -572,6 +593,7 @@ def main() -> None:
         "recommended_constraint": {
             "name": "sine_boundary_constraint",
             "feature_mode": best["feature_mode"],
+            "inner_depth": int(best.get("inner_depth", 1)),
             "n_modes": int(best["n_modes"]),
             "hidden_dim": int(best["hidden_dim"]),
             "n_layers": int(best["n_layers"]),
@@ -595,7 +617,8 @@ def main() -> None:
     print(f"wrote {summary_path}")
     print(
         "best: "
-        f"feature_mode={best['feature_mode']} n_modes={best['n_modes']} "
+        f"feature_mode={best['feature_mode']} "
+        f"inner_depth={best.get('inner_depth', 1)} n_modes={best['n_modes']} "
         f"hidden_dim={best['hidden_dim']} n_layers={best['n_layers']} "
         f"lr={best['lr']} weight_decay={best['weight_decay']} "
         f"batch_size={best['batch_size']} "

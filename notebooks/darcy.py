@@ -216,6 +216,382 @@ table_path = FIGURES_DIR / "darcy_dataset_statistics_table.tex"
 table_path.write_text(latex_table + "\n")
 print(f"Saved to {table_path}")
 
+# %% Ground-truth Darcy residual — where does darcy_res_abs_mean come from?
+# The Chapter 5 GT report computes constraint/darcy_res_abs_mean on the canonical
+# test split: smooth2, first 200 samples, downsampled 421 -> 85 with stride 5.
+# Match the report stencil exactly: finite_difference_gradient_2d followed by
+# finite_difference_divergence_2d on flux = -a grad u.
+import csv
+
+import torch
+
+from omni_hc.constraints.utils.spectral import (
+    finite_difference_divergence_2d,
+    finite_difference_gradient_2d,
+)
+
+
+def _darcy_report_residual_fields(coeff_np, sol_np, *, chunk_size=32):
+    h, w = sol_np.shape[-2:]
+    dy = 1.0 / max(h - 1, 1)
+    dx = 1.0 / max(w - 1, 1)
+    fields = []
+    for start in range(0, sol_np.shape[0], chunk_size):
+        stop = min(start + chunk_size, sol_np.shape[0])
+        k = torch.as_tensor(coeff_np[start:stop], dtype=torch.float32).unsqueeze(1)
+        pressure = torch.as_tensor(sol_np[start:stop], dtype=torch.float32).unsqueeze(1)
+        with torch.no_grad():
+            grad = finite_difference_gradient_2d(pressure, dy=dy, dx=dx)
+            flux = -k * grad
+            div = finite_difference_divergence_2d(flux, dy=dy, dx=dx)
+            residual = div - 1.0
+        fields.append(residual.squeeze(1).cpu().numpy())
+    return np.concatenate(fields, axis=0)
+
+
+DARCY_REPORT_NTEST = 200
+DARCY_RES_SAMPLE_IDXS = [0, 10, 100]
+DARCY_RES_PATH = DATA_DIR / "piececonst_r421_N1024_smooth2.mat"
+
+raw_res = scio.loadmat(str(DARCY_RES_PATH), variable_names=("coeff", "sol"))
+coeff_res = raw_res["coeff"][:DARCY_REPORT_NTEST, ::STRIDE, ::STRIDE]
+sol_res = raw_res["sol"][:DARCY_REPORT_NTEST, ::STRIDE, ::STRIDE]
+
+darcy_res = _darcy_report_residual_fields(coeff_res, sol_res)
+darcy_abs_res = np.abs(darcy_res)
+darcy_res_mean_abs_by_sample = darcy_abs_res.reshape(darcy_abs_res.shape[0], -1).mean(axis=1)
+darcy_res_p95_abs_by_sample = np.percentile(
+    darcy_abs_res.reshape(darcy_abs_res.shape[0], -1), 95, axis=1
+)
+darcy_res_max_abs_by_sample = darcy_abs_res.reshape(darcy_abs_res.shape[0], -1).max(axis=1)
+darcy_res_l2_by_sample = np.sqrt((darcy_res.reshape(darcy_res.shape[0], -1) ** 2).mean(axis=1))
+
+report_mean_abs = float(darcy_abs_res.mean())
+print("--- GT darcy_res_abs_mean diagnostic (report-matched) ---")
+print(f"split=smooth2 test, samples={DARCY_REPORT_NTEST}, grid={sol_res.shape[1:]}")
+print(f"constraint/darcy_res_abs_mean = {report_mean_abs:.6e}")
+print(
+    "per-sample mean |res|: "
+    f"mean={darcy_res_mean_abs_by_sample.mean():.6e}  "
+    f"p95={np.percentile(darcy_res_mean_abs_by_sample, 95):.6e}  "
+    f"max={darcy_res_mean_abs_by_sample.max():.6e}"
+)
+
+interior = np.zeros(sol_res.shape[1:], dtype=bool)
+interior[1:-1, 1:-1] = True
+edge_band = np.zeros_like(interior)
+edge_band[:2, :] = True
+edge_band[-2:, :] = True
+edge_band[:, :2] = True
+edge_band[:, -2:] = True
+edge_band &= ~boundary_mask(sol_res.shape[1:])
+boundary = boundary_mask(sol_res.shape[1:])
+deep_interior = interior & ~edge_band
+
+for label, region in [
+    ("boundary", boundary),
+    ("one-cell interior edge band", edge_band),
+    ("deep interior", deep_interior),
+]:
+    vals = darcy_abs_res[:, region]
+    print(f"{label:<28} mean |res|={vals.mean():.6e}  max={vals.max():.6e}")
+
+# Per-sample table so exact samples can be inspected or sorted outside Python.
+csv_path = FIGURES_DIR / "darcy_gt_residual_sample_metrics.csv"
+with open(csv_path, "w", encoding="utf-8", newline="") as handle:
+    writer = csv.writer(handle)
+    writer.writerow(["sample", "mean_abs", "p95_abs", "max_abs", "l2"])
+    for sample_idx in range(darcy_res.shape[0]):
+        writer.writerow(
+            [
+                sample_idx,
+                f"{darcy_res_mean_abs_by_sample[sample_idx]:.10e}",
+                f"{darcy_res_p95_abs_by_sample[sample_idx]:.10e}",
+                f"{darcy_res_max_abs_by_sample[sample_idx]:.10e}",
+                f"{darcy_res_l2_by_sample[sample_idx]:.10e}",
+            ]
+        )
+print(f"Saved to {csv_path}")
+
+# Spatial average over all GT report samples: this answers where the mean metric
+# is concentrated on the grid, rather than just how large it is after reduction.
+mean_abs_spatial = darcy_abs_res.mean(axis=0)
+p95_abs_spatial = np.percentile(darcy_abs_res, 95, axis=0)
+signed_mean_spatial = darcy_res.mean(axis=0)
+
+fig, axes = plt.subplots(1, 3, figsize=(12.5, 3.7), constrained_layout=True)
+
+im0 = axes[0].imshow(mean_abs_spatial, origin="lower", extent=(0, 1, 0, 1), cmap="inferno")
+axes[0].set_title("Mean $|\\nabla\\cdot(-a\\nabla u)-1|$")
+fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+
+im1 = axes[1].imshow(p95_abs_spatial, origin="lower", extent=(0, 1, 0, 1), cmap="inferno")
+axes[1].set_title("p95 $|\\mathrm{res}|$")
+fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+
+signed_scale = float(np.abs(signed_mean_spatial).max()) or 1.0
+im2 = axes[2].imshow(
+    signed_mean_spatial,
+    origin="lower",
+    extent=(0, 1, 0, 1),
+    cmap="coolwarm",
+    vmin=-signed_scale,
+    vmax=signed_scale,
+)
+axes[2].set_title("Signed mean residual")
+fig.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+
+for ax in axes:
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+
+out_path = FIGURES_DIR / "darcy_gt_residual_spatial_average.png"
+fig.savefig(out_path, bbox_inches="tight")
+plt.show()
+print(f"Saved to {out_path}")
+
+# Specific examples: requested samples plus the worst sample by mean |res|.
+worst_sample_idx = int(np.argmax(darcy_res_mean_abs_by_sample))
+sample_panel_idxs = list(dict.fromkeys([*DARCY_RES_SAMPLE_IDXS, worst_sample_idx]))
+sample_vmax = float(
+    np.percentile(darcy_abs_res[sample_panel_idxs], 99)
+) or float(darcy_abs_res[sample_panel_idxs].max()) or 1.0
+
+fig, axes = plt.subplots(
+    3,
+    len(sample_panel_idxs),
+    figsize=(3.15 * len(sample_panel_idxs), 8.2),
+    constrained_layout=True,
+)
+if len(sample_panel_idxs) == 1:
+    axes = axes[:, None]
+
+for col, sample_idx in enumerate(sample_panel_idxs):
+    im = axes[0, col].imshow(
+        coeff_res[sample_idx], origin="lower", extent=(0, 1, 0, 1), cmap=CMAP_INPUT
+    )
+    axes[0, col].set_title(f"sample {sample_idx}: $a$")
+    fig.colorbar(im, ax=axes[0, col], fraction=0.046, pad=0.04)
+
+    im = axes[1, col].imshow(
+        sol_res[sample_idx], origin="lower", extent=(0, 1, 0, 1), cmap=CMAP_OUTPUT
+    )
+    axes[1, col].set_title("$u$")
+    fig.colorbar(im, ax=axes[1, col], fraction=0.046, pad=0.04)
+
+    im = axes[2, col].imshow(
+        darcy_abs_res[sample_idx],
+        origin="lower",
+        extent=(0, 1, 0, 1),
+        cmap="inferno",
+        vmin=0.0,
+        vmax=sample_vmax,
+    )
+    axes[2, col].set_title(
+        "$|\\mathrm{res}|$ "
+        f"mean={darcy_res_mean_abs_by_sample[sample_idx]:.2e}"
+    )
+    fig.colorbar(im, ax=axes[2, col], fraction=0.046, pad=0.04)
+
+for ax in axes.flat:
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+
+out_path = FIGURES_DIR / "darcy_gt_residual_sample_panels.png"
+fig.savefig(out_path, bbox_inches="tight")
+plt.show()
+print(f"Saved to {out_path}")
+
+# %% Ground-truth vs unconstrained/constrained Darcy residual samples
+# Compare the same residual diagnostic on model predictions. This makes the
+# interface-driven finite-difference pattern visible for GT, baseline, and the
+# flux-constrained model used by the Chapter 5 Darcy residual row.
+import importlib
+import sys
+
+import yaml
+
+from omni_hc.benchmarks.darcy.adapter import _prepare_batch, _runtime_overrides
+from omni_hc.benchmarks.darcy.data import build_test_loader
+from omni_hc.integrations.nsl import create_model
+from omni_hc.integrations.nsl.modeling import ensure_nsl_path
+from omni_hc.training.common import (
+    forward_with_optional_aux,
+    load_checkpoint_state,
+    load_model_state_dict,
+)
+
+
+def _patch_transolver_cpu_embedding(cfg, device):
+    ensure_nsl_path(cfg)
+    import layers.Embedding as _emb
+
+    _emb = importlib.reload(_emb)
+    original_upe = _emb.unified_pos_embedding
+
+    def _upe_device(*args, **kwargs):
+        kwargs.setdefault("device", device)
+        return original_upe(*args, **kwargs)
+
+    _emb.unified_pos_embedding = _upe_device
+    if "models.Transolver" in sys.modules:
+        sys.modules["models.Transolver"].unified_pos_embedding = _upe_device
+
+
+def _configure_darcy_constraint(model, loader, meta, device):
+    constraint = getattr(model, "constraint", None)
+    if constraint is None:
+        return
+    x_normalizer = loader.x_normalizer.to(device)
+    y_normalizer = loader.y_normalizer.to(device)
+    if hasattr(constraint, "set_target_normalizer"):
+        constraint.set_target_normalizer(y_normalizer)
+    if hasattr(constraint, "set_input_normalizer"):
+        constraint.set_input_normalizer(x_normalizer)
+    if hasattr(constraint, "set_grid_shape"):
+        constraint.set_grid_shape(tuple(meta["shapelist"]))
+    if hasattr(constraint, "set_domain_bounds"):
+        lower, upper = meta["domain_bounds"]
+        constraint.set_domain_bounds(lower=float(lower), upper=float(upper))
+
+
+def _load_darcy_model_predictions(run_dir, sample_idxs, *, device):
+    cfg = yaml.safe_load((run_dir / "resolved_config.yaml").read_text())
+    cfg["paths"]["root_dir"] = str(DATA_DIR)
+    _patch_transolver_cpu_embedding(cfg, device)
+
+    loader = build_test_loader(cfg)
+    meta = loader.darcy_meta
+    model, _, _ = create_model(
+        cfg,
+        device=device,
+        runtime_overrides=_runtime_overrides(meta),
+    )
+    _configure_darcy_constraint(model, loader, meta, device)
+
+    ckpt = load_checkpoint_state(run_dir / "best.pt", device=device)
+    load_model_state_dict(model, ckpt["model_state_dict"])
+    model.eval()
+
+    batch = {
+        key: torch.stack([loader.dataset[int(idx)][key] for idx in sample_idxs], dim=0)
+        for key in ("coords", "x", "y")
+    }
+    coords_b, fx_b, target_b = _prepare_batch(batch, device=device)
+    with torch.no_grad():
+        out = forward_with_optional_aux(model, coords_b, fx_b)
+
+    h, w = meta["shapelist"]
+    coeff_decoded = loader.x_normalizer.to(device).decode(fx_b).reshape(-1, h, w, 1)
+    pred_decoded = loader.y_normalizer.to(device).decode(out["pred"]).reshape(-1, h, w, 1)
+    target_decoded = loader.y_normalizer.to(device).decode(target_b).reshape(-1, h, w, 1)
+    return {
+        "coeff": coeff_decoded[..., 0].cpu().numpy(),
+        "pred": pred_decoded[..., 0].cpu().numpy(),
+        "target": target_decoded[..., 0].cpu().numpy(),
+    }
+
+
+DARCY_MODEL_DEVICE = torch.device("cpu")
+DARCY_MODEL_RUNS = {
+    "Unconstrained": REPO_ROOT / "outputs/darcy/none/transolver/final/seed_42",
+    "Flux constrained": REPO_ROOT
+    / "outputs/darcy/darcy_flux_constraint/transolver/final/seed_42",
+}
+
+model_fields = {
+    label: _load_darcy_model_predictions(run_dir, sample_panel_idxs, device=DARCY_MODEL_DEVICE)
+    for label, run_dir in DARCY_MODEL_RUNS.items()
+}
+model_residuals = {
+    label: _darcy_report_residual_fields(fields["coeff"], fields["pred"])
+    for label, fields in model_fields.items()
+}
+model_abs_residuals = {label: np.abs(res) for label, res in model_residuals.items()}
+gt_panel_abs_res = darcy_abs_res[sample_panel_idxs]
+
+print("--- Model darcy_res_abs_mean diagnostic on selected samples ---")
+print(
+    "GT selected samples: "
+    f"mean |res|={gt_panel_abs_res.mean():.6e}  max={gt_panel_abs_res.max():.6e}"
+)
+for label, abs_res in model_abs_residuals.items():
+    print(f"{label:<18} mean |res|={abs_res.mean():.6e}  max={abs_res.max():.6e}")
+
+comparison_vmax = (
+    float(
+        np.percentile(
+            np.concatenate(
+                [
+                    gt_panel_abs_res.reshape(-1),
+                    *[abs_res.reshape(-1) for abs_res in model_abs_residuals.values()],
+                ]
+            ),
+            99,
+        )
+    )
+    or 1.0
+)
+
+panel_rows = [
+    ("GT $u$", sol_res[sample_panel_idxs], gt_panel_abs_res, darcy_res_mean_abs_by_sample[sample_panel_idxs]),
+    *[
+        (
+            f"{label} $\\hat{{u}}$",
+            fields["pred"],
+            model_abs_residuals[label],
+            model_abs_residuals[label].reshape(len(sample_panel_idxs), -1).mean(axis=1),
+        )
+        for label, fields in model_fields.items()
+    ],
+]
+
+fig, axes = plt.subplots(
+    len(panel_rows) * 2,
+    len(sample_panel_idxs),
+    figsize=(3.15 * len(sample_panel_idxs), 3.0 * len(panel_rows) * 2),
+    constrained_layout=True,
+)
+if len(sample_panel_idxs) == 1:
+    axes = axes[:, None]
+
+for col, sample_idx in enumerate(sample_panel_idxs):
+    axes[0, col].set_title(f"sample {sample_idx}")
+
+for row_idx, (label, pressure_fields, abs_res_fields, mean_abs_values) in enumerate(panel_rows):
+    pressure_row = 2 * row_idx
+    residual_row = pressure_row + 1
+    for col, _sample_idx in enumerate(sample_panel_idxs):
+        im = axes[pressure_row, col].imshow(
+            pressure_fields[col],
+            origin="lower",
+            extent=(0, 1, 0, 1),
+            cmap=CMAP_OUTPUT,
+        )
+        axes[pressure_row, col].set_ylabel(label)
+        fig.colorbar(im, ax=axes[pressure_row, col], fraction=0.046, pad=0.04)
+
+        im = axes[residual_row, col].imshow(
+            abs_res_fields[col],
+            origin="lower",
+            extent=(0, 1, 0, 1),
+            cmap="inferno",
+            vmin=0.0,
+            vmax=comparison_vmax,
+        )
+        axes[residual_row, col].set_ylabel("$|\\mathrm{res}|$")
+        axes[residual_row, col].set_title(f"mean={mean_abs_values[col]:.2e}", fontsize=9)
+        fig.colorbar(im, ax=axes[residual_row, col], fraction=0.046, pad=0.04)
+
+for ax in axes.flat:
+    ax.set_xlabel("x")
+    ax.set_ylabel(ax.get_ylabel() or "y")
+
+out_path = FIGURES_DIR / "darcy_gt_model_residual_sample_panels.png"
+fig.savefig(out_path, bbox_inches="tight")
+plt.show()
+print(f"Saved to {out_path}")
+
 # %% Boundary profile — u along each edge
 # Extract the 4 edge profiles for multiple samples and plot as 1D curves.
 # If the shape is consistent across samples it's systematic (solver property),

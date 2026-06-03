@@ -66,6 +66,7 @@ class SineBoundaryConstraint(ConstraintModule):
         act: str = "gelu",
         latent_dim: int = 0,
         feature_mode: str = "boundary",
+        inner_depth: int = 1,
         extractor=None,
     ):
         super().__init__()
@@ -74,6 +75,11 @@ class SineBoundaryConstraint(ConstraintModule):
         self.n_modes = n_modes
         self.latent_dim = latent_dim
         self.feature_mode = str(feature_mode)
+        # Number of interior rings (depth 1..inner_depth) fed to coeff_head when
+        # feature_mode includes "inner". depth 1 == the ring adjacent to the edge.
+        self.inner_depth = int(inner_depth)
+        if self.inner_depth < 1:
+            raise ValueError(f"inner_depth must be >= 1, got {self.inner_depth}")
         self.extractor = extractor
 
         # Sine basis matrices — (n_points, n_modes)
@@ -496,11 +502,11 @@ class SineBoundaryConstraint(ConstraintModule):
         if mode == "boundary":
             return base
         if mode == "boundary_inner":
-            return 2 * base
+            return (1 + self.inner_depth) * base
         if mode == "boundary_stats":
             return base + 8
         if mode == "boundary_inner_stats":
-            return 2 * base + 8
+            return (1 + self.inner_depth) * base + 8
         if mode == "full":
             return self.H * self.W
         raise ValueError(
@@ -518,14 +524,19 @@ class SineBoundaryConstraint(ConstraintModule):
         ], dim=-1)
 
     def _inner_edge_feats(self, a: torch.Tensor) -> torch.Tensor:
-        if self.H < 3 or self.W < 3:
-            raise ValueError("feature_mode with inner ring requires H >= 3 and W >= 3")
-        return torch.cat([
-            a[:, 1 * self.W : 2 * self.W],
-            a[:, (self.H - 2) * self.W : (self.H - 1) * self.W],
-            a[:, self.idx_left[1:-1] + 1],
-            a[:, self.idx_right[1:-1] - 1],
-        ], dim=-1)
+        d = self.inner_depth
+        if self.H < 2 * d + 1 or self.W < 2 * d + 1:
+            raise ValueError(
+                f"feature_mode with inner_depth={d} requires "
+                f"H, W >= {2 * d + 1}; got H={self.H}, W={self.W}"
+            )
+        pieces: list[torch.Tensor] = []
+        for k in range(1, d + 1):
+            pieces.append(a[:, k * self.W : (k + 1) * self.W])               # bottom + k
+            pieces.append(a[:, (self.H - 1 - k) * self.W : (self.H - k) * self.W])  # top - k
+            pieces.append(a[:, self.idx_left[1:-1] + k])                     # left + k
+            pieces.append(a[:, self.idx_right[1:-1] - k])                    # right - k
+        return torch.cat(pieces, dim=-1)
 
     def _global_stats_feats(self, a: torch.Tensor) -> torch.Tensor:
         field = a.view(a.shape[0], self.H, self.W)
