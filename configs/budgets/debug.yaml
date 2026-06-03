@@ -5,7 +5,7 @@ data:
 training:
   batch_size: 2
   val_size: 4
-  num_epochs: 1
+  num_epochs: 2
   seed: 42
 
 evaluation:
@@ -14,7 +14,7 @@ evaluation:
 wandb_logging:
   wandb: true
   log_every: 1
-  image_log_every: null
+  image_log_every: 1
 
 optuna:
   num_trials: 2

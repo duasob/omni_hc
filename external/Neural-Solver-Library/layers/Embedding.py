@@ -5,7 +5,7 @@ from einops import rearrange
 import numpy as np
 
 
-def unified_pos_embedding(shapelist, ref, batchsize=1, device='cuda'):
+def unified_pos_embedding(shapelist, ref, batchsize=1, device=None):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') if device is None else device
     if len(shapelist) == 1:
         size_x = shapelist[0]
@@ -64,7 +64,7 @@ class RotaryEmbedding(nn.Module):
         self.scale = scale
         self.register_buffer('inv_freq', inv_freq)
 
-    def forward(self, coordinates, device='cuda'):
+    def forward(self, coordinates, device=None):
         # coordinates [b, n]
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') if device is None else device
         t = coordinates.to(device).type_as(self.inv_freq)

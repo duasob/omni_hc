@@ -10,6 +10,7 @@ model:
     out_dim: 4
     T_out: 20
     n_hidden: 128
+    modes: 12
     n_heads: 8
     n_layers: 8
     slice_num: 64
