@@ -60,6 +60,24 @@ def test_plasticity_mesh_consistency_alias_resolves_to_config_parameters():
     ]["source_configs"]
 
 
+def test_plasticity_envelope_alias_resolves_to_config_parameters():
+    cfg = compose_run_config(
+        benchmark="plasticity",
+        backbone="FNO",
+        constraint="plasticity_envelope_constraint",
+        budget="debug",
+    )
+
+    assert cfg["constraint"]["name"] == "plasticity_envelope_constraint"
+    assert cfg["constraint"]["backbone_out_dim"] == 4
+    assert cfg["constraint"]["target_out_dim"] == 4
+    assert cfg["constraint"]["envelope_source"] == "fx"
+    assert cfg["constraint"]["y_bottom"] == -0.099999905
+    assert "configs/constraints/plasticity_envelope_constraint.yaml" in cfg[
+        "experiment"
+    ]["source_configs"]
+
+
 def test_explicit_unknown_constraint_fails_fast():
     with pytest.raises(FileNotFoundError):
         compose_run_config(
@@ -98,6 +116,24 @@ def test_ono_mean_latent_engineered_config_applies_architecture_taps():
     ]
     assert cfg["constraint"]["latent_dim"] == 528
     assert cfg["wandb_logging"]["run_name"] == "navier_stokes_ono_mean_latent_engineered"
+
+
+def test_factformer_mean_latent_engineered_config_applies_axial_attention_taps():
+    cfg = compose_run_config(
+        experiment="configs/experiments/navier_stokes/factformer_mean_latent_engineered.yaml",
+    )
+
+    assert cfg["model"]["backbone"] == "Factformer"
+    assert cfg["constraint"]["name"] == "mean_constraint"
+    assert cfg["constraint"]["mode"] == "latent_head"
+    assert cfg["constraint"]["latent_module"] == [
+        "blocks.-2",
+        "blocks.-1.ln_1",
+        "blocks.-1.Attn",
+        "blocks.-1.ln_3",
+    ]
+    assert cfg["constraint"]["latent_dim"] == 1024
+    assert cfg["wandb_logging"]["run_name"] == "navier_stokes_factformer_mean_latent_engineered"
 
 
 def test_dotted_cli_overrides_apply_to_composed_config():

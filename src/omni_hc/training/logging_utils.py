@@ -864,6 +864,94 @@ def _set_plasticity_mesh_limits(ax, *coord_sets):
     ax.set_ylim(float(y_min) - 0.05 * y_span, float(y_max) + 0.05 * y_span)
 
 
+def _plasticity_envelope_sequence(aux_tensors, *, t_out, i_count):
+    if not aux_tensors:
+        return None
+    envelope = aux_tensors.get("envelope_y")
+    if envelope is None:
+        return None
+    if isinstance(envelope, torch.Tensor):
+        envelope = envelope.detach().cpu().numpy()
+    else:
+        envelope = np.asarray(envelope)
+
+    envelope = np.asarray(envelope, dtype=np.float64).squeeze()
+    if envelope.ndim >= 2 and envelope.shape[0] != int(t_out):
+        envelope = envelope[0]
+        envelope = np.asarray(envelope, dtype=np.float64).squeeze()
+    if envelope.ndim == 1:
+        if envelope.shape[0] != int(i_count):
+            return None
+        return np.repeat(envelope[None, :], int(t_out), axis=0)
+    if envelope.ndim == 2:
+        if envelope.shape == (int(t_out), int(i_count)):
+            return envelope
+        if envelope.shape == (int(i_count), int(t_out)):
+            return envelope.T
+    return None
+
+
+def _plasticity_envelope_x_sequence(aux_tensors, material_seq, *, t_out, i_count):
+    envelope_x = None if not aux_tensors else aux_tensors.get("envelope_x")
+    if envelope_x is None:
+        return material_seq[:, 0, :, 0].T
+    if isinstance(envelope_x, torch.Tensor):
+        envelope_x = envelope_x.detach().cpu().numpy()
+    else:
+        envelope_x = np.asarray(envelope_x)
+
+    envelope_x = np.asarray(envelope_x, dtype=np.float64).squeeze()
+    if envelope_x.ndim >= 2 and envelope_x.shape[0] != int(t_out):
+        envelope_x = envelope_x[0]
+        envelope_x = np.asarray(envelope_x, dtype=np.float64).squeeze()
+    if envelope_x.ndim == 1:
+        if envelope_x.shape[0] != int(i_count):
+            return material_seq[:, 0, :, 0].T
+        return np.repeat(envelope_x[None, :], int(t_out), axis=0)
+    if envelope_x.ndim == 2:
+        if envelope_x.shape == (int(t_out), int(i_count)):
+            return envelope_x
+        if envelope_x.shape == (int(i_count), int(t_out)):
+            return envelope_x.T
+    return material_seq[:, 0, :, 0].T
+
+
+def _plasticity_envelope_coord_set(envelope_x_seq, envelope_seq):
+    if envelope_seq is None:
+        return None
+    if envelope_x_seq.shape != envelope_seq.shape:
+        return None
+    return np.stack((envelope_x_seq, envelope_seq), axis=-1)
+
+
+def _plot_plasticity_envelope(ax, x_values, y_values):
+    if x_values.shape != y_values.shape:
+        return
+    order = np.argsort(x_values)
+    x_plot = x_values[order]
+    y_plot = y_values[order]
+    y_top = float(np.nanmax(y_plot))
+    y_span = max(float(np.nanmax(y_plot) - np.nanmin(y_plot)), 1.0e-6)
+    ax.plot(
+        x_plot,
+        y_plot,
+        color="#111827",
+        linewidth=1.8,
+        alpha=0.95,
+        label="constraint inlet/envelope",
+        zorder=5,
+    )
+    ax.fill_between(
+        x_plot,
+        y_plot,
+        y_top + 0.08 * y_span,
+        color="#111827",
+        alpha=0.08,
+        linewidth=0,
+        zorder=1,
+    )
+
+
 def _make_plasticity_final_mesh_figure(pred_seq, target_seq):
     material_seq = _plasticity_material_from_target(target_seq)
     pred_coords = _plasticity_mesh_coords_from_channels(
@@ -972,7 +1060,7 @@ def _make_plasticity_consistency_figure(pred_seq, target_seq, aux_tensors):
     return fig
 
 
-def _make_plasticity_rollout_video(pred_seq, target_seq, *, fps):
+def _make_plasticity_rollout_video(pred_seq, target_seq, *, fps, aux_tensors=None):
     if Image is None:
         return None
 
@@ -987,10 +1075,28 @@ def _make_plasticity_rollout_video(pred_seq, target_seq, *, fps):
         target_seq,
         material_seq=material_seq,
     )
+    envelope_seq = _plasticity_envelope_sequence(
+        aux_tensors,
+        t_out=t_out,
+        i_count=pred_coords.shape[0],
+    )
+    envelope_x_seq = _plasticity_envelope_x_sequence(
+        aux_tensors,
+        material_seq,
+        t_out=t_out,
+        i_count=pred_coords.shape[0],
+    )
+    envelope_coords = _plasticity_envelope_coord_set(envelope_x_seq, envelope_seq)
     for timestep in range(t_out):
         pred_t = pred_coords[:, :, timestep]
         target_t = target_coords[:, :, timestep]
         fig, ax = plt.subplots(figsize=(6.8, 4.6), dpi=120)
+        if envelope_seq is not None:
+            _plot_plasticity_envelope(
+                ax,
+                envelope_x_seq[timestep],
+                envelope_seq[timestep],
+            )
         _plot_plasticity_mesh(
             ax,
             target_t,
@@ -1007,7 +1113,9 @@ def _make_plasticity_rollout_video(pred_seq, target_seq, *, fps):
             linewidth=0.28,
             alpha=0.72,
         )
-        _set_plasticity_mesh_limits(ax, pred_coords, target_coords)
+        _set_plasticity_mesh_limits(ax, pred_coords, target_coords, envelope_coords)
+        if envelope_seq is not None:
+            ax.legend(loc="lower right", frameon=True, fontsize=7)
         fig.tight_layout()
         frames.append(np.transpose(_figure_to_chw_frame(fig), (1, 2, 0)))
         plt.close(fig)
@@ -1030,7 +1138,7 @@ def _make_plasticity_rollout_video(pred_seq, target_seq, *, fps):
     return wandb.Video(handle.name, fps=int(fps), format="gif")
 
 
-def _make_plasticity_rollout_frames(pred_seq, target_seq):
+def _make_plasticity_rollout_frames(pred_seq, target_seq, *, aux_tensors=None):
     frames = []
     t_out = int(pred_seq.shape[2])
     material_seq = _plasticity_material_from_target(target_seq)
@@ -1042,10 +1150,28 @@ def _make_plasticity_rollout_frames(pred_seq, target_seq):
         target_seq,
         material_seq=material_seq,
     )
+    envelope_seq = _plasticity_envelope_sequence(
+        aux_tensors,
+        t_out=t_out,
+        i_count=pred_coords.shape[0],
+    )
+    envelope_x_seq = _plasticity_envelope_x_sequence(
+        aux_tensors,
+        material_seq,
+        t_out=t_out,
+        i_count=pred_coords.shape[0],
+    )
+    envelope_coords = _plasticity_envelope_coord_set(envelope_x_seq, envelope_seq)
     for timestep in range(t_out):
         pred_t = pred_coords[:, :, timestep]
         target_t = target_coords[:, :, timestep]
         fig, ax = plt.subplots(figsize=(6.8, 4.6), dpi=120)
+        if envelope_seq is not None:
+            _plot_plasticity_envelope(
+                ax,
+                envelope_x_seq[timestep],
+                envelope_seq[timestep],
+            )
         _plot_plasticity_mesh(
             ax,
             target_t,
@@ -1062,7 +1188,9 @@ def _make_plasticity_rollout_frames(pred_seq, target_seq):
             linewidth=0.28,
             alpha=0.72,
         )
-        _set_plasticity_mesh_limits(ax, pred_coords, target_coords)
+        _set_plasticity_mesh_limits(ax, pred_coords, target_coords, envelope_coords)
+        if envelope_seq is not None:
+            ax.legend(loc="lower right", frameon=True, fontsize=7)
         fig.tight_layout()
         frames.append(np.transpose(_figure_to_chw_frame(fig), (1, 2, 0)))
         plt.close(fig)
@@ -1107,7 +1235,12 @@ def log_plasticity_mesh_consistency_media(
 
     if hasattr(wandb, "Video"):
         try:
-            video = _make_plasticity_rollout_video(pred_seq, target_seq, fps=fps)
+            video = _make_plasticity_rollout_video(
+                pred_seq,
+                target_seq,
+                fps=fps,
+                aux_tensors=aux_tensors,
+            )
         except Exception as exc:
             print(
                 f"W&B plasticity GIF logging skipped "
@@ -1162,7 +1295,11 @@ def save_plasticity_mesh_consistency_media(
         plt.close(fig_consistency)
 
     rollout_path = _write_gif(
-        _make_plasticity_rollout_frames(pred_seq, target_seq),
+        _make_plasticity_rollout_frames(
+            pred_seq,
+            target_seq,
+            aux_tensors=aux_tensors,
+        ),
         out_dir / f"{prefix}_plasticity_mesh_rollout.gif",
         fps=fps,
     )

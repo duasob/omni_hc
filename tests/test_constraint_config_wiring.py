@@ -108,6 +108,32 @@ def test_plasticity_mesh_consistency_config_builds_ordered_mesh():
     assert "constraint/axis_order_margin_min" in out.diagnostics
 
 
+def test_plasticity_envelope_config_builds_bottom_fixed_envelope_mesh():
+    height, width = 4, 3
+    pred = torch.zeros(2, height * width, 4)
+    fx = torch.ones(2, height * width, 1)
+    cfg = load_yaml_file("configs/constraints/plasticity_envelope_constraint.yaml")
+    cfg["constraint"]["x_left"] = 0.35
+    cfg["constraint"]["x_right"] = -1.15
+    cfg["constraint"]["y_top"] = 1.0
+    cfg["constraint"]["top_height"] = 1.0
+    cfg["constraint"]["y_bottom"] = 0.0
+    cfg["constraint"]["die_speed"] = 0.2
+
+    model = _build_constraint(
+        DummyBackbone(pred),
+        _args(out_dim=4, shapelist=(height, width)),
+        cfg,
+    )
+    out = model(fx=fx, T=torch.ones(2, 1), return_aux=True)
+
+    assert isinstance(model, ConstrainedModel)
+    assert out.pred.shape == (2, height * width, 4)
+    assert "constraint/bottom_y_abs_error_max" in out.diagnostics
+    assert "constraint/top_clearance_min" in out.diagnostics
+    assert out.diagnostics["constraint/top_violation_count"].value == 0.0
+
+
 def test_constraint_backbone_out_dim_overrides_backbone_output_only():
     cfg = {
         "model": {

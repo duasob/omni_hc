@@ -56,8 +56,10 @@ def rollout_dynamic_conditional(
     optimizer=None,
     max_grad_norm=None,
     step_loss_fn=None,
+    collect_aux_keys: tuple[str, ...] | None = None,
 ):
     preds = []
+    aux_history = {key: [] for key in (collect_aux_keys or ())}
     step_rel_l2_sum = torch.zeros((), device=coords.device)
     pred_mean_sum = 0.0
     diag_metrics = MetricAccumulator()
@@ -70,6 +72,10 @@ def rollout_dynamic_conditional(
         out = forward_with_optional_aux(model, coords, fx, T=input_t)
         pred_t = out["pred"]
         preds.append(pred_t)
+        for key in aux_history:
+            value = out["aux_tensors"].get(key)
+            if isinstance(value, torch.Tensor):
+                aux_history[key].append(value.detach())
 
         pred_t_decoded = _decode_if_needed(y_normalizer, pred_t)
         y_t_decoded = _decode_if_needed(y_normalizer, y_t)
@@ -109,10 +115,17 @@ def rollout_dynamic_conditional(
             device=coords.device,
             dtype=coords.dtype,
         )
-    return pred, mean_loss, mean_metric_loss, step_rel_l2_sum, {
+    summary = {
         "pred_mean": pred_mean_sum / max(int(t_out), 1),
         "diagnostics": diag_metrics.as_diagnostics(),
     }
+    if aux_history:
+        summary["aux_tensors"] = {
+            key: torch.stack(values, dim=1)
+            for key, values in aux_history.items()
+            if len(values) == int(t_out)
+        }
+    return pred, mean_loss, mean_metric_loss, step_rel_l2_sum, summary
 
 
 def evaluate_dynamic_conditional(
@@ -197,6 +210,9 @@ def train_dynamic_conditional_task(
     print("building train/validation loaders", flush=True)
     train_loader, val_loader = build_train_val_loaders(cfg)
     meta = get_meta(train_loader)
+    x_normalizer = getattr(train_loader, "x_normalizer", None)
+    if x_normalizer is not None:
+        x_normalizer = x_normalizer.to(device)
     y_normalizer = getattr(train_loader, "y_normalizer", None)
     if y_normalizer is not None:
         y_normalizer = y_normalizer.to(device)
@@ -210,6 +226,12 @@ def train_dynamic_conditional_task(
         device=device,
         runtime_overrides=runtime_overrides(meta),
     )
+    if (
+        x_normalizer is not None
+        and hasattr(model, "constraint")
+        and hasattr(model.constraint, "set_input_normalizer")
+    ):
+        model.constraint.set_input_normalizer(x_normalizer)
     nsl_l2_loss = _build_nsl_l2_loss()
     output_dir = resolve_output_dir(cfg)
     write_resolved_config(
@@ -359,7 +381,7 @@ def train_dynamic_conditional_task(
                                 batch,
                                 device=device,
                             )
-                            pred, *_ = rollout_dynamic_conditional(
+                            pred, _, _, _, rollout_summary = rollout_dynamic_conditional(
                                 model,
                                 coords,
                                 fx,
@@ -369,6 +391,7 @@ def train_dynamic_conditional_task(
                                 out_dim=out_dim,
                                 y_normalizer=y_normalizer,
                                 step_loss_fn=nsl_l2_loss,
+                                collect_aux_keys=("envelope_y",),
                             )
                             final_time = time[:, -1:].reshape(coords.shape[0], 1)
                             final_out = forward_with_optional_aux(
@@ -385,7 +408,10 @@ def train_dynamic_conditional_task(
                                     target=target_decoded,
                                     coords=coords,
                                     fx=fx,
-                                    aux_tensors=final_out["aux_tensors"],
+                                    aux_tensors={
+                                        **final_out["aux_tensors"],
+                                        **rollout_summary.get("aux_tensors", {}),
+                                    },
                                     meta=meta,
                                     cfg=cfg,
                                     prefix="validation",
@@ -503,6 +529,9 @@ def test_dynamic_conditional_task(
         checkpoint_path = output_dir / "best.pt"
     test_loader = build_test_loader(cfg)
     meta = get_meta(test_loader)
+    x_normalizer = getattr(test_loader, "x_normalizer", None)
+    if x_normalizer is not None:
+        x_normalizer = x_normalizer.to(device)
     y_normalizer = getattr(test_loader, "y_normalizer", None)
     if y_normalizer is not None:
         y_normalizer = y_normalizer.to(device)
@@ -511,6 +540,12 @@ def test_dynamic_conditional_task(
         device=device,
         runtime_overrides=runtime_overrides(meta),
     )
+    if (
+        x_normalizer is not None
+        and hasattr(model, "constraint")
+        and hasattr(model.constraint, "set_input_normalizer")
+    ):
+        model.constraint.set_input_normalizer(x_normalizer)
     checkpoint = load_checkpoint_state(checkpoint_path, device=device)
     load_model_state_dict(model, checkpoint["model_state_dict"])
     from omni_hc.training.benchmark_diagnostics import make_benchmark_diagnostic_fn
@@ -537,7 +572,7 @@ def test_dynamic_conditional_task(
         with torch.no_grad():
             for batch in test_loader:
                 coords, time, fx, target = prepare_batch(batch, device=device)
-                pred, *_ = rollout_dynamic_conditional(
+                pred, _, _, _, rollout_summary = rollout_dynamic_conditional(
                     model,
                     coords,
                     fx,
@@ -547,6 +582,7 @@ def test_dynamic_conditional_task(
                     out_dim=out_dim,
                     y_normalizer=y_normalizer,
                     step_loss_fn=_build_nsl_l2_loss(),
+                    collect_aux_keys=("envelope_y",),
                 )
                 final_time = time[:, -1:].reshape(coords.shape[0], 1)
                 final_out = forward_with_optional_aux(
@@ -563,7 +599,10 @@ def test_dynamic_conditional_task(
                         target=target_decoded,
                         coords=coords,
                         fx=fx,
-                        aux_tensors=final_out["aux_tensors"],
+                        aux_tensors={
+                            **final_out["aux_tensors"],
+                            **rollout_summary.get("aux_tensors", {}),
+                        },
                         meta=meta,
                         cfg=cfg,
                         prefix="test",

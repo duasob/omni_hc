@@ -172,6 +172,26 @@ def test_plasticity_mesh_coords_average_xy_and_displacement_channels():
     np.testing.assert_allclose(coords, expected)
 
 
+def test_plasticity_envelope_coord_set_uses_material_x_reference():
+    material = np.zeros((3, 2, 2, 2), dtype=np.float32)
+    material[:, 0, :, 0] = np.array(
+        [[0.35, 0.35], [-0.4, -0.4], [-1.15, -1.15]],
+        dtype=np.float32,
+    )
+    envelope = np.array([[1.0, 2.0, 3.0], [0.7, 1.7, 2.7]], dtype=np.float32)
+
+    envelope_x = logging_utils._plasticity_envelope_x_sequence(
+        {"envelope_x": material[:, 0, 0, 0]},
+        material,
+        t_out=2,
+        i_count=3,
+    )
+    coords = logging_utils._plasticity_envelope_coord_set(envelope_x, envelope)
+
+    np.testing.assert_allclose(coords[..., 0], material[:, 0, :, 0].T)
+    np.testing.assert_allclose(coords[..., 1], envelope)
+
+
 def test_plasticity_mesh_media_logs_images_and_gif(monkeypatch):
     if logging_utils.plt is None:
         pytest.skip("matplotlib is unavailable")
@@ -194,6 +214,13 @@ def test_plasticity_mesh_media_logs_images_and_gif(monkeypatch):
     aux = {
         "dx": torch.ones(1, h - 1, w),
         "dy": torch.ones(1, h, w - 1),
+        "envelope_y": torch.stack(
+            [
+                torch.linspace(0.2 + 0.1 * step, 0.5 + 0.1 * step, h)
+                for step in range(t_out)
+            ],
+            dim=0,
+        ).unsqueeze(0),
     }
 
     logging_utils.log_plasticity_mesh_consistency_media(

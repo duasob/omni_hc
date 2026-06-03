@@ -184,7 +184,10 @@ def _load_plasticity_raw(cfg: dict, *, split: str):
     y = y.reshape(n_split, -1, t_out * out_dim)
 
     coords = make_grid(s1, s2).unsqueeze(0).repeat(n_split, 1, 1)
-    time = torch.linspace(0, 1, t_out).unsqueeze(0).repeat(n_split, 1)
+    time = (torch.arange(t_out, dtype=torch.float32) / max(t_out, 1)).unsqueeze(0).repeat(
+        n_split,
+        1,
+    )
 
     y_tensor = torch.from_numpy(np.array(y)).float()
     meta = {
