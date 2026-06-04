@@ -29,7 +29,11 @@ from .darcy_flux import DarcyFluxConstraint
 from .elasticity import ElasticityDeviatoricStressConstraint
 from .mean import MeanConstraint, MeanCorrection, build_mlp, match_mean
 from .sine_boundary import SineBoundaryConstraint
-from .plasticity import PlasticityEnvelopeConstraint, PlasticityMeshConsistencyConstraint
+from .plasticity import (
+    PlasticityEnvelopeConstraint,
+    PlasticityIsotonicRegression,
+    PlasticityMeshConsistencyConstraint,
+)
 from .stream import PipeStreamFunctionBoundaryAnsatz, PipeStreamFunctionUxConstraint
 from .utils.hooks import ForwardHookLatentExtractor
 from .utils.spectral import fft_leray_project_2d, spectral_divergence_2d
@@ -52,6 +56,7 @@ __all__ = [
     "MeanCorrection",
     "PipeInletParabolicAnsatz",
     "PlasticityEnvelopeConstraint",
+    "PlasticityIsotonicRegression",
     "PlasticityMeshConsistencyConstraint",
     "PipeStreamFunctionBoundaryAnsatz",
     "PipeStreamFunctionUxConstraint",

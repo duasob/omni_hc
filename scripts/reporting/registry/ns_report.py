@@ -55,10 +55,12 @@ FAMILIES = (
 
 
 def _highlight_row_minimum(results) -> None:
-    """Bold the lower of {Base, Mean} for each (model, budget) cell pair.
+    """Mark the lower of {Base, Mean} for each (model, budget) cell pair.
 
-    Mutates ``CellResult.value`` in place. TBD/missing cells and any
-    non-numeric value are skipped; ties bold every joint-minimum cell.
+    The full-budget (headline) row bolds its winner; every other budget row
+    underlines its winner instead, so the table draws the eye to the full-data
+    comparison. Mutates ``CellResult.value`` in place. TBD/missing cells and any
+    non-numeric value are skipped; ties mark every joint-minimum cell.
     """
     by_macro = {r.macro: r for r in results}
     for model_token, _model_dir in MODELS:
@@ -74,10 +76,62 @@ def _highlight_row_minimum(results) -> None:
                     continue
             if not cells:
                 continue
+            command = "textbf" if budget_token == "Full" else "underline"
             best = min(value for value, _cell in cells)
             for value, cell in cells:
                 if value == best:
-                    cell.value = rf"\textbf{{{cell.value}}}"
+                    cell.value = rf"\{command}{{{cell.value}}}"
+
+
+def _fill_avg_improvement(results) -> None:
+    """Fill the per-budget averaged improvement column (``\\nsRlImprov<Budget>``).
+
+    For each budget the value is the mean over backbones of
+    ``(Base - Mean) / Base * 100``, so a positive number means the mean
+    constraint lowered the error. Only backbones whose Base and Mean both resolve
+    contribute. For the full-budget row the local baseline runs for some
+    backbones are absent (the table hardcodes the paper literals); those fall
+    back to the ``RESULTS`` baselines so the average still covers all four
+    backbones and matches the displayed numbers. Must run *before* the highlight
+    pass, which wraps cell values in markup and would break ``float()``.
+    """
+    full_fallback = {model: base for model, base, _ in RESULTS}
+    by_macro = {r.macro: r for r in results}
+    for _budget, budget_token in BUDGETS:
+        improvements = []
+        for model_token, _dir in MODELS:
+            mean_cell = by_macro.get(rf"\nsRlMean{model_token}{budget_token}")
+            if mean_cell is None or not mean_cell.ok:
+                continue
+            base_cell = by_macro.get(rf"\nsRlBase{model_token}{budget_token}")
+            if base_cell is not None and base_cell.ok:
+                base_value = base_cell.value
+            elif budget_token == "Full":
+                base_value = full_fallback.get(model_token)
+            else:
+                continue
+            try:
+                base = float(base_value)
+                mean = float(mean_cell.value)
+            except (TypeError, ValueError):
+                continue
+            if base == 0.0:
+                continue
+            improvements.append((base - mean) / base * 100.0)
+        improv_cell = by_macro.get(rf"\nsRlImprov{budget_token}")
+        if improv_cell is None or not improvements:
+            continue
+        avg = round(sum(improvements) / len(improvements))
+        sign = "+" if avg >= 0 else "-"
+        improv_cell.value = rf"${sign}{abs(avg)}\%$"
+        improv_cell.source = "computed: mean over backbones of (Base-Mean)/Base"
+        improv_cell.ok = True
+
+
+def _postprocess_budget(results) -> None:
+    """Fill the averaged improvement column, then mark the per-row winners."""
+    _fill_avg_improvement(results)
+    _highlight_row_minimum(results)
 
 
 def _rel_l2_rows() -> list[Row]:
@@ -97,6 +151,10 @@ def _rel_l2_rows() -> list[Row]:
                         format="{:.4f}",
                     )
                 )
+    # Averaged improvement per budget; filled in by the postprocess, declared
+    # with no source so it renders as TBD when no backbone pair resolves.
+    for _budget, budget_token in BUDGETS:
+        rows.append(Row(run=None, metric_key=None, macro=rf"\nsRlImprov{budget_token}"))
     return rows
 
 
@@ -107,7 +165,7 @@ ns_rel_l2 = ReportArtifact(
     kind="tex_macros",
     output_subpath="macros/ch4_ns_rel_l2.tex",
     rows=_rel_l2_rows(),
-    postprocess=_highlight_row_minimum,
+    postprocess=_postprocess_budget,
 )
 
 
@@ -247,6 +305,9 @@ NS_HOOK_PROFILE_RUNS = {
     "OnoBase": "outputs/navier_stokes/none/ono/final/seed_42",
     "OnoLast": "outputs/navier_stokes/mean_constraint/ono/experiements/final/seed_42",
     "OnoEng": "outputs/navier_stokes/mean_constraint/ono/final/seed_42",
+    "FactformerBase": "outputs/navier_stokes/none/factformer/final/seed_42",
+    "FactformerLast": "outputs/navier_stokes/mean_constraint/factformer/experiments/latent_head/final/seed_42",
+    "FactformerEng": "outputs/navier_stokes/mean_constraint/factformer/final/seed_42",
 }
 
 _NS_MODEL_BACKBONES = {
@@ -301,8 +362,17 @@ def compute_ns_cost_metrics(repo_root: Path) -> tuple[dict[str, float], list[str
             warnings.append(f"missing diagnostics: {constr_path}/diagnostics.yaml")
         if base is None or constr is None:
             continue
-        metrics[f"cost/{model}/params_overhead_m"] = (constr[0] - base[0]) / 1e6
-        metrics[f"cost/{model}/flops_overhead_t"] = (constr[1] - base[1]) / 1e12
+        # Report the baseline magnitude alongside the relative overhead so the
+        # +X% is interpretable: e.g. +0.8M params is +71% on ONO but +7% on the
+        # much larger Transolver.
+        metrics[f"cost/{model}/params_base_m"] = base[0] / 1e6
+        metrics[f"cost/{model}/flops_base_t"] = base[1] / 1e12
+        metrics[f"cost/{model}/params_overhead_pct"] = (
+            (constr[0] - base[0]) / base[0] * 100 if base[0] else 0.0
+        )
+        metrics[f"cost/{model}/flops_overhead_pct"] = (
+            (constr[1] - base[1]) / base[1] * 100 if base[1] else 0.0
+        )
 
     return metrics, sorted(set(warnings))
 
@@ -383,24 +453,44 @@ def diagnose_command_for_ns_run(run: RunRef, repo_root: Path) -> str | None:
     return None
 
 
-# --- ns_cost: ΔParams and ΔFLOPs of the latent-head constraint -----------------
+# --- ns_cost: baseline params/FLOPs and the latent-head % overhead -------------
+# Each backbone contributes four macros: its baseline parameter count (M) and
+# per-rollout FLOPs (T), plus the constraint's relative overhead as a percentage
+# of each. The percentage makes the magnitude interpretable across backbones of
+# very different sizes; ``\%`` is appended via the format string.
 def _cost_rows() -> list[Row]:
     rows: list[Row] = []
     for model_token in NS_COST_RUNS:
         rows.append(
             Row(
                 run=NS_COST_METRICS,
-                metric_key=f"cost/{model_token}/params_overhead_m",
-                macro=rf"\nsCostParams{model_token}",
-                format="{:+.3f}",
+                metric_key=f"cost/{model_token}/params_base_m",
+                macro=rf"\nsCostParamsBase{model_token}",
+                format="{:.2f}",
             )
         )
         rows.append(
             Row(
                 run=NS_COST_METRICS,
-                metric_key=f"cost/{model_token}/flops_overhead_t",
-                macro=rf"\nsCostFlops{model_token}",
-                format="{:+.3f}",
+                metric_key=f"cost/{model_token}/params_overhead_pct",
+                macro=rf"\nsCostParamsPct{model_token}",
+                format="{:+.1f}\\%",
+            )
+        )
+        rows.append(
+            Row(
+                run=NS_COST_METRICS,
+                metric_key=f"cost/{model_token}/flops_base_t",
+                macro=rf"\nsCostFlopsBase{model_token}",
+                format="{:.2f}",
+            )
+        )
+        rows.append(
+            Row(
+                run=NS_COST_METRICS,
+                metric_key=f"cost/{model_token}/flops_overhead_pct",
+                macro=rf"\nsCostFlopsPct{model_token}",
+                format="{:+.1f}\\%",
             )
         )
     return rows
@@ -432,6 +522,13 @@ HOOK_RELL2: dict[str, str | RunRef] = {
         "outputs/navier_stokes/mean_constraint/ono/experiements/final/seed_42"
     ),
     "OnoEng": RunRef("outputs/navier_stokes/mean_constraint/ono/final/seed_42"),
+    "FactformerBase": RunRef("outputs/navier_stokes/none/factformer/final/seed_42"),
+    "FactformerLast": RunRef(
+        "outputs/navier_stokes/mean_constraint/factformer/experiments/latent_head/final/seed_42"
+    ),
+    "FactformerEng": RunRef(
+        "outputs/navier_stokes/mean_constraint/factformer/final/seed_42"
+    ),
 }
 HOOK_ORDER = (
     "TransolverBase",
@@ -440,6 +537,9 @@ HOOK_ORDER = (
     "OnoBase",
     "OnoLast",
     "OnoEng",
+    "FactformerBase",
+    "FactformerLast",
+    "FactformerEng",
 )
 
 

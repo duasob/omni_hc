@@ -133,6 +133,7 @@ def evaluate_dynamic_conditional(
     loader,
     *,
     device,
+    x_normalizer=None,
     y_normalizer,
     prepare_batch,
     t_out: int,
@@ -176,10 +177,11 @@ def evaluate_dynamic_conditional(
             step_rel_l2_sum += float(step_rel_l2.item())
             diag_metrics.update(summary["diagnostics"], weight=batch_size)
             if compute_extra_diagnostics is not None:
+                fx_for_diagnostics = _decode_if_needed(x_normalizer, fx)
                 extra = compute_extra_diagnostics(
                     pred=pred_decoded,
                     coords=coords,
-                    fx=fx,
+                    fx=fx_for_diagnostics,
                     target=target_decoded,
                     time=time,
                 )
@@ -430,6 +432,7 @@ def train_dynamic_conditional_task(
                     model,
                     val_loader,
                     device=device,
+                    x_normalizer=x_normalizer,
                     y_normalizer=y_normalizer,
                     prepare_batch=prepare_batch,
                     t_out=t_out,
@@ -554,6 +557,7 @@ def test_dynamic_conditional_task(
         model,
         test_loader,
         device=device,
+        x_normalizer=x_normalizer,
         y_normalizer=y_normalizer,
         prepare_batch=prepare_batch,
         t_out=int(meta["t_out"]),

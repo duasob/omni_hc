@@ -48,10 +48,12 @@ FAMILIES = (
 
 
 def _highlight_row_minimum(results) -> None:
-    """Bold the lowest resolved value within each budget (one table row).
+    """Mark the lowest resolved value within each budget (one table row).
 
-    Mutates ``CellResult.value`` in place. TBD/missing cells and any
-    non-numeric value are skipped; ties bold every joint-minimum cell.
+    The full-budget (headline) row bolds its winner; every other budget row
+    underlines its winner instead, so the table draws the eye to the full-data
+    comparison. Mutates ``CellResult.value`` in place. TBD/missing cells and any
+    non-numeric value are skipped; ties mark every joint-minimum cell.
     """
     by_macro = {r.macro: r for r in results}
     for _budget, token in BUDGETS:
@@ -66,10 +68,11 @@ def _highlight_row_minimum(results) -> None:
                 continue
         if not cells:
             continue
+        command = "textbf" if token == "Full" else "underline"
         best = min(value for value, _cell in cells)
         for value, cell in cells:
             if value == best:
-                cell.value = rf"\textbf{{{cell.value}}}"
+                cell.value = rf"\{command}{{{cell.value}}}"
 
 
 def _rel_l2_rows() -> list[Row]:

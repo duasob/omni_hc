@@ -61,11 +61,15 @@ def test_plasticity_metric_reports_zero_for_monotone_grid():
 
     metrics = compute_plasticity_metrics(pred, {}, {"shapelist": (2, 2), "t_out": 1, "out_dim": 4})
 
+    assert metrics["constraint/x_order_violation_count"].value == 0
+    assert metrics["constraint/y_order_violation_count"].value == 0
+    assert metrics["constraint/axis_order_violation_count"].value == 0
+    assert metrics["constraint/x_order_margin_min"].value == 1
+    assert metrics["constraint/y_order_margin_min"].value == 1
     assert metrics["constraint/neg_spacing_count"].value == 0
     assert metrics["constraint/neg_spacing_worst_sample_fraction"].value == 0
     assert metrics["constraint/neg_spacing_fraction"].value == 0
-    assert metrics["constraint/flipped_cell_count_worst"].value == 0
-    assert metrics["constraint/flipped_cell_fraction_worst"].value == 0
+    assert metrics["constraint/bottom_envelope_violation_max"].value == 0
 
 
 def test_plasticity_metric_reports_fraction_for_inverted_grid():
@@ -78,39 +82,52 @@ def test_plasticity_metric_reports_fraction_for_inverted_grid():
 
     metrics = compute_plasticity_metrics(pred, {}, {"shapelist": (2, 2), "t_out": 1, "out_dim": 4})
 
+    assert metrics["constraint/x_order_violation_count"].value == 2
+    assert metrics["constraint/y_order_violation_count"].value == 2
+    assert metrics["constraint/axis_order_violation_count"].value == 4
+    assert metrics["constraint/x_order_violation_fraction"].value == 1
+    assert metrics["constraint/y_order_violation_fraction"].value == 1
+    assert metrics["constraint/axis_order_violation_fraction"].value == 1
     assert metrics["constraint/neg_spacing_count"].value == 4
     assert metrics["constraint/neg_spacing_worst_sample_fraction"].value == 1
     assert metrics["constraint/neg_spacing_fraction"].value == 1
 
 
-def test_plasticity_metric_reports_worst_sample_flip_count():
+def test_plasticity_metric_reports_top_and_bottom_envelope_violations():
     import torch
 
-    valid = _plasticity_pred_from_coords(
+    pred = _plasticity_pred_from_coords(
+        [
+            [[1.0, 1.2], [1.0, 0.2]],
+            [[0.0, 1.1], [0.0, 0.1]],
+        ]
+    )
+    target = _plasticity_pred_from_coords(
         [
             [[1.0, 1.0], [1.0, 0.0]],
             [[0.0, 1.0], [0.0, 0.0]],
         ]
     )
-    invalid = _plasticity_pred_from_coords(
-        [
-            [[0.0, 1.0], [0.0, 0.0]],
-            [[1.0, 1.0], [1.0, 0.0]],
-        ]
-    )
-    pred = torch.cat([valid, invalid], dim=0)
-    target = torch.cat([valid, valid], dim=0)
+    fx = torch.tensor([[[1.0], [1.0], [1.0], [1.0]]])
+    time = torch.zeros(1, 1)
 
     metrics = compute_plasticity_metrics(
         pred,
-        {"target": target},
-        {"shapelist": (2, 2), "t_out": 1, "out_dim": 4},
+        {"target": target, "x": fx, "time": time},
+        {
+            "shapelist": (2, 2),
+            "t_out": 1,
+            "out_dim": 4,
+            "die_speed": 0.0,
+            "top_height": 1.0,
+        },
     )
 
-    assert metrics["constraint/flipped_cell_count_mean"].value == 0.5
-    assert metrics["constraint/flipped_cell_count_worst"].value == 1
-    assert metrics["constraint/flipped_cell_fraction_mean"].value == 0.5
-    assert metrics["constraint/flipped_cell_fraction_worst"].value == 1
+    assert metrics["constraint/top_envelope_violation_count"].value == 2
+    assert metrics["constraint/top_envelope_violation_mean"].value > 0
+    assert metrics["constraint/top_envelope_violation_max"].value == 0.20000004768371582
+    assert metrics["constraint/bottom_envelope_violation_mean"].value == 0.15000000596046448
+    assert metrics["constraint/bottom_envelope_violation_max"].value == 0.20000000298023224
 
 
 def _plasticity_pred_from_coords(coords):

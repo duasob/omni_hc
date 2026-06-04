@@ -646,3 +646,482 @@ class PlasticityEnvelopeConstraint(ConstraintModule):
                 diagnostics=diagnostics,
             )
         return out
+
+
+class PlasticityIsotonicRegression(ConstraintModule):
+    """
+    Project directly predicted plasticity coordinates onto ordered coordinates.
+
+    By default the backbone predicts coordinate displacement residuals, which
+    are added to the material grid before projection.  This keeps the projection
+    in coordinate space without requiring the backbone to produce absolute
+    physical x/y coordinates from an unanchored initialization.  Set
+    coordinate_mode="absolute" to interpret the first two backbone channels as
+    raw physical coordinates directly.
+
+    This constraint minimally repairs invalid raw coordinates with 1D isotonic projections:
+    - x is projected to be decreasing along the material i-axis.
+    - y is projected per material column to be decreasing from top to bottom,
+      fixed at y_bottom, and no higher than the moving die envelope at the top.
+
+    Displacements are recomputed from the projected coordinates so the returned
+    four channels remain consistent with the dataset target convention.
+    """
+
+    name = "plasticity_isotonic_regression"
+
+    def __init__(
+        self,
+        *,
+        shapelist,
+        backbone_out_dim: int = 2,
+        target_out_dim: int = 4,
+        x_left: float = 0.35,
+        x_right: float = -49.65,
+        y_top: float = 14.9,
+        y_bottom: float = -0.1,
+        top_height: float | None = None,
+        envelope_source: str = "fx",
+        die_speed: float = 6.0,
+        time_duration: float = 1.0,
+        min_x_spacing: float = 1.0e-6,
+        min_y_spacing: float = 1.0e-6,
+        collapse_spacing_threshold: float = 1.0e-3,
+        top_collapse_rows: int = 3,
+        coordinate_mode: str = "displacement",
+    ):
+        super().__init__()
+        if shapelist is None or len(tuple(shapelist)) != 2:
+            raise ValueError("PlasticityIsotonicRegression requires a 2D shapelist.")
+        self.shapelist = tuple(int(v) for v in shapelist)
+        self.backbone_out_dim = int(backbone_out_dim)
+        self.target_out_dim = int(target_out_dim)
+        if self.backbone_out_dim < 2:
+            raise ValueError(
+                "PlasticityIsotonicRegression expects at least 2 backbone channels "
+                f"for raw x/y coordinates, got {self.backbone_out_dim}."
+            )
+        if self.target_out_dim != 4:
+            raise ValueError(
+                "PlasticityIsotonicRegression outputs the 4 plasticity target "
+                f"channels, got target_out_dim={self.target_out_dim}."
+            )
+        self.envelope_source = str(envelope_source).lower()
+        if self.envelope_source not in {"fx", "constant"}:
+            raise ValueError(
+                "envelope_source must be one of: fx, constant; "
+                f"got {envelope_source!r}."
+            )
+        self.die_speed = float(die_speed)
+        self.time_duration = float(time_duration)
+        self.min_x_spacing = float(min_x_spacing)
+        self.min_y_spacing = float(min_y_spacing)
+        self.collapse_spacing_threshold = float(collapse_spacing_threshold)
+        self.top_collapse_rows = int(top_collapse_rows)
+        self.coordinate_mode = str(coordinate_mode).lower()
+        if self.coordinate_mode not in {"displacement", "absolute"}:
+            raise ValueError(
+                "coordinate_mode must be one of: displacement, absolute; "
+                f"got {coordinate_mode!r}."
+            )
+        if self.min_x_spacing < 0.0:
+            raise ValueError(f"min_x_spacing must be non-negative, got {min_x_spacing}.")
+        if self.min_y_spacing < 0.0:
+            raise ValueError(f"min_y_spacing must be non-negative, got {min_y_spacing}.")
+        if self.collapse_spacing_threshold < 0.0:
+            raise ValueError(
+                "collapse_spacing_threshold must be non-negative, "
+                f"got {collapse_spacing_threshold}."
+            )
+        if self.top_collapse_rows < 1:
+            raise ValueError(f"top_collapse_rows must be >= 1, got {top_collapse_rows}.")
+        self.input_normalizer = None
+
+        i_count, j_count = self.shapelist
+        if i_count < 2 or j_count < 2:
+            raise ValueError(
+                f"Plasticity grid must have at least 2x2 points, got {self.shapelist}."
+            )
+        material = PlasticityMeshConsistencyConstraint._make_material_grid(
+            i_count=i_count,
+            j_count=j_count,
+            x_left=float(x_left),
+            x_right=float(x_right),
+            y_top=float(y_top),
+            y_bottom=float(y_bottom),
+        )
+        orientation = torch.sign(
+            PlasticityMeshConsistencyConstraint._signed_cell_areas(
+                material[None, ...],
+            ).mean()
+        )
+        if float(orientation.item()) == 0.0:
+            orientation = torch.tensor(1.0, dtype=torch.float32)
+        self.register_buffer("material_grid", material, persistent=False)
+        self.register_buffer("orientation_sign", orientation, persistent=False)
+        self.register_buffer(
+            "bottom_y",
+            torch.tensor(float(y_bottom), dtype=torch.float32),
+            persistent=False,
+        )
+        self.register_buffer(
+            "constant_envelope_y",
+            torch.tensor(float(y_top), dtype=torch.float32),
+            persistent=False,
+        )
+        self.register_buffer(
+            "top_height",
+            PlasticityEnvelopeConstraint._make_top_height_profile(
+                top_height=top_height,
+                y_top=float(y_top),
+                i_count=i_count,
+            ),
+            persistent=False,
+        )
+
+    def set_input_normalizer(self, normalizer) -> None:
+        self.input_normalizer = normalizer
+
+    def _decode_fx(self, fx: torch.Tensor) -> torch.Tensor:
+        if self.input_normalizer is None:
+            return fx
+        return self.input_normalizer.decode(fx)
+
+    def _time(self, T: torch.Tensor | None, *, pred: torch.Tensor) -> torch.Tensor:
+        batch_size = int(pred.shape[0])
+        if T is None:
+            return torch.zeros(batch_size, 1, device=pred.device, dtype=pred.dtype)
+        time = T.to(device=pred.device, dtype=pred.dtype)
+        if time.ndim == 1:
+            time = time[:, None]
+        return time.reshape(batch_size, -1)[:, 0:1]
+
+    @staticmethod
+    def _pava_increasing(values: torch.Tensor) -> torch.Tensor:
+        blocks: list[tuple[torch.Tensor, int]] = []
+        for value in values:
+            blocks.append((value, 1))
+            while len(blocks) >= 2:
+                left_sum, left_count = blocks[-2]
+                right_sum, right_count = blocks[-1]
+                left_mean = left_sum / float(left_count)
+                right_mean = right_sum / float(right_count)
+                if float(left_mean.detach()) <= float(right_mean.detach()):
+                    break
+                blocks[-2:] = [(left_sum + right_sum, left_count + right_count)]
+        projected = []
+        for block_sum, block_count in blocks:
+            projected.extend([block_sum / float(block_count)] * block_count)
+        return torch.stack(projected)
+
+    @classmethod
+    def _project_decreasing_1d(cls, values: torch.Tensor) -> torch.Tensor:
+        return -cls._pava_increasing(-values)
+
+    @classmethod
+    def _project_x(cls, raw_x: torch.Tensor, *, min_spacing: float) -> torch.Tensor:
+        batch_size, i_count, j_count = raw_x.shape
+        spacing = torch.arange(
+            i_count,
+            device=raw_x.device,
+            dtype=raw_x.dtype,
+        ) * float(min_spacing)
+        projected = torch.empty_like(raw_x)
+        for batch_idx in range(batch_size):
+            for j_idx in range(j_count):
+                z = raw_x[batch_idx, :, j_idx] + spacing
+                projected[batch_idx, :, j_idx] = (
+                    cls._project_decreasing_1d(z) - spacing
+                )
+        return projected
+
+    @classmethod
+    def _project_y(
+        cls,
+        raw_y: torch.Tensor,
+        *,
+        envelope_y: torch.Tensor,
+        bottom_y: torch.Tensor,
+        min_spacing: float,
+    ) -> torch.Tensor:
+        batch_size, i_count, j_count = raw_y.shape
+        projected = torch.empty_like(raw_y)
+        base_spacing = torch.arange(
+            j_count,
+            device=raw_y.device,
+            dtype=raw_y.dtype,
+        ) * float(min_spacing)
+        for batch_idx in range(batch_size):
+            for i_idx in range(i_count):
+                cap = envelope_y[batch_idx, i_idx]
+                bottom = bottom_y.to(device=raw_y.device, dtype=raw_y.dtype)
+                max_spacing = (cap - bottom).clamp_min(0.0) / float(j_count - 1)
+                effective_spacing = min(float(min_spacing), float(max_spacing.detach()))
+                if effective_spacing == float(min_spacing):
+                    spacing = base_spacing
+                else:
+                    spacing = torch.arange(
+                        j_count,
+                        device=raw_y.device,
+                        dtype=raw_y.dtype,
+                    ) * effective_spacing
+                z_bottom = bottom + spacing[-1]
+                z_cap = torch.maximum(cap, z_bottom)
+                z_free = raw_y[batch_idx, i_idx, :-1] + spacing[:-1]
+                z_free = z_free.clamp(min=z_bottom, max=z_cap)
+                z_projected = cls._project_decreasing_1d(z_free)
+                z = torch.cat([z_projected, z_bottom.reshape(1)], dim=0)
+                projected[batch_idx, i_idx] = z - spacing
+        return projected
+
+    def _envelope_y(
+        self,
+        *,
+        pred: torch.Tensor,
+        fx: torch.Tensor | None,
+        T: torch.Tensor | None,
+        x_query: torch.Tensor,
+    ) -> torch.Tensor:
+        batch_size, n_points, _ = pred.shape
+        i_count, j_count = self.shapelist
+        time = self._time(T, pred=pred)
+        drop = self.die_speed * self.time_duration * time
+        top_height_profile = self.top_height.to(
+            device=pred.device,
+            dtype=pred.dtype,
+        ).expand(batch_size, -1)
+        if self.envelope_source == "constant":
+            envelope = self.constant_envelope_y.to(
+                device=pred.device,
+                dtype=pred.dtype,
+            )
+            profile = envelope.expand(batch_size, i_count) - drop
+            capped_profile = torch.minimum(profile, top_height_profile)
+            return self._interpolate_envelope_y(capped_profile, x_query)
+        if fx is None:
+            raise ValueError(
+                "PlasticityIsotonicRegression with envelope_source='fx' requires fx."
+            )
+        if fx.ndim != 3 or fx.shape[0] != batch_size or fx.shape[1] != n_points:
+            raise ValueError(
+                "PlasticityIsotonicRegression expects fx with shape "
+                f"(batch, {n_points}, channels), got {tuple(fx.shape)}."
+            )
+        fx_physical = self._decode_fx(fx).to(device=pred.device, dtype=pred.dtype)
+        die_grid = fx_physical.reshape(batch_size, i_count, j_count, -1)[..., 0]
+        die_profile = torch.flip(die_grid[:, :, 0], dims=(1,))
+        moved_die_profile = die_profile - drop
+        capped_profile = torch.minimum(moved_die_profile, top_height_profile)
+        return self._interpolate_envelope_y(capped_profile, x_query)
+
+    def _interpolate_envelope_y(
+        self,
+        envelope_y: torch.Tensor,
+        x_query: torch.Tensor,
+    ) -> torch.Tensor:
+        reference_x = self.material_grid[:, 0, 0].to(
+            device=x_query.device,
+            dtype=x_query.dtype,
+        )
+        profile_y = envelope_y.to(device=x_query.device, dtype=x_query.dtype)
+        if reference_x[0] > reference_x[-1]:
+            interp_x = torch.flip(reference_x, dims=(0,))
+            interp_y = torch.flip(profile_y, dims=(1,))
+        else:
+            interp_x = reference_x
+            interp_y = profile_y
+        x_clamped = x_query.clamp(
+            min=float(interp_x[0].item()),
+            max=float(interp_x[-1].item()),
+        )
+        upper = torch.searchsorted(interp_x, x_clamped.contiguous()).clamp(
+            min=1,
+            max=interp_x.numel() - 1,
+        )
+        lower = upper - 1
+        x_lower = interp_x[lower]
+        x_upper = interp_x[upper]
+        y_lower = torch.gather(interp_y, dim=1, index=lower)
+        y_upper = torch.gather(interp_y, dim=1, index=upper)
+        weight = (x_clamped - x_lower) / (x_upper - x_lower).clamp_min(1.0e-12)
+        return y_lower + weight * (y_upper - y_lower)
+
+    def forward(self, *, pred, fx=None, T=None, return_aux=False, **_unused):
+        if pred.ndim != 3 or pred.shape[-1] < 2:
+            raise ValueError(
+                "PlasticityIsotonicRegression expects pred with shape "
+                "(batch, n_points, channels>=2), "
+                f"got {tuple(pred.shape)}."
+            )
+        batch_size, n_points, _ = pred.shape
+        i_count, j_count = self.shapelist
+        expected_points = i_count * j_count
+        if n_points != expected_points:
+            raise ValueError(
+                f"PlasticityIsotonicRegression expected {expected_points} points "
+                f"for shapelist={self.shapelist}, got {n_points}."
+            )
+
+        raw = pred.reshape(batch_size, i_count, j_count, -1)
+        material = self.material_grid.to(device=pred.device, dtype=pred.dtype)
+        if self.coordinate_mode == "displacement":
+            raw_coords = material[None, ...] + raw[..., :2]
+        else:
+            raw_coords = raw[..., :2]
+        raw_x = raw_coords[..., 0]
+        raw_y = raw_coords[..., 1]
+        x = self._project_x(raw_x, min_spacing=self.min_x_spacing)
+        envelope_x = x[:, :, 0]
+        envelope_y = self._envelope_y(pred=pred, fx=fx, T=T, x_query=envelope_x)
+        bottom_y = self.bottom_y.to(device=pred.device, dtype=pred.dtype)
+        y = self._project_y(
+            raw_y,
+            envelope_y=envelope_y,
+            bottom_y=bottom_y,
+            min_spacing=self.min_y_spacing,
+        )
+
+        coords = torch.stack((x, y), dim=-1)
+        displacement = coords - material[None, ...]
+        out = torch.cat((coords, displacement), dim=-1).reshape(
+            batch_size,
+            expected_points,
+            self.target_out_dim,
+        )
+
+        if return_aux:
+            dx = x[:, :-1, :] - x[:, 1:, :]
+            dy = y[:, :, :-1] - y[:, :, 1:]
+            orientation_sign = self.orientation_sign.to(
+                device=pred.device,
+                dtype=pred.dtype,
+            )
+            oriented_cell_area = (
+                PlasticityMeshConsistencyConstraint._signed_cell_areas(coords)
+                * orientation_sign
+            )
+            bottom_y_error = (y[:, :, -1] - bottom_y).abs()
+            top_clearance = envelope_y - y[:, :, 0]
+            top_violation = top_clearance < -1.0e-6
+            collapsed_dy = dy <= self.collapse_spacing_threshold
+            top_rows = min(self.top_collapse_rows, int(dy.shape[-1]))
+            top_dy = dy[:, :, :top_rows]
+            collapsed_top_dy = top_dy <= self.collapse_spacing_threshold
+            collapsed_dy_per_sample = (
+                collapsed_dy.reshape(batch_size, -1).to(torch.float32).mean(dim=1)
+            )
+            collapsed_top_dy_per_sample = (
+                collapsed_top_dy.reshape(batch_size, -1).to(torch.float32).mean(dim=1)
+            )
+            correction = torch.linalg.vector_norm(
+                coords - torch.stack((raw_x, raw_y), dim=-1),
+                dim=-1,
+            )
+            correction_total = correction.reshape(batch_size, -1).sum(dim=1)
+            flipped_cell = oriented_cell_area < 0
+            flipped_cell_count = flipped_cell.to(torch.float32).sum(dim=(-1, -2))
+            flipped_cell_fraction = flipped_cell.to(torch.float32).mean(dim=(-1, -2))
+            diagnostics = {
+                "constraint/min_dx": ConstraintDiagnostic(value=dx.min(), reduce="min"),
+                "constraint/min_dy": ConstraintDiagnostic(value=dy.min(), reduce="min"),
+                "constraint/mean_dy": ConstraintDiagnostic(value=dy.mean(), reduce="mean"),
+                "constraint/top_dy_min": ConstraintDiagnostic(
+                    value=top_dy.min(),
+                    reduce="min",
+                ),
+                "constraint/top_dy_mean": ConstraintDiagnostic(
+                    value=top_dy.mean(),
+                    reduce="mean",
+                ),
+                "constraint/dy_collapse_count": ConstraintDiagnostic(
+                    value=collapsed_dy.to(torch.float32).sum(),
+                    reduce="sum",
+                ),
+                "constraint/dy_collapse_fraction": ConstraintDiagnostic(
+                    value=collapsed_dy.to(torch.float32).mean(),
+                    reduce="mean",
+                ),
+                "constraint/dy_collapse_worst_sample_fraction": ConstraintDiagnostic(
+                    value=collapsed_dy_per_sample.max(),
+                    reduce="max",
+                ),
+                "constraint/top_dy_collapse_count": ConstraintDiagnostic(
+                    value=collapsed_top_dy.to(torch.float32).sum(),
+                    reduce="sum",
+                ),
+                "constraint/top_dy_collapse_fraction": ConstraintDiagnostic(
+                    value=collapsed_top_dy.to(torch.float32).mean(),
+                    reduce="mean",
+                ),
+                "constraint/top_dy_collapse_worst_sample_fraction": ConstraintDiagnostic(
+                    value=collapsed_top_dy_per_sample.max(),
+                    reduce="max",
+                ),
+                "constraint/top_clearance_min": ConstraintDiagnostic(
+                    value=top_clearance.min(),
+                    reduce="min",
+                ),
+                "constraint/top_violation_count": ConstraintDiagnostic(
+                    value=top_violation.to(torch.float32).sum(),
+                    reduce="sum",
+                ),
+                "constraint/top_violation_fraction": ConstraintDiagnostic(
+                    value=top_violation.to(torch.float32).mean(),
+                    reduce="max",
+                ),
+                "constraint/min_oriented_cell_area": ConstraintDiagnostic(
+                    value=oriented_cell_area.min(),
+                    reduce="min",
+                ),
+                "constraint/bottom_y_abs_error_max": ConstraintDiagnostic(
+                    value=bottom_y_error.max(),
+                    reduce="max",
+                ),
+                "constraint/projection_correction_mean": ConstraintDiagnostic(
+                    value=correction.mean(),
+                    reduce="mean",
+                ),
+                "constraint/projection_correction_max": ConstraintDiagnostic(
+                    value=correction.max(),
+                    reduce="max",
+                ),
+                "constraint/projection_correction_total_mean": ConstraintDiagnostic(
+                    value=correction_total.mean(),
+                    reduce="mean",
+                ),
+                "constraint/projection_correction_total_worst": ConstraintDiagnostic(
+                    value=correction_total.max(),
+                    reduce="max",
+                ),
+                "constraint/flipped_cell_count_mean": ConstraintDiagnostic(
+                    value=flipped_cell_count.mean(),
+                    reduce="mean",
+                ),
+                "constraint/flipped_cell_count_worst": ConstraintDiagnostic(
+                    value=flipped_cell_count.max(),
+                    reduce="max",
+                ),
+                "constraint/flipped_cell_fraction_mean": ConstraintDiagnostic(
+                    value=flipped_cell_fraction.mean(),
+                    reduce="mean",
+                ),
+                "constraint/flipped_cell_fraction_worst": ConstraintDiagnostic(
+                    value=flipped_cell_fraction.max(),
+                    reduce="max",
+                ),
+            }
+            return self.as_output(
+                out,
+                aux={
+                    "raw_coords": torch.stack((raw_x, raw_y), dim=-1),
+                    "coords": coords,
+                    "envelope_x": envelope_x,
+                    "envelope_y": envelope_y,
+                    "top_clearance": top_clearance,
+                    "dx": dx,
+                    "dy": dy,
+                    "projection_correction": correction,
+                },
+                diagnostics=diagnostics,
+            )
+        return out

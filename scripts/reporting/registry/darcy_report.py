@@ -47,7 +47,12 @@ FAMILIES = (
 
 
 def _highlight_row_minimum(results) -> None:
-    """Bold the lower of {Base, Flux} for each budget cell pair."""
+    """Mark the lower of {Base, Flux} for each budget cell pair.
+
+    The full-budget (headline) row bolds its winner; every other budget row
+    underlines its winner instead, so the table draws the eye to the full-data
+    comparison.
+    """
     by_macro = {r.macro: r for r in results}
     for _budget, token in BUDGETS:
         cells = []
@@ -61,10 +66,11 @@ def _highlight_row_minimum(results) -> None:
                 continue
         if not cells:
             continue
+        command = "textbf" if token == "Full" else "underline"
         best = min(value for value, _cell in cells)
         for value, cell in cells:
             if value == best:
-                cell.value = rf"\textbf{{{cell.value}}}"
+                cell.value = rf"\{command}{{{cell.value}}}"
 
 
 def _rel_l2_rows() -> list[Row]:

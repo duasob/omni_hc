@@ -1,0 +1,17 @@
+constraint:
+  name: "plasticity_isotonic_regression"
+  backbone_out_dim: 2
+  target_out_dim: 4
+  min_x_spacing: 0.1 # 1.0e-6
+  min_y_spacing: 0.1 # 1.0e-6
+  collapse_spacing_threshold: 1.0e-3
+  top_collapse_rows: 3
+  coordinate_mode: "displacement"
+  x_left: 0.35
+  x_right: -49.65
+  y_top: 14.9
+  top_height: 15.1
+  y_bottom: -0.1
+  envelope_source: "fx"
+  die_speed: 6.0
+  time_duration: 1.0
