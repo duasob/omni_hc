@@ -3,8 +3,10 @@ constraint:
   backbone_out_dim: 4
   target_out_dim: 4
   spacing_activation: "softplus"
-  min_spacing: 1.0e-1
-  min_gap: 1.0e-1
+  min_x_spacing: 1.0e-1
+  min_y_spacing: 5.0e-2
+  min_gap: 0.0
+  max_gap: 4.5
   x_left: 0.35
   x_right: -49.65
   y_top: 14.9

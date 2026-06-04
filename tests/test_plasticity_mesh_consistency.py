@@ -238,6 +238,65 @@ def test_plasticity_envelope_caps_moved_die_profile_per_index():
     )
 
 
+def test_plasticity_envelope_uses_absolute_die_index_gap_profile():
+    constraint = PlasticityEnvelopeConstraint(
+        shapelist=(4, 3),
+        x_left=0.0,
+        x_right=-3.0,
+        y_top=100.0,
+        y_bottom=0.0,
+        spacing_activation="exp",
+        min_spacing=0.0,
+        min_gap=0.0,
+        max_gap=4.5,
+        envelope_source="fx",
+        die_speed=0.0,
+    )
+    pred = torch.zeros(1, 12, 4)
+    target_gap = torch.tensor([0.45, 0.90, 1.35, 1.80])
+    raw = pred.reshape(1, 4, 3, 4)
+    raw[:, :, 0, 3] = torch.logit(target_gap / 4.5)
+    die = torch.tensor([10.0, 20.0, 30.0, 40.0])
+    fx = die.reshape(1, 4, 1).repeat(1, 1, 3).reshape(1, 12, 1)
+
+    output = constraint(pred=pred, fx=fx, T=torch.zeros(1, 1), return_aux=True)
+    field = output.pred.reshape(1, 4, 3, 4)
+
+    expected_die = torch.tensor([[40.0, 30.0, 20.0, 10.0]])
+    expected_gap = target_gap[None, :]
+    expected_envelope = expected_die - expected_gap
+    assert torch.allclose(output.aux["die_envelope_y"], expected_die)
+    assert torch.allclose(output.aux["gap_profile"], expected_gap, atol=1.0e-6)
+    assert torch.allclose(output.aux["gap"], expected_gap, atol=1.0e-6)
+    assert torch.allclose(output.aux["envelope_y"], expected_envelope, atol=1.0e-6)
+    assert torch.allclose(field[:, :, 0, 1], expected_envelope, atol=1.0e-6)
+
+
+def test_plasticity_envelope_uses_separate_x_and_y_spacing_floors():
+    constraint = PlasticityEnvelopeConstraint(
+        shapelist=(4, 3),
+        x_left=0.0,
+        x_right=-3.0,
+        y_top=10.0,
+        y_bottom=0.0,
+        spacing_activation="exp",
+        min_spacing=0.0,
+        min_x_spacing=0.2,
+        min_y_spacing=0.05,
+        min_gap=0.0,
+        max_gap=0.0,
+        envelope_source="constant",
+        die_speed=0.0,
+    )
+    pred = torch.zeros(1, 12, 4)
+
+    output = constraint(pred=pred, T=torch.zeros(1, 1), return_aux=True)
+
+    assert torch.all(output.aux["dx"] >= 1.2 - 1.0e-6)
+    assert torch.all(output.aux["dy"] >= 0.05 - 1.0e-6)
+    assert torch.isclose(output.aux["dx"].min(), torch.tensor(1.2), atol=1.0e-6)
+
+
 def test_plasticity_isotonic_regression_projects_coordinates_below_envelope():
     constraint = PlasticityIsotonicRegression(
         shapelist=(4, 3),

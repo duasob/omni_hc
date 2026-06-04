@@ -269,7 +269,9 @@ class PlasticityEnvelopeConstraint(ConstraintModule):
     The bottom edge is fixed at ``y_bottom``.  Each column receives a vertical
     envelope height from either the input die profile or a constant moving
     inlet height.  Positive vertical spacings are normalized to fill the
-    envelope height minus a learned non-negative top gap.
+    available height.  When ``max_gap`` is set, channel 3 predicts an absolute
+    die-index gap profile before interpolation; otherwise it uses the legacy
+    budget-fraction top gap.
     """
 
     name = "plasticity_envelope"
@@ -287,7 +289,10 @@ class PlasticityEnvelopeConstraint(ConstraintModule):
         y_bottom: float = -0.1,
         spacing_activation: str = "softplus",
         min_spacing: float = 1.0e-6,
+        min_x_spacing: float | None = None,
+        min_y_spacing: float | None = None,
         min_gap: float = 1.0e-6,
+        max_gap: float | None = None,
         top_height: float | None = None,
         envelope_source: str = "fx",
         die_speed: float = 6.0,
@@ -316,11 +321,33 @@ class PlasticityEnvelopeConstraint(ConstraintModule):
                 f"got {spacing_activation!r}."
             )
         self.min_spacing = float(min_spacing)
+        self.min_x_spacing = (
+            self.min_spacing if min_x_spacing is None else float(min_x_spacing)
+        )
+        self.min_y_spacing = (
+            self.min_spacing if min_y_spacing is None else float(min_y_spacing)
+        )
         self.min_gap = float(min_gap)
         if self.min_spacing < 0.0:
             raise ValueError(f"min_spacing must be non-negative, got {min_spacing}.")
+        if self.min_x_spacing < 0.0:
+            raise ValueError(
+                f"min_x_spacing must be non-negative, got {min_x_spacing}."
+            )
+        if self.min_y_spacing < 0.0:
+            raise ValueError(
+                f"min_y_spacing must be non-negative, got {min_y_spacing}."
+            )
         if self.min_gap < 0.0:
             raise ValueError(f"min_gap must be non-negative, got {min_gap}.")
+        self.max_gap = None if max_gap is None else float(max_gap)
+        if self.max_gap is not None:
+            if self.max_gap < 0.0:
+                raise ValueError(f"max_gap must be non-negative, got {max_gap}.")
+            if self.max_gap < self.min_gap:
+                raise ValueError(
+                    f"max_gap must be at least min_gap={self.min_gap}, got {max_gap}."
+                )
         self.envelope_source = str(envelope_source).lower()
         if self.envelope_source not in {"fx", "constant"}:
             raise ValueError(
@@ -417,13 +444,12 @@ class PlasticityEnvelopeConstraint(ConstraintModule):
             time = time[:, None]
         return time.reshape(batch_size, -1)[:, 0:1]
 
-    def _envelope_y(
+    def _envelope_profile(
         self,
         *,
         pred: torch.Tensor,
         fx: torch.Tensor | None,
         T: torch.Tensor | None,
-        x_query: torch.Tensor,
     ) -> torch.Tensor:
         batch_size, n_points, _ = pred.shape
         i_count, j_count = self.shapelist
@@ -440,7 +466,7 @@ class PlasticityEnvelopeConstraint(ConstraintModule):
             )
             profile = envelope.expand(batch_size, i_count) - drop
             capped_profile = torch.minimum(profile, top_height_profile)
-            return self._interpolate_envelope_y(capped_profile, x_query)
+            return capped_profile
         if fx is None:
             raise ValueError(
                 "PlasticityEnvelopeConstraint with envelope_source='fx' requires fx."
@@ -457,7 +483,26 @@ class PlasticityEnvelopeConstraint(ConstraintModule):
         die_profile = torch.flip(die_grid[:, :, 0], dims=(1,))
         moved_die_profile = die_profile - drop
         capped_profile = torch.minimum(moved_die_profile, top_height_profile)
+        return capped_profile
+
+    def _envelope_y(
+        self,
+        *,
+        pred: torch.Tensor,
+        fx: torch.Tensor | None,
+        T: torch.Tensor | None,
+        x_query: torch.Tensor,
+    ) -> torch.Tensor:
+        capped_profile = self._envelope_profile(pred=pred, fx=fx, T=T)
         return self._interpolate_envelope_y(capped_profile, x_query)
+
+    def _absolute_gap_profile(self, raw_gap: torch.Tensor) -> torch.Tensor:
+        if self.max_gap is None:
+            raise RuntimeError("absolute gap profile requires max_gap to be set.")
+        if self.max_gap == self.min_gap:
+            return torch.full_like(raw_gap, self.min_gap)
+        gap_fraction = torch.sigmoid(raw_gap)
+        return self.min_gap + (self.max_gap - self.min_gap) * gap_fraction
 
     def _interpolate_envelope_y(
         self,
@@ -510,11 +555,12 @@ class PlasticityEnvelopeConstraint(ConstraintModule):
 
         raw = pred.reshape(batch_size, i_count, j_count, self.backbone_out_dim)
         x_anchor = raw[:, 0, :, 0]
-        dx = self._positive_spacing(raw[:, :-1, :, 1]) + self.min_spacing
+        dx = self._positive_spacing(raw[:, :-1, :, 1]) + self.min_x_spacing
         raw_dy = raw[:, :, :-1, 2]
         vertical_score = self._positive_spacing(raw_dy).clamp_min(1.0e-12)
         weights = vertical_score / vertical_score.sum(dim=2, keepdim=True)
-        gap_fraction = torch.sigmoid(raw[:, :, 0, 3])
+        raw_gap = raw[:, :, 0, 3]
+        gap_fraction = torch.sigmoid(raw_gap)
 
         x = torch.empty(
             batch_size,
@@ -526,16 +572,29 @@ class PlasticityEnvelopeConstraint(ConstraintModule):
         x[:, 0, :] = x_anchor
         x[:, 1:, :] = x_anchor[:, None, :] - torch.cumsum(dx, dim=1)
         envelope_x = x[:, :, 0]
-        envelope_y = self._envelope_y(pred=pred, fx=fx, T=T, x_query=envelope_x)
+        die_envelope_profile = self._envelope_profile(pred=pred, fx=fx, T=T)
+        die_envelope_y = self._interpolate_envelope_y(die_envelope_profile, envelope_x)
+        if self.max_gap is None:
+            envelope_y = die_envelope_y
+        else:
+            gap_profile = self._absolute_gap_profile(raw_gap)
+            gapped_profile = die_envelope_profile - gap_profile
+            envelope_y = self._interpolate_envelope_y(gapped_profile, envelope_x)
 
         bottom_y = self.bottom_y.to(device=pred.device, dtype=pred.dtype)
         envelope_height = envelope_y - bottom_y
-        min_spacing_total = float(j_count - 1) * self.min_spacing
-        min_budget_total = min_spacing_total + self.min_gap
-        free_budget = (envelope_height - min_budget_total).clamp_min(0.0)
-        gap = self.min_gap + free_budget * gap_fraction
-        alloc_budget = free_budget * (1.0 - gap_fraction)
-        dy = self.min_spacing + weights * alloc_budget[:, :, None]
+        min_spacing_total = float(j_count - 1) * self.min_y_spacing
+        if self.max_gap is None:
+            min_budget_total = min_spacing_total + self.min_gap
+            free_budget = (envelope_height - min_budget_total).clamp_min(0.0)
+            gap = self.min_gap + free_budget * gap_fraction
+            alloc_budget = free_budget * (1.0 - gap_fraction)
+            gap_profile = gap
+        else:
+            free_budget = (envelope_height - min_spacing_total).clamp_min(0.0)
+            gap = die_envelope_y - envelope_y
+            alloc_budget = free_budget
+        dy = self.min_y_spacing + weights * alloc_budget[:, :, None]
 
         y = torch.empty(
             batch_size,
@@ -640,6 +699,8 @@ class PlasticityEnvelopeConstraint(ConstraintModule):
                     "dy": dy,
                     "gap": gap,
                     "gap_fraction": gap_fraction,
+                    "gap_profile": gap_profile,
+                    "die_envelope_y": die_envelope_y,
                     "envelope_y": envelope_y,
                     "top_clearance": top_clearance,
                 },

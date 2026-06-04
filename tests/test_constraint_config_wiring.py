@@ -119,6 +119,8 @@ def test_plasticity_envelope_config_builds_bottom_fixed_envelope_mesh():
     cfg["constraint"]["top_height"] = 1.0
     cfg["constraint"]["y_bottom"] = 0.0
     cfg["constraint"]["die_speed"] = 0.2
+    cfg["constraint"]["min_gap"] = 0.0
+    cfg["constraint"]["max_gap"] = 0.0
 
     model = _build_constraint(
         DummyBackbone(pred),
