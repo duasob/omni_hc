@@ -7,6 +7,7 @@ constraint:
   collapse_spacing_threshold: 1.0e-3
   top_collapse_rows: 3
   coordinate_mode: "displacement"
+  projection_device: "auto"
   x_left: 0.35
   x_right: -49.65
   y_top: 14.9

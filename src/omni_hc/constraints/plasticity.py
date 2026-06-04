@@ -689,6 +689,7 @@ class PlasticityIsotonicRegression(ConstraintModule):
         collapse_spacing_threshold: float = 1.0e-3,
         top_collapse_rows: int = 3,
         coordinate_mode: str = "displacement",
+        projection_device: str = "auto",
     ):
         super().__init__()
         if shapelist is None or len(tuple(shapelist)) != 2:
@@ -719,10 +720,16 @@ class PlasticityIsotonicRegression(ConstraintModule):
         self.collapse_spacing_threshold = float(collapse_spacing_threshold)
         self.top_collapse_rows = int(top_collapse_rows)
         self.coordinate_mode = str(coordinate_mode).lower()
+        self.projection_device = str(projection_device).lower()
         if self.coordinate_mode not in {"displacement", "absolute"}:
             raise ValueError(
                 "coordinate_mode must be one of: displacement, absolute; "
                 f"got {coordinate_mode!r}."
+            )
+        if self.projection_device not in {"auto", "native", "cpu"}:
+            raise ValueError(
+                "projection_device must be one of: auto, native, cpu; "
+                f"got {projection_device!r}."
             )
         if self.min_x_spacing < 0.0:
             raise ValueError(f"min_x_spacing must be non-negative, got {min_x_spacing}.")
@@ -795,6 +802,44 @@ class PlasticityIsotonicRegression(ConstraintModule):
         if time.ndim == 1:
             time = time[:, None]
         return time.reshape(batch_size, -1)[:, 0:1]
+
+    def _should_project_on_cpu(self, tensor: torch.Tensor) -> bool:
+        if self.projection_device == "cpu":
+            return tensor.device.type != "cpu"
+        if self.projection_device == "auto":
+            return tensor.device.type == "cuda"
+        return False
+
+    def _project_x_backend(self, raw_x: torch.Tensor) -> torch.Tensor:
+        if not self._should_project_on_cpu(raw_x):
+            return self._project_x(raw_x, min_spacing=self.min_x_spacing)
+        projected = self._project_x(
+            raw_x.to("cpu"),
+            min_spacing=self.min_x_spacing,
+        )
+        return projected.to(device=raw_x.device)
+
+    def _project_y_backend(
+        self,
+        raw_y: torch.Tensor,
+        *,
+        envelope_y: torch.Tensor,
+        bottom_y: torch.Tensor,
+    ) -> torch.Tensor:
+        if not self._should_project_on_cpu(raw_y):
+            return self._project_y(
+                raw_y,
+                envelope_y=envelope_y,
+                bottom_y=bottom_y,
+                min_spacing=self.min_y_spacing,
+            )
+        projected = self._project_y(
+            raw_y.to("cpu"),
+            envelope_y=envelope_y.to("cpu"),
+            bottom_y=bottom_y.to("cpu"),
+            min_spacing=self.min_y_spacing,
+        )
+        return projected.to(device=raw_y.device)
 
     @staticmethod
     def _pava_increasing(values: torch.Tensor) -> torch.Tensor:
@@ -970,15 +1015,14 @@ class PlasticityIsotonicRegression(ConstraintModule):
             raw_coords = raw[..., :2]
         raw_x = raw_coords[..., 0]
         raw_y = raw_coords[..., 1]
-        x = self._project_x(raw_x, min_spacing=self.min_x_spacing)
+        x = self._project_x_backend(raw_x)
         envelope_x = x[:, :, 0]
         envelope_y = self._envelope_y(pred=pred, fx=fx, T=T, x_query=envelope_x)
         bottom_y = self.bottom_y.to(device=pred.device, dtype=pred.dtype)
-        y = self._project_y(
+        y = self._project_y_backend(
             raw_y,
             envelope_y=envelope_y,
             bottom_y=bottom_y,
-            min_spacing=self.min_y_spacing,
         )
 
         coords = torch.stack((x, y), dim=-1)
