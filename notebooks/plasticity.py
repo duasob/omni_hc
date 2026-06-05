@@ -23,7 +23,7 @@ DATA_DIR = REPO_ROOT / "data/plasticity"
 FIGURES_DIR = REPO_ROOT / "docs/figures/plasticity"
 FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
-CMAP = "Greys"
+CMAP = "plasma"
 plt.rcParams.update(
     {
         "font.family": "serif",
@@ -923,6 +923,217 @@ fig, profile_ax = plt.subplots(figsize=(6.4, 5.2))
 draw_envelope_profile(profile_ax)
 
 out_path = FIGURES_DIR / "plasticity_envelope_constraint_schematic.png"
+fig.savefig(out_path, bbox_inches="tight")
+plt.show()
+print(f"Saved {out_path}")
+
+
+# %% Model mesh overlay: unconstrained vs envelope-constrained
+# Loads the two trained Transolver checkpoints, rolls each out on the same test
+# sample, and overlays the predicted mesh on the ground-truth mesh. The point is
+# the learning difference: the unconstrained model can drift off the true mesh,
+# while the envelope-constrained model is ordered and capped by construction.
+import plasticity_model_gif as pmg
+import torch
+from matplotlib.collections import LineCollection  # noqa: F401  (used via pmg.add_mesh)
+from matplotlib.lines import Line2D
+
+from omni_hc.benchmarks.plasticity.data import build_test_loader
+from omni_hc.core import compose_run_config, parse_dotted_overrides
+from omni_hc.integrations.nsl import create_model
+from omni_hc.training.common import load_checkpoint_state, load_model_state_dict
+
+OVERLAY_SAMPLE_IDX = 0
+OVERLAY_TIMESTEP = -1  # last timestep (fully deformed); set to an int in [0, T)
+
+# (row label, run directory). The unconstrained baseline is on top.
+MODEL_RUNS = (
+    (
+        "Unconstrained",
+        REPO_ROOT / "outputs/plasticity/none/Transolver/debug/seed_42",
+    ),
+    (
+        "Envelope constrained",
+        REPO_ROOT
+        / "outputs/plasticity/plasticity_envelope_constraint/transolver/debug/seed_42",
+    ),
+)
+
+GT_MESH_COLOR = "#94a3b8"
+PRED_MESH_COLOR = "#dc2626"
+
+
+def load_model_prediction(run_dir, sample_idx, *, device=None):
+    """Roll a trained checkpoint out on one test sample.
+
+    Returns ``(pred_coords, target_coords)``, each of shape ``(H, W, T, 2)`` in
+    physical space, reconstructed the same way as the diagnostics GIFs.
+    """
+    run_dir = Path(run_dir)
+    device = device or torch.device("cpu")
+    cfg = compose_run_config(
+        experiment=str(run_dir / "resolved_config.yaml"),
+        mode="test",
+        extra_overrides=parse_dotted_overrides([f"paths.root_dir={DATA_DIR}"]),
+    )
+    loader = build_test_loader(cfg)
+    meta = loader.plasticity_meta
+    x_normalizer = getattr(loader, "x_normalizer", None)
+    if x_normalizer is not None:
+        x_normalizer = x_normalizer.to(device)
+    y_normalizer = getattr(loader, "y_normalizer", None)
+    if y_normalizer is not None:
+        y_normalizer = y_normalizer.to(device)
+
+    model, _, _ = create_model(
+        cfg,
+        device=device,
+        runtime_overrides=pmg.runtime_overrides(meta),
+    )
+    if (
+        x_normalizer is not None
+        and hasattr(model, "constraint")
+        and hasattr(model.constraint, "set_input_normalizer")
+    ):
+        model.constraint.set_input_normalizer(x_normalizer)
+
+    checkpoint_path = run_dir / "best.pt"
+    if not checkpoint_path.exists():
+        checkpoint_path = run_dir / "latest.pt"
+    checkpoint = load_checkpoint_state(checkpoint_path, device=device)
+    load_model_state_dict(model, checkpoint["model_state_dict"])
+    model.eval()
+
+    batch = pmg.get_sample_batch(loader, sample_idx, device=device)
+    pred, target, _ = pmg.predict_sequence(
+        model,
+        batch,
+        y_normalizer=y_normalizer,
+        t_out=int(meta["t_out"]),
+    )
+    h, w = tuple(meta["shapelist"])
+    t_out, out_dim = int(meta["t_out"]), int(meta["out_dim"])
+    pred_seq = pred[0].detach().cpu().reshape(h, w, t_out, out_dim).numpy()
+    target_seq = target[0].detach().cpu().reshape(h, w, t_out, out_dim).numpy()
+    material = pmg.infer_material(target_seq)
+    return pmg.plot_coords(pred_seq, material), pmg.plot_coords(target_seq, material)
+
+
+overlay_predictions = [
+    (label, *load_model_prediction(run_dir, OVERLAY_SAMPLE_IDX))
+    for label, run_dir in MODEL_RUNS
+]
+
+fig, axes = plt.subplots(2, 1, figsize=(8.0, 5.4), sharex=True, sharey=True)
+fig.subplots_adjust(hspace=0.12)
+
+overlay_coord_sets = []
+for _label, pred_coords, target_coords in overlay_predictions:
+    overlay_coord_sets.append(pred_coords[:, :, OVERLAY_TIMESTEP])
+    overlay_coord_sets.append(target_coords[:, :, OVERLAY_TIMESTEP])
+
+for ax, (label, pred_coords, target_coords) in zip(axes, overlay_predictions):
+    pred_t = pred_coords[:, :, OVERLAY_TIMESTEP]
+    target_t = target_coords[:, :, OVERLAY_TIMESTEP]
+    pmg.add_mesh(ax, target_t, color=GT_MESH_COLOR, linewidth=0.5, alpha=0.95, step=1)
+    pmg.add_mesh(ax, pred_t, color=PRED_MESH_COLOR, linewidth=0.5, alpha=0.8, step=1)
+    rel_l2 = float(
+        np.linalg.norm((pred_t - target_t).reshape(-1))
+        / max(np.linalg.norm(target_t.reshape(-1)), 1.0e-12)
+    )
+    ax.set_title(f"{label}  (rel. $L_2$ = {rel_l2:.4f})", fontsize=10)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_ylabel("y")
+    ax.tick_params(labelsize=7, length=2)
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_color("#111111")
+        spine.set_linewidth(0.8)
+
+axes[-1].set_xlabel("x")
+fig.legend(
+    handles=[
+        Line2D([], [], color=GT_MESH_COLOR, linewidth=1.6, label="ground truth"),
+        Line2D([], [], color=PRED_MESH_COLOR, linewidth=1.2, label="prediction"),
+    ],
+    loc="lower center",
+    bbox_to_anchor=(0.5, 0.0),
+    ncol=2,
+    fontsize=9,
+    frameon=False,
+)
+pmg.set_shared_limits(axes, *overlay_coord_sets)
+
+out_path = FIGURES_DIR / "plasticity_model_mesh_overlay.png"
+fig.savefig(out_path, bbox_inches="tight")
+plt.show()
+print(f"Saved {out_path}")
+
+
+# %% Validation rel-L2 curves: none vs mesh vs envelope (e50_t500)
+# Reads the wandb-exported val/rel_l2 history (column 1 of val_rel_l2.csv) for
+# the three constraint families at the e50_t500 budget and plots them together
+# on a log y-axis, showing the early inductive-bias head start of the
+# constrained models versus the unconstrained baseline.
+import csv
+
+VAL_CURVE_BUDGET = "e50_t500"
+# (label, constraint dir)
+VAL_CURVE_RUNS = (
+    ("Unconstrained", "none"),
+    ("Mesh consistency", "plasticity_mesh_consistency_constraint"),
+    ("Envelope", "plasticity_envelope_constraint"),
+)
+# Sample one colour per run from CMAP, avoiding the very light/dark extremes.
+val_curve_colors = plt.get_cmap(CMAP)(np.linspace(0.1, 0.8, len(VAL_CURVE_RUNS)))
+
+
+def load_val_curve(csv_path):
+    """Return (steps, val_rel_l2) from a wandb-exported val_rel_l2.csv.
+
+    Column 0 is the step; column 1 is the run's val/rel_l2 (the __MIN/__MAX
+    columns duplicate it for single-seed exports and are ignored).
+    """
+    steps, values = [], []
+    with open(csv_path, newline="") as handle:
+        reader = csv.reader(handle)
+        next(reader, None)  # header
+        for row in reader:
+            if len(row) < 2 or not row[0] or not row[1]:
+                continue
+            steps.append(float(row[0]))
+            values.append(float(row[1]))
+    return np.asarray(steps), np.asarray(values)
+
+
+fig, ax = plt.subplots(figsize=(6.6, 4.2))
+for (label, constraint_dir), color in zip(VAL_CURVE_RUNS, val_curve_colors):
+    csv_path = (
+        REPO_ROOT
+        / "outputs/plasticity"
+        / constraint_dir
+        / "transolver"
+        / VAL_CURVE_BUDGET
+        / "seed_42"
+        / "val_rel_l2.csv"
+    )
+    if not csv_path.exists():
+        print(f"skip (missing): {csv_path}")
+        continue
+    steps, values = load_val_curve(csv_path)
+    ax.plot(steps, values, color=color, linewidth=1.6, label=label)
+
+ax.set_yscale("log")
+ax.set_xlabel("training step")
+ax.set_ylabel(r"validation rel. $L_2$")
+ax.set_title(f"Validation rel. $L_2$ over training ({VAL_CURVE_BUDGET})", fontsize=10)
+ax.grid(True, which="both", linewidth=0.4, alpha=0.25)
+ax.legend(fontsize=9, frameon=False)
+for spine in ax.spines.values():
+    spine.set_color("#111111")
+    spine.set_linewidth(0.8)
+
+out_path = FIGURES_DIR / f"plasticity_val_rel_l2_{VAL_CURVE_BUDGET}.png"
 fig.savefig(out_path, bbox_inches="tight")
 plt.show()
 print(f"Saved {out_path}")

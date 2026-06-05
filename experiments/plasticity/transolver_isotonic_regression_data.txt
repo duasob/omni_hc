@@ -1,0 +1,34 @@
+# Transolver with PlasticityIsotonicRegression on the Plasticity benchmark
+# across the standard data-budget ladder, including the full 500-epoch run.
+#
+# Plasticity has 900 train samples and 80 test samples in this project. The
+# generic e100_t900 and final budgets assume 1000 train/200 test, so those
+# entries override ntrain/ntest and disable validation.
+#
+# Run via the HPC runner:
+#   RUNS_FILE=experiments/plasticity/transolver_isotonic_regression_data.txt bash scripts/hpc/runner.sh
+# Or locally via the batch runner:
+#   bash scripts/run_batch.sh experiments/plasticity/transolver_isotonic_regression_data.txt
+#
+# Output layout:
+#   outputs/plasticity/plasticity_isotonic_regression/transolver/<budget>/seed_42/{resolved_config.yaml,best.pt}
+
+# --- e5_t50: 5 epochs, 50 train ---
+train: --benchmark plasticity --backbone Transolver --constraint plasticity_isotonic_regression --budget e5_t50 --override data.ntest=80
+test: --config outputs/plasticity/plasticity_isotonic_regression/transolver/e5_t50/seed_42/resolved_config.yaml --checkpoint outputs/plasticity/plasticity_isotonic_regression/transolver/e5_t50/seed_42/best.pt
+
+# --- e10_t100: 10 epochs, 100 train ---
+train: --benchmark plasticity --backbone Transolver --constraint plasticity_isotonic_regression --budget e10_t100 --override data.ntest=80
+test: --config outputs/plasticity/plasticity_isotonic_regression/transolver/e10_t100/seed_42/resolved_config.yaml --checkpoint outputs/plasticity/plasticity_isotonic_regression/transolver/e10_t100/seed_42/best.pt
+
+# --- e50_t500: 50 epochs, 500 train ---
+train: --benchmark plasticity --backbone Transolver --constraint plasticity_isotonic_regression --budget e50_t500 --override data.ntest=80
+test: --config outputs/plasticity/plasticity_isotonic_regression/transolver/e50_t500/seed_42/resolved_config.yaml --checkpoint outputs/plasticity/plasticity_isotonic_regression/transolver/e50_t500/seed_42/best.pt
+
+# --- e100_t900: 100 epochs, 900 train, no validation, 80 test ---
+train: --benchmark plasticity --backbone Transolver --constraint plasticity_isotonic_regression --budget e100_t900 --override data.ntrain=900 --override data.ntest=80 --override training.val_size=0
+test: --config outputs/plasticity/plasticity_isotonic_regression/transolver/e100_t900/seed_42/resolved_config.yaml --checkpoint outputs/plasticity/plasticity_isotonic_regression/transolver/e100_t900/seed_42/best.pt
+
+# --- final: 500 epochs, 900 train, no validation, 80 test ---
+train: --benchmark plasticity --backbone Transolver --constraint plasticity_isotonic_regression --budget final --override data.ntrain=900 --override data.ntest=80 --override training.val_size=0 --override training.num_epochs=500
+test: --config outputs/plasticity/plasticity_isotonic_regression/transolver/final/seed_42/resolved_config.yaml --checkpoint outputs/plasticity/plasticity_isotonic_regression/transolver/final/seed_42/best.pt
