@@ -48,6 +48,7 @@ def load_metric_file(ref: MetricFileRef, metrics_dir: Path) -> RunData:
 
 def _derived_metric(data: RunData, key: str) -> float | None:
     if key in {
+        "constraint/neg_spacing_count",
         "constraint/neg_spacing_fraction",
         "constraint/neg_spacing_worst_sample_fraction",
     }:

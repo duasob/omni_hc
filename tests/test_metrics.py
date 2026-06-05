@@ -130,6 +130,25 @@ def test_plasticity_metric_reports_top_and_bottom_envelope_violations():
     assert metrics["constraint/bottom_envelope_violation_max"].value == 0.20000000298023224
 
 
+def test_plasticity_metric_counts_nodes_below_y_bottom():
+    pred = _plasticity_pred_from_coords(
+        [
+            [[1.0, 1.0], [1.0, -0.2]],
+            [[0.0, 0.5], [0.0, -0.3]],
+        ]
+    )
+
+    metrics = compute_plasticity_metrics(
+        pred,
+        {},
+        {"shapelist": (2, 2), "t_out": 1, "out_dim": 4, "y_bottom": -0.1},
+    )
+
+    assert metrics["constraint/below_y_bottom_violation_count"].value == 2
+    assert metrics["constraint/below_y_bottom_violation_fraction"].value == 0.5
+    assert metrics["constraint/below_y_bottom_violation_max"].value == 0.20000001788139343
+
+
 def _plasticity_pred_from_coords(coords):
     import torch
 

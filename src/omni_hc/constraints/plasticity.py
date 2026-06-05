@@ -275,6 +275,7 @@ class PlasticityEnvelopeConstraint(ConstraintModule):
     """
 
     name = "plasticity_envelope"
+    expected_backbone_out_dim = 4
 
     def __init__(
         self,
@@ -304,9 +305,11 @@ class PlasticityEnvelopeConstraint(ConstraintModule):
         self.shapelist = tuple(int(v) for v in shapelist)
         self.backbone_out_dim = int(backbone_out_dim)
         self.target_out_dim = int(target_out_dim)
-        if self.backbone_out_dim != 4:
+        expected_backbone_out_dim = int(self.expected_backbone_out_dim)
+        if self.backbone_out_dim != expected_backbone_out_dim:
             raise ValueError(
-                "PlasticityEnvelopeConstraint expects backbone_out_dim=4, "
+                f"{self.__class__.__name__} expects "
+                f"backbone_out_dim={expected_backbone_out_dim}, "
                 f"got {self.backbone_out_dim}."
             )
         if self.target_out_dim != 4:
@@ -703,6 +706,169 @@ class PlasticityEnvelopeConstraint(ConstraintModule):
                     "die_envelope_y": die_envelope_y,
                     "envelope_y": envelope_y,
                     "top_clearance": top_clearance,
+                },
+                diagnostics=diagnostics,
+            )
+        return out
+
+
+class PlasticityEnvelopeYFreeXConstraint(PlasticityEnvelopeConstraint):
+    """
+    Constrain only the vertical coordinate to the moving envelope.
+
+    The backbone emits two channels:
+    - channel 0: free horizontal displacement ``u_x``
+    - channel 1: pointwise vertical logit offset
+
+    The output still matches the plasticity target convention
+    ``[x, y, u_x, u_y]``.  Unlike :class:`PlasticityEnvelopeConstraint`, this
+    ablation does not reconstruct x or y with cumulative sums.
+    """
+
+    name = "plasticity_envelope_y_free_x"
+    expected_backbone_out_dim = 2
+
+    def __init__(
+        self,
+        *,
+        shapelist,
+        backbone_out_dim: int = 2,
+        target_out_dim: int = 4,
+        fix_bottom: bool = True,
+        envelope_query: str = "pred_x",
+        fraction_eps: float = 1.0e-4,
+        **kwargs,
+    ):
+        super().__init__(
+            shapelist=shapelist,
+            backbone_out_dim=backbone_out_dim,
+            target_out_dim=target_out_dim,
+            **kwargs,
+        )
+        if self.backbone_out_dim != 2:
+            raise ValueError(
+                "PlasticityEnvelopeYFreeXConstraint expects backbone_out_dim=2, "
+                f"got {self.backbone_out_dim}."
+            )
+        self.fix_bottom = bool(fix_bottom)
+        self.envelope_query = str(envelope_query).lower()
+        if self.envelope_query not in {"pred_x", "material_x"}:
+            raise ValueError(
+                "envelope_query must be one of: pred_x, material_x; "
+                f"got {envelope_query!r}."
+            )
+        self.fraction_eps = float(fraction_eps)
+        if not 0.0 < self.fraction_eps < 0.5:
+            raise ValueError(
+                f"fraction_eps must be in (0, 0.5), got {fraction_eps}."
+            )
+
+        material_y = self.material_grid[..., 1]
+        bottom_y = self.bottom_y.to(dtype=material_y.dtype)
+        top_y = self.constant_envelope_y.to(dtype=material_y.dtype)
+        base_fraction = ((material_y - bottom_y) / (top_y - bottom_y)).clamp(
+            self.fraction_eps,
+            1.0 - self.fraction_eps,
+        )
+        self.register_buffer(
+            "base_y_logit",
+            torch.logit(base_fraction),
+            persistent=False,
+        )
+
+    def forward(self, *, pred, fx=None, T=None, return_aux=False, **_unused):
+        if pred.ndim != 3 or pred.shape[-1] != self.backbone_out_dim:
+            raise ValueError(
+                "PlasticityEnvelopeYFreeXConstraint expects pred with shape "
+                f"(batch, n_points, {self.backbone_out_dim}), got {tuple(pred.shape)}."
+            )
+
+        batch_size, n_points, _ = pred.shape
+        i_count, j_count = self.shapelist
+        expected_points = i_count * j_count
+        if n_points != expected_points:
+            raise ValueError(
+                f"PlasticityEnvelopeYFreeXConstraint expected {expected_points} points "
+                f"for shapelist={self.shapelist}, got {n_points}."
+            )
+
+        raw = pred.reshape(batch_size, i_count, j_count, self.backbone_out_dim)
+        material = self.material_grid.to(device=pred.device, dtype=pred.dtype)
+        free_ux = raw[..., 0]
+        x = material[None, ..., 0] + free_ux
+
+        if self.envelope_query == "pred_x":
+            envelope_x = x[:, :, 0]
+        else:
+            envelope_x = material[None, :, 0, 0].expand(batch_size, -1)
+        die_envelope_profile = self._envelope_profile(pred=pred, fx=fx, T=T)
+        envelope_y = self._interpolate_envelope_y(die_envelope_profile, envelope_x)
+
+        bottom_y = self.bottom_y.to(device=pred.device, dtype=pred.dtype)
+        envelope_height = (envelope_y - bottom_y).clamp_min(0.0)
+        base_logit = self.base_y_logit.to(device=pred.device, dtype=pred.dtype)
+        y_fraction = torch.sigmoid(raw[..., 1] + base_logit[None, ...])
+        y = bottom_y + y_fraction * envelope_height[:, :, None]
+        if self.fix_bottom:
+            y[:, :, -1] = bottom_y
+
+        coords = torch.stack((x, y), dim=-1)
+        displacement = coords - material[None, ...]
+        out = torch.cat((coords, displacement), dim=-1).reshape(
+            batch_size,
+            expected_points,
+            self.target_out_dim,
+        )
+
+        if return_aux:
+            top_clearance = envelope_y - y[:, :, 0]
+            top_violation = top_clearance < 0
+            bottom_y_error = (y[:, :, -1] - bottom_y).abs()
+            dy = y[:, :, :-1] - y[:, :, 1:]
+            diagnostics = {
+                "constraint/top_clearance_min": ConstraintDiagnostic(
+                    value=top_clearance.min(),
+                    reduce="min",
+                ),
+                "constraint/top_violation_count": ConstraintDiagnostic(
+                    value=top_violation.to(torch.float32).sum(),
+                    reduce="sum",
+                ),
+                "constraint/top_violation_fraction": ConstraintDiagnostic(
+                    value=top_violation.to(torch.float32).mean(),
+                    reduce="max",
+                ),
+                "constraint/bottom_y_abs_error_max": ConstraintDiagnostic(
+                    value=bottom_y_error.max(),
+                    reduce="max",
+                ),
+                "constraint/min_dy_signed": ConstraintDiagnostic(
+                    value=dy.min(),
+                    reduce="min",
+                ),
+                "constraint/y_fraction_min": ConstraintDiagnostic(
+                    value=y_fraction.min(),
+                    reduce="min",
+                ),
+                "constraint/y_fraction_max": ConstraintDiagnostic(
+                    value=y_fraction.max(),
+                    reduce="max",
+                ),
+            }
+            return self.as_output(
+                out,
+                aux={
+                    "pred_base": pred,
+                    "free_ux": free_ux,
+                    "envelope_x": envelope_x,
+                    "die_envelope_y": self._interpolate_envelope_y(
+                        die_envelope_profile,
+                        envelope_x,
+                    ),
+                    "envelope_y": envelope_y,
+                    "top_clearance": top_clearance,
+                    "y_fraction": y_fraction,
+                    "dy": dy,
                 },
                 diagnostics=diagnostics,
             )

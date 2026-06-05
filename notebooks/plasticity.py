@@ -8,7 +8,7 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/omni_hc_matplotlib")
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.io as scio
-from matplotlib.patches import Rectangle
+from matplotlib.patches import FancyArrowPatch, Rectangle
 
 REPO_ROOT = next(
     p for p in [Path.cwd(), *Path.cwd().parents] if (p / "pyproject.toml").exists()
@@ -766,6 +766,163 @@ draw_channel_grid(
 draw_output_cell(cell_ax)
 
 out_path = FIGURES_DIR / "plasticity_constraint_channel_cell_mapping.png"
+fig.savefig(out_path, bbox_inches="tight")
+plt.show()
+print(f"Saved {out_path}")
+
+
+# %% Envelope constraint schematic
+GAP_COLOR = "#7c3aed"
+ENVELOPE_COLOR = "#0f766e"
+DIE_COLOR = "#111827"
+BOTTOM_COLOR = "#334155"
+ALLOC_COLOR = "#dc2626"
+
+
+def draw_envelope_profile(ax):
+    ax.set_aspect("equal")
+    ax.set_xlim(-0.35, 4.55)
+    ax.set_ylim(-0.45, 4.55)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    # ax.set_title("Envelope Reconstruction", fontsize=10)
+    ax.set_facecolor("none")
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    x = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+    bottom_y = 0.0
+    die_y = np.array([3.85, 3.95, 3.55, 3.22, 3.34])
+    gap = np.array([0.48, 0.56, 0.44, 0.38, 0.42])
+    envelope_y = die_y - gap
+    weights = np.array(
+        [
+            [0.28, 0.35, 0.37],
+            [0.22, 0.43, 0.35],
+            [0.26, 0.30, 0.44],
+            [0.34, 0.30, 0.36],
+            [0.31, 0.36, 0.33],
+        ]
+    )
+    free_height = envelope_y - bottom_y
+    y_rows = np.zeros((x.size, 4))
+    y_rows[:, -1] = bottom_y
+    for k in range(2, -1, -1):
+        y_rows[:, k] = y_rows[:, k + 1] + weights[:, k] * free_height
+
+    die_fill_top = 4.35
+    ax.fill_between(
+        x,
+        die_y,
+        die_fill_top,
+        color="#e5e7eb",
+        alpha=0.72,
+        linewidth=0,
+        zorder=0,
+    )
+    ax.plot(x, die_y, color=DIE_COLOR, linewidth=2.2, label="moving die")
+    ax.plot(
+        x,
+        envelope_y,
+        color=ENVELOPE_COLOR,
+        linewidth=2.2,
+        linestyle=(0, (5, 3)),
+        label="usable envelope",
+    )
+    ax.plot(
+        [x[0], x[-1]],
+        [bottom_y, bottom_y],
+        color=BOTTOM_COLOR,
+        linewidth=2.0,
+    )
+
+    for row in range(y_rows.shape[1]):
+        alpha = 0.36 if row in {0, y_rows.shape[1] - 1} else 0.22
+        ax.plot(x, y_rows[:, row], color="#64748b", linewidth=1.0, alpha=alpha)
+    for col in range(x.size):
+        ax.plot(
+            np.repeat(x[col], y_rows.shape[1]),
+            y_rows[col],
+            color="#64748b",
+            linewidth=1.0,
+            alpha=0.25,
+        )
+        ax.scatter(
+            np.repeat(x[col], y_rows.shape[1]),
+            y_rows[col],
+            s=32,
+            color=POINT_GRAY,
+            edgecolors="white",
+            linewidths=0.8,
+            zorder=4,
+        )
+
+    cell_x = np.array([x[1], x[2], x[2], x[1], x[1]])
+    cell_y = np.array(
+        [y_rows[1, 1], y_rows[2, 1], y_rows[2, 2], y_rows[1, 2], y_rows[1, 1]]
+    )
+    ax.fill(cell_x, cell_y, color=CELL_FILL_GRAY, alpha=0.30, linewidth=0, zorder=2)
+    ax.plot(cell_x, cell_y, color="#111827", linewidth=1.8, zorder=3)
+
+    col = 3
+    ax.add_patch(
+        FancyArrowPatch(
+            (x[col] + 0.32, die_y[col]),
+            (x[col] + 0.32, envelope_y[col]),
+            arrowstyle="<->",
+            mutation_scale=9,
+            linewidth=1.2,
+            color=GAP_COLOR,
+        )
+    )
+    ax.text(
+        x[col] + 0.42,
+        0.5 * (die_y[col] + envelope_y[col]),
+        r"$g_i$",
+        color=GAP_COLOR,
+        fontsize=8,
+        va="center",
+    )
+    for start, stop in zip(y_rows[col, 1:], y_rows[col, :-1]):
+        ax.add_patch(
+            FancyArrowPatch(
+                (x[col] - 0.22, start),
+                (x[col] - 0.22, stop),
+                arrowstyle="<->",
+                mutation_scale=8,
+                linewidth=1.0,
+                color=ALLOC_COLOR,
+            )
+        )
+    ax.text(
+        x[col] - 0.6,
+        0.5 * envelope_y[col],
+        r"$\Delta y_{i,j}$",
+        color=ALLOC_COLOR,
+        fontsize=8,
+        va="center",
+    )
+    ax.text(
+        0.02,
+        bottom_y - 0.17,
+        r"$y_\mathrm{bottom}$ fixed",
+        fontsize=8,
+        color=BOTTOM_COLOR,
+    )
+    ax.text(0.04, die_y[0] + 0.14, "moving die", fontsize=8, color=DIE_COLOR)
+    ax.text(
+        0.04,
+        envelope_y[0] - 0.28,
+        "die minus gap",
+        fontsize=8,
+        color=ENVELOPE_COLOR,
+    )
+
+
+fig, profile_ax = plt.subplots(figsize=(6.4, 5.2))
+draw_envelope_profile(profile_ax)
+
+out_path = FIGURES_DIR / "plasticity_envelope_constraint_schematic.png"
 fig.savefig(out_path, bbox_inches="tight")
 plt.show()
 print(f"Saved {out_path}")

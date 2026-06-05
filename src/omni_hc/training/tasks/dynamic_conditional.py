@@ -42,6 +42,202 @@ def _build_nsl_l2_loss():
     return L2Loss(size_average=False)
 
 
+def _dynamic_component_rel_l2(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    t_out: int,
+    out_dim: int,
+    channel_slice: slice,
+) -> torch.Tensor:
+    """Mean per-step relative L2 for a channel group in a dynamic target."""
+    pred_view = pred.reshape(pred.shape[0], pred.shape[1], int(t_out), int(out_dim))
+    target_view = target.reshape(
+        target.shape[0],
+        target.shape[1],
+        int(t_out),
+        int(out_dim),
+    )
+    total = torch.zeros((), device=pred.device, dtype=pred.dtype)
+    for step in range(int(t_out)):
+        total = total + relative_l2_per_sample(
+            pred_view[:, :, step, channel_slice],
+            target_view[:, :, step, channel_slice],
+        ).mean()
+    return total / max(int(t_out), 1)
+
+
+def _dynamic_component_error_metrics(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    t_out: int,
+    out_dim: int,
+    channel_slice: slice,
+) -> dict[str, float]:
+    pred_view = pred.reshape(pred.shape[0], pred.shape[1], int(t_out), int(out_dim))
+    target_view = target.reshape(
+        target.shape[0],
+        target.shape[1],
+        int(t_out),
+        int(out_dim),
+    )
+    residual = pred_view[..., channel_slice] - target_view[..., channel_slice]
+    target_values = target_view[..., channel_slice]
+    return {
+        "mse": float(residual.square().mean().item()),
+        "mae": float(residual.abs().mean().item()),
+        "target_rms": float(target_values.square().mean().sqrt().item()),
+    }
+
+
+def _plasticity_material_grid(
+    shapelist,
+    *,
+    device,
+    dtype,
+    x_left: float = 0.35,
+    x_right: float = -49.65,
+    y_top: float = 14.9,
+    y_bottom: float = -0.1,
+) -> torch.Tensor | None:
+    if shapelist is None:
+        return None
+    i_count, j_count = (int(v) for v in tuple(shapelist))
+    x = torch.linspace(
+        float(x_left),
+        float(x_right),
+        i_count,
+        device=device,
+        dtype=dtype,
+    )
+    y = torch.linspace(
+        float(y_top),
+        float(y_bottom),
+        j_count,
+        device=device,
+        dtype=dtype,
+    )
+    xx = x[:, None].expand(i_count, j_count)
+    yy = y[None, :].expand(i_count, j_count)
+    return torch.stack((xx, yy), dim=-1).reshape(1, i_count * j_count, 1, 2)
+
+
+def _plasticity_material_grid_from_config(
+    cfg: dict,
+    meta: dict,
+    *,
+    device,
+    dtype,
+) -> torch.Tensor | None:
+    if str(meta.get("loader", "")) != "plas":
+        return None
+    constraint_cfg = cfg.get("constraint", {}) or {}
+    return _plasticity_material_grid(
+        meta.get("shapelist"),
+        device=device,
+        dtype=dtype,
+        x_left=float(constraint_cfg.get("x_left", 0.35)),
+        x_right=float(constraint_cfg.get("x_right", -49.65)),
+        y_top=float(constraint_cfg.get("y_top", 14.9)),
+        y_bottom=float(constraint_cfg.get("y_bottom", -0.1)),
+    )
+
+
+def _plasticity_deviation_consistency_metrics(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    t_out: int,
+    out_dim: int,
+    material_grid: torch.Tensor | None,
+) -> dict[str, float]:
+    if int(out_dim) < 4 or material_grid is None:
+        return {}
+    pred_view = pred.reshape(pred.shape[0], pred.shape[1], int(t_out), int(out_dim))
+    target_view = target.reshape(
+        target.shape[0],
+        target.shape[1],
+        int(t_out),
+        int(out_dim),
+    )
+    material = material_grid.to(device=pred.device, dtype=pred.dtype)
+    pred_residual = pred_view[..., 2:4] - (pred_view[..., 0:2] - material)
+    target_residual = target_view[..., 2:4] - (target_view[..., 0:2] - material)
+    return {
+        "deviation_consistency_pred_mse": float(pred_residual.square().mean().item()),
+        "deviation_consistency_pred_abs_max": float(pred_residual.abs().max().item()),
+        "deviation_consistency_target_mse": float(
+            target_residual.square().mean().item()
+        ),
+        "deviation_consistency_target_abs_max": float(
+            target_residual.abs().max().item()
+        ),
+    }
+
+
+def plasticity_component_loss_metrics(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    t_out: int,
+    out_dim: int,
+    material_grid: torch.Tensor | None = None,
+) -> dict[str, float]:
+    if int(out_dim) < 4:
+        return {}
+    position_errors = _dynamic_component_error_metrics(
+        pred,
+        target,
+        t_out=t_out,
+        out_dim=out_dim,
+        channel_slice=slice(0, 2),
+    )
+    deviation_errors = _dynamic_component_error_metrics(
+        pred,
+        target,
+        t_out=t_out,
+        out_dim=out_dim,
+        channel_slice=slice(2, 4),
+    )
+    metrics = {
+        "loss_position": float(
+            _dynamic_component_rel_l2(
+                pred,
+                target,
+                t_out=t_out,
+                out_dim=out_dim,
+                channel_slice=slice(0, 2),
+            ).item()
+        ),
+        "loss_deviation": float(
+            _dynamic_component_rel_l2(
+                pred,
+                target,
+                t_out=t_out,
+                out_dim=out_dim,
+                channel_slice=slice(2, 4),
+            ).item()
+        ),
+        "mse_position": position_errors["mse"],
+        "mse_deviation": deviation_errors["mse"],
+        "mae_position": position_errors["mae"],
+        "mae_deviation": deviation_errors["mae"],
+        "target_rms_position": position_errors["target_rms"],
+        "target_rms_deviation": deviation_errors["target_rms"],
+    }
+    metrics.update(
+        _plasticity_deviation_consistency_metrics(
+            pred,
+            target,
+            t_out=t_out,
+            out_dim=out_dim,
+            material_grid=material_grid,
+        )
+    )
+    return metrics
+
+
 def rollout_dynamic_conditional(
     model,
     coords,
@@ -138,6 +334,7 @@ def evaluate_dynamic_conditional(
     prepare_batch,
     t_out: int,
     out_dim: int,
+    plasticity_material_grid: torch.Tensor | None = None,
     compute_extra_diagnostics=None,
 ):
     model.eval()
@@ -175,6 +372,15 @@ def evaluate_dynamic_conditional(
                 relative_l2_per_sample(pred_decoded, target_decoded).sum().item()
             )
             step_rel_l2_sum += float(step_rel_l2.item())
+            component_metrics = plasticity_component_loss_metrics(
+                pred_decoded,
+                target_decoded,
+                t_out=t_out,
+                out_dim=out_dim,
+                material_grid=plasticity_material_grid,
+            )
+            for name, value in component_metrics.items():
+                diag_metrics.update({name: value}, weight=batch_size)
             diag_metrics.update(summary["diagnostics"], weight=batch_size)
             if compute_extra_diagnostics is not None:
                 fx_for_diagnostics = _decode_if_needed(x_normalizer, fx)
@@ -265,6 +471,12 @@ def train_dynamic_conditional_task(
     max_grad_norm = training_cfg.get("max_grad_norm")
     t_out = int(meta["t_out"])
     out_dim = int(meta["out_dim"])
+    plasticity_material_grid = _plasticity_material_grid_from_config(
+        cfg,
+        meta,
+        device=device,
+        dtype=torch.float32,
+    )
     has_validation = val_loader is not None
     best_score = float("inf")
     best_metrics = None
@@ -289,6 +501,7 @@ def train_dynamic_conditional_task(
             train_step_rel_l2_sum = 0.0
             train_pred_mean_sum = 0.0
             train_diag_metrics = MetricAccumulator()
+            train_component_metrics = MetricAccumulator()
             samples = 0
 
             for step, batch in enumerate(train_loader):
@@ -328,6 +541,14 @@ def train_dynamic_conditional_task(
                     relative_l2_per_sample(pred_decoded, target_decoded).sum().item()
                 )
                 train_step_rel_l2_sum += float(step_rel_l2.item())
+                component_metrics = plasticity_component_loss_metrics(
+                    pred_decoded,
+                    target_decoded,
+                    t_out=t_out,
+                    out_dim=out_dim,
+                    material_grid=plasticity_material_grid,
+                )
+                train_component_metrics.update(component_metrics, weight=batch_size)
                 train_pred_mean_sum += float(summary["pred_mean"]) * batch_size
                 train_diag_metrics.update(summary["diagnostics"], weight=batch_size)
                 samples += batch_size
@@ -346,6 +567,12 @@ def train_dynamic_conditional_task(
                             "train/pred_mean": float(summary["pred_mean"]),
                         }
                         payload.update(
+                            {
+                                f"train/step_{name}": value
+                                for name, value in component_metrics.items()
+                            }
+                        )
+                        payload.update(
                             prefix_metric_names(
                                 diagnostic_values(summary["diagnostics"]),
                                 "train",
@@ -363,6 +590,7 @@ def train_dynamic_conditional_task(
                 / (max(samples, 1) * max(int(t_out), 1)),
                 "pred_mean": train_pred_mean_sum / max(samples, 1),
             }
+            train_metrics.update(train_component_metrics.compute())
             train_metrics.update(train_diag_metrics.compute())
             epoch_step = (epoch + 1) * len(train_loader)
             val_metrics = None
@@ -437,6 +665,7 @@ def train_dynamic_conditional_task(
                     prepare_batch=prepare_batch,
                     t_out=t_out,
                     out_dim=out_dim,
+                    plasticity_material_grid=plasticity_material_grid,
                 )
                 print(
                     f"epoch {epoch + 1}/{int(training_cfg.get('num_epochs', 1))} "
@@ -562,6 +791,12 @@ def test_dynamic_conditional_task(
         prepare_batch=prepare_batch,
         t_out=int(meta["t_out"]),
         out_dim=int(meta["out_dim"]),
+        plasticity_material_grid=_plasticity_material_grid_from_config(
+            cfg,
+            meta,
+            device=device,
+            dtype=torch.float32,
+        ),
         compute_extra_diagnostics=make_benchmark_diagnostic_fn(cfg, meta),
     )
     media_paths = {}

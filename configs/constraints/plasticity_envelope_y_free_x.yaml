@@ -1,0 +1,15 @@
+constraint:
+  name: "plasticity_envelope_y_free_x"
+  backbone_out_dim: 2
+  target_out_dim: 4
+  x_left: 0.35
+  x_right: -49.65
+  y_top: 14.9
+  top_height: 15.1
+  y_bottom: -0.1
+  envelope_source: "fx"
+  envelope_query: "pred_x"
+  fix_bottom: true
+  fraction_eps: 1.0e-4
+  die_speed: 6.0
+  time_duration: 1.0

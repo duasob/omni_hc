@@ -302,6 +302,21 @@ def _envelope_violation_metrics(
         value=bottom_abs.max(),
         reduce="max",
     )
+    y_bottom = float(meta.get("y_bottom", -0.1))
+    below_y_bottom = (y_bottom - coords[..., 1]).clamp_min(0.0)
+    below_count, below_fraction = _count_fraction(below_y_bottom)
+    out["constraint/below_y_bottom_violation_count"] = ConstraintDiagnostic(
+        value=below_count,
+        reduce="sum",
+    )
+    out["constraint/below_y_bottom_violation_fraction"] = ConstraintDiagnostic(
+        value=below_fraction,
+        reduce="mean",
+    )
+    out["constraint/below_y_bottom_violation_max"] = ConstraintDiagnostic(
+        value=below_y_bottom.max(),
+        reduce="max",
+    )
     return out
 
 

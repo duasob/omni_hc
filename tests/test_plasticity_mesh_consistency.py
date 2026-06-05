@@ -2,6 +2,7 @@ import torch
 
 from omni_hc.constraints import (
     PlasticityEnvelopeConstraint,
+    PlasticityEnvelopeYFreeXConstraint,
     PlasticityIsotonicRegression,
     PlasticityMeshConsistencyConstraint,
 )
@@ -295,6 +296,43 @@ def test_plasticity_envelope_uses_separate_x_and_y_spacing_floors():
     assert torch.all(output.aux["dx"] >= 1.2 - 1.0e-6)
     assert torch.all(output.aux["dy"] >= 0.05 - 1.0e-6)
     assert torch.isclose(output.aux["dx"].min(), torch.tensor(1.2), atol=1.0e-6)
+
+
+def test_plasticity_envelope_y_free_x_bounds_y_without_cumulative_x():
+    constraint = PlasticityEnvelopeYFreeXConstraint(
+        shapelist=(4, 3),
+        x_left=0.0,
+        x_right=-3.0,
+        y_top=10.0,
+        y_bottom=0.0,
+        envelope_source="constant",
+        envelope_query="pred_x",
+        die_speed=0.0,
+    )
+    raw = torch.zeros(1, 4, 3, 2)
+    raw[..., 0] = 0.25
+    pred = raw.reshape(1, 12, 2)
+
+    output = constraint(pred=pred, T=torch.zeros(1, 1), return_aux=True)
+    field = output.pred.reshape(1, 4, 3, 4)
+    coords = field[..., :2]
+    displacement = field[..., 2:4]
+
+    assert torch.allclose(
+        coords[..., 0],
+        constraint.material_grid[..., 0].unsqueeze(0) + 0.25,
+        atol=1.0e-6,
+    )
+    assert torch.all(coords[:, :, 0, 1] <= output.aux["envelope_y"] + 1.0e-6)
+    assert torch.all(coords[..., 1] >= 0.0)
+    assert torch.allclose(coords[:, :, -1, 1], torch.zeros_like(coords[:, :, -1, 1]))
+    assert torch.allclose(
+        displacement,
+        coords - constraint.material_grid.unsqueeze(0),
+        atol=1.0e-6,
+    )
+    assert output.diagnostics["constraint/top_violation_count"].value == 0.0
+    assert output.diagnostics["constraint/bottom_y_abs_error_max"].value == 0.0
 
 
 def test_plasticity_isotonic_regression_projects_coordinates_below_envelope():

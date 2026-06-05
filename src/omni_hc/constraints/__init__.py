@@ -31,6 +31,7 @@ from .mean import MeanConstraint, MeanCorrection, build_mlp, match_mean
 from .sine_boundary import SineBoundaryConstraint
 from .plasticity import (
     PlasticityEnvelopeConstraint,
+    PlasticityEnvelopeYFreeXConstraint,
     PlasticityIsotonicRegression,
     PlasticityMeshConsistencyConstraint,
 )
@@ -56,6 +57,7 @@ __all__ = [
     "MeanCorrection",
     "PipeInletParabolicAnsatz",
     "PlasticityEnvelopeConstraint",
+    "PlasticityEnvelopeYFreeXConstraint",
     "PlasticityIsotonicRegression",
     "PlasticityMeshConsistencyConstraint",
     "PipeStreamFunctionBoundaryAnsatz",
