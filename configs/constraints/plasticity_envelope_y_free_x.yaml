@@ -9,6 +9,7 @@ constraint:
   y_bottom: -0.1
   envelope_source: "fx"
   envelope_query: "pred_x"
+  base_height_source: "top_height"
   fix_bottom: true
   fraction_eps: 1.0e-4
   die_speed: 6.0

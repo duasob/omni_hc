@@ -621,7 +621,7 @@ def train_dynamic_conditional_task(
                                 out_dim=out_dim,
                                 y_normalizer=y_normalizer,
                                 step_loss_fn=nsl_l2_loss,
-                                collect_aux_keys=("envelope_y",),
+                                collect_aux_keys=("envelope_x", "envelope_y"),
                             )
                             final_time = time[:, -1:].reshape(coords.shape[0], 1)
                             final_out = forward_with_optional_aux(
@@ -821,7 +821,7 @@ def test_dynamic_conditional_task(
                     out_dim=out_dim,
                     y_normalizer=y_normalizer,
                     step_loss_fn=_build_nsl_l2_loss(),
-                    collect_aux_keys=("envelope_y",),
+                    collect_aux_keys=("envelope_x", "envelope_y"),
                 )
                 final_time = time[:, -1:].reshape(coords.shape[0], 1)
                 final_out = forward_with_optional_aux(

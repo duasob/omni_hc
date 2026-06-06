@@ -40,6 +40,9 @@ ELAS_BL = RunRef("outputs/elasticity/none/transolver/final/seed_42")
 PLAS_HC = RunRef(
     "outputs/plasticity/plasticity_mesh_consistency_constraint/transolver/final/seed_42"
 )
+PLAS_ENV_HC = RunRef(
+    "outputs/plasticity/plasticity_envelope_constraint/transolver/final/seed_42"
+)
 PLAS_BL = RunRef("outputs/plasticity/none/transolver/final/seed_42")
 GT = MetricFileRef("ch5_gt_metrics.yaml")
 COST = MetricFileRef("ch5_cost_metrics.yaml")
@@ -74,8 +77,26 @@ cv_gt = ReportArtifact(
         Row(run=None, metric_key=None, macro=r"\cvGtElasticity", literal="/"),
         Row(
             run=GT,
-            metric_key="constraint/flipped_cell_count_worst",
-            macro=r"\cvGtPlasticity",
+            metric_key=(
+                "constraint/neg_spacing_count",
+                "constraint/axis_order_violation_count",
+            ),
+            macro=r"\cvGtPlasticitySpacing",
+            format="{:.0f}",
+        ),
+        Row(
+            run=GT,
+            metric_key=(
+                "constraint/top_envelope_violation_count",
+                "constraint/top_violation_count",
+            ),
+            macro=r"\cvGtPlasticityTopDie",
+            format="{:.0f}",
+        ),
+        Row(
+            run=GT,
+            metric_key="constraint/below_y_bottom_violation_count",
+            macro=r"\cvGtPlasticityBottom",
             format="{:.0f}",
         ),
     ],
@@ -118,8 +139,26 @@ cv_baseline = ReportArtifact(
         Row(run=ELAS_BL, metric_key=None, macro=r"\cvBlElasticity", literal="/"),
         Row(
             run=PLAS_BL,
-            metric_key="constraint/flipped_cell_count_worst",
-            macro=r"\cvBlPlasticity",
+            metric_key=(
+                "constraint/neg_spacing_count",
+                "constraint/axis_order_violation_count",
+            ),
+            macro=r"\cvBlPlasticitySpacing",
+            format="{:.0f}",
+        ),
+        Row(
+            run=PLAS_BL,
+            metric_key=(
+                "constraint/top_envelope_violation_count",
+                "constraint/top_violation_count",
+            ),
+            macro=r"\cvBlPlasticityTopDie",
+            format="{:.0f}",
+        ),
+        Row(
+            run=PLAS_BL,
+            metric_key="constraint/below_y_bottom_violation_count",
+            macro=r"\cvBlPlasticityBottom",
             format="{:.0f}",
         ),
     ],
@@ -232,83 +271,88 @@ cv_constrained = ReportArtifact(
         ),
         Row(
             run=PLAS_HC,
-            metric_key="constraint/flipped_cell_count_worst",
-            macro=r"\cvHcPlasticity",
+            metric_key=(
+                "constraint/neg_spacing_count",
+                "constraint/axis_order_violation_count",
+            ),
+            macro=r"\cvHcPlasticitySpacing",
+            format="{:.0f}",
+        ),
+        Row(
+            run=PLAS_ENV_HC,
+            metric_key=(
+                "constraint/top_envelope_violation_count",
+                "constraint/top_violation_count",
+            ),
+            macro=r"\cvHcPlasticityTopDie",
+            format="{:.0f}",
+        ),
+        Row(
+            run=PLAS_ENV_HC,
+            metric_key="constraint/below_y_bottom_violation_count",
+            macro=r"\cvHcPlasticityBottom",
             format="{:.0f}",
         ),
     ],
 )
 
 
-# --- cv_cost: Δparams, ΔFLOPs -------------------------------------------------
+# --- cv_cost: baseline params/FLOPs and constraint % overhead -----------------
+CV_COST_ROWS = (
+    ("Ns", "ns"),
+    ("DarcyDirichlet", "darcy_dirichlet"),
+    ("DarcyFlux", "darcy_flux"),
+    ("PipeWall", "pipe_wall"),
+    ("PipeStream", "pipe_stream"),
+    ("Elasticity", "elasticity"),
+    ("Plasticity", "plasticity"),
+)
+
+
+def _cv_cost_rows() -> list[Row]:
+    rows: list[Row] = []
+    for macro_token, metric_token in CV_COST_ROWS:
+        rows.append(
+            Row(
+                run=COST,
+                metric_key=f"{metric_token}/params_base_m",
+                macro=rf"\cvCostParamsBase{macro_token}",
+                format="{:.2f}",
+            )
+        )
+        rows.append(
+            Row(
+                run=COST,
+                metric_key=f"{metric_token}/params_overhead_pct",
+                macro=rf"\cvCostParamsPct{macro_token}",
+                format="{:+.1f}\\%",
+            )
+        )
+        rows.append(
+            Row(
+                run=COST,
+                metric_key=f"{metric_token}/flops_base_t",
+                macro=rf"\cvCostFlopsBase{macro_token}",
+                format="{:.2f}",
+            )
+        )
+        rows.append(
+            Row(
+                run=COST,
+                metric_key=f"{metric_token}/flops_overhead_pct",
+                macro=rf"\cvCostFlopsPct{macro_token}",
+                format="{:+.1f}\\%",
+            )
+        )
+    return rows
+
+
 cv_cost = ReportArtifact(
     name="cv_cost",
     chapter=5,
     kind="tex_macros",
     output_subpath="macros/ch5_cv_cost.tex",
-    rows=[
-        Row(
-            run=COST,
-            metric_key="ns/params_overhead",
-            macro=r"\cvCostParamsNs",
-            format="{:.0f}",
-        ),
-        Row(
-            run=COST,
-            metric_key="ns/flops_overhead",
-            macro=r"\cvCostFlopsNs",
-            format="flops",
-        ),
-        Row(
-            run=None, metric_key=None, macro=r"\cvCostParamsDarcyDirichlet", literal="0"
-        ),
-        Row(
-            run=COST,
-            metric_key="darcy_dirichlet/flops_overhead",
-            macro=r"\cvCostFlopsDarcyDirichlet",
-            format="flops",
-        ),
-        Row(run=None, metric_key=None, macro=r"\cvCostParamsDarcyFlux", literal="0"),
-        Row(
-            run=COST,
-            metric_key="darcy_flux/flops_overhead",
-            macro=r"\cvCostFlopsDarcyFlux",
-            format="flops",
-        ),
-        Row(run=None, metric_key=None, macro=r"\cvCostParamsPipeWall", literal="0"),
-        Row(
-            run=COST,
-            metric_key="pipe_wall/flops_overhead",
-            macro=r"\cvCostFlopsPipeWall",
-            format="flops",
-        ),
-        Row(run=None, metric_key=None, macro=r"\cvCostParamsPipeStream", literal="0"),
-        Row(
-            run=COST,
-            metric_key="pipe_stream/flops_overhead",
-            macro=r"\cvCostFlopsPipeStream",
-            format="flops",
-        ),
-        Row(
-            run=COST,
-            metric_key="elasticity/params_overhead",
-            macro=r"\cvCostParamsElasticity",
-            format="{:.0f}",
-        ),
-        Row(
-            run=COST,
-            metric_key="elasticity/flops_overhead",
-            macro=r"\cvCostFlopsElasticity",
-            format="flops",
-        ),
-        Row(run=None, metric_key=None, macro=r"\cvCostParamsPlasticity", literal="0"),
-        Row(
-            run=COST,
-            metric_key="plasticity/flops_overhead",
-            macro=r"\cvCostFlopsPlasticity",
-            format="flops",
-        ),
-    ],
+    rows=_cv_cost_rows(),
 )
 
 
@@ -544,6 +588,13 @@ def _overhead(constrained: float | None, baseline: float | None) -> float | None
     return constrained - baseline
 
 
+def _overhead_pct(overhead: float, baseline: float | None) -> float:
+    if not baseline:
+        return 0.0
+    pct = overhead / baseline * 100
+    return 0.0 if abs(pct) < 0.05 else pct
+
+
 def compute_cost_metrics(repo_root: Path) -> tuple[dict[str, float], list[str]]:
     metrics: dict[str, float] = {}
     warnings: list[str] = []
@@ -562,18 +613,28 @@ def compute_cost_metrics(repo_root: Path) -> tuple[dict[str, float], list[str]]:
         if constrained_diag is None or baseline_diag is None:
             continue
 
-        params_overhead = _overhead(
-            _cost_number(constrained_diag, "trainable_params"),
-            _cost_number(baseline_diag, "trainable_params"),
-        )
-        flops_overhead = _overhead(
-            _cost_number(constrained_diag, "step_flops"),
-            _cost_number(baseline_diag, "step_flops"),
-        )
+        constrained_params = _cost_number(constrained_diag, "trainable_params")
+        baseline_params = _cost_number(baseline_diag, "trainable_params")
+        constrained_flops = _cost_number(constrained_diag, "step_flops")
+        baseline_flops = _cost_number(baseline_diag, "step_flops")
+
+        if baseline_params is not None:
+            metrics[f"{spec.key}/params_base_m"] = baseline_params / 1e6
+        if baseline_flops is not None:
+            metrics[f"{spec.key}/flops_base_t"] = baseline_flops / 1e12
+
+        params_overhead = _overhead(constrained_params, baseline_params)
+        flops_overhead = _overhead(constrained_flops, baseline_flops)
         if params_overhead is not None:
             metrics[f"{spec.key}/params_overhead"] = params_overhead
+            metrics[f"{spec.key}/params_overhead_pct"] = _overhead_pct(
+                params_overhead, baseline_params
+            )
         if flops_overhead is not None:
             metrics[f"{spec.key}/flops_overhead"] = flops_overhead
+            metrics[f"{spec.key}/flops_overhead_pct"] = _overhead_pct(
+                flops_overhead, baseline_flops
+            )
 
     return metrics, warnings
 

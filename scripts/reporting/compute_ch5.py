@@ -101,7 +101,12 @@ def _accumulate_gt(
         fx = _decode_x_if_needed(loader, fx, device)
         target = _decode_if_needed(loader, target.to(device), device)
         pred = _target_for_metric(benchmark, target, meta)
-        diagnostics = metric_fn(pred, {"coords": coords, "x": fx}, meta)
+        metric_batch: dict[str, Any] = {"coords": coords, "x": fx}
+        if benchmark == "plasticity_2d":
+            metric_batch["target"] = target
+            if "time" in batch:
+                metric_batch["time"] = batch["time"].to(device)
+        diagnostics = metric_fn(pred, metric_batch, meta)
         acc.update(diagnostics, weight=int(target.shape[0]))
     return acc.compute()
 

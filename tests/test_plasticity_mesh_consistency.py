@@ -335,6 +335,37 @@ def test_plasticity_envelope_y_free_x_bounds_y_without_cumulative_x():
     assert output.diagnostics["constraint/bottom_y_abs_error_max"].value == 0.0
 
 
+def test_plasticity_envelope_y_free_x_can_initialize_from_top_height():
+    constraint = PlasticityEnvelopeYFreeXConstraint(
+        shapelist=(4, 3),
+        x_left=0.0,
+        x_right=-3.0,
+        y_top=10.0,
+        top_height=12.0,
+        y_bottom=0.0,
+        envelope_source="fx",
+        envelope_query="material_x",
+        base_height_source="top_height",
+        die_speed=0.0,
+    )
+    pred = torch.zeros(1, 12, 2)
+    fx = torch.full((1, 12, 1), 12.0)
+
+    output = constraint(pred=pred, fx=fx, T=torch.zeros(1, 1), return_aux=True)
+    field = output.pred.reshape(1, 4, 3, 4)
+
+    assert torch.allclose(
+        field[0, ..., 1],
+        constraint.material_grid[..., 1],
+        atol=1.0e-6,
+    )
+    assert torch.allclose(
+        output.aux["envelope_y"],
+        torch.full((1, 4), 12.0),
+        atol=1.0e-6,
+    )
+
+
 def test_plasticity_isotonic_regression_projects_coordinates_below_envelope():
     constraint = PlasticityIsotonicRegression(
         shapelist=(4, 3),

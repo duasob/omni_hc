@@ -723,6 +723,10 @@ class PlasticityEnvelopeYFreeXConstraint(PlasticityEnvelopeConstraint):
     The output still matches the plasticity target convention
     ``[x, y, u_x, u_y]``.  Unlike :class:`PlasticityEnvelopeConstraint`, this
     ablation does not reconstruct x or y with cumulative sums.
+
+    ``base_height_source="top_height"`` initializes zero vertical offsets at
+    the material mesh under the nominal die cap.  The legacy
+    ``"material_top"`` mode is retained for old resolved configs/checkpoints.
     """
 
     name = "plasticity_envelope_y_free_x"
@@ -736,6 +740,7 @@ class PlasticityEnvelopeYFreeXConstraint(PlasticityEnvelopeConstraint):
         target_out_dim: int = 4,
         fix_bottom: bool = True,
         envelope_query: str = "pred_x",
+        base_height_source: str = "material_top",
         fraction_eps: float = 1.0e-4,
         **kwargs,
     ):
@@ -757,6 +762,12 @@ class PlasticityEnvelopeYFreeXConstraint(PlasticityEnvelopeConstraint):
                 "envelope_query must be one of: pred_x, material_x; "
                 f"got {envelope_query!r}."
             )
+        self.base_height_source = str(base_height_source).lower()
+        if self.base_height_source not in {"material_top", "top_height"}:
+            raise ValueError(
+                "base_height_source must be one of: material_top, top_height; "
+                f"got {base_height_source!r}."
+            )
         self.fraction_eps = float(fraction_eps)
         if not 0.0 < self.fraction_eps < 0.5:
             raise ValueError(
@@ -765,8 +776,12 @@ class PlasticityEnvelopeYFreeXConstraint(PlasticityEnvelopeConstraint):
 
         material_y = self.material_grid[..., 1]
         bottom_y = self.bottom_y.to(dtype=material_y.dtype)
-        top_y = self.constant_envelope_y.to(dtype=material_y.dtype)
-        base_fraction = ((material_y - bottom_y) / (top_y - bottom_y)).clamp(
+        if self.base_height_source == "top_height":
+            base_top_y = self.top_height.to(dtype=material_y.dtype)[:, None]
+        else:
+            base_top_y = self.constant_envelope_y.to(dtype=material_y.dtype)
+        base_height = (base_top_y - bottom_y).clamp_min(1.0e-12)
+        base_fraction = ((material_y - bottom_y) / base_height).clamp(
             self.fraction_eps,
             1.0 - self.fraction_eps,
         )

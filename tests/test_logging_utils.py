@@ -192,6 +192,35 @@ def test_plasticity_envelope_coord_set_uses_material_x_reference():
     np.testing.assert_allclose(coords[..., 1], envelope)
 
 
+def test_plasticity_envelope_x_sequence_preserves_time_varying_coordinates():
+    material = np.zeros((3, 2, 2, 2), dtype=np.float32)
+    material[:, 0, :, 0] = np.array(
+        [[0.35, 0.35], [-0.4, -0.4], [-1.15, -1.15]],
+        dtype=np.float32,
+    )
+    envelope_x_by_time = torch.tensor(
+        [
+            [
+                [0.35, -0.4, -1.15],
+                [0.20, -0.55, -1.30],
+            ]
+        ],
+        dtype=torch.float32,
+    )
+
+    envelope_x = logging_utils._plasticity_envelope_x_sequence(
+        {"envelope_x": envelope_x_by_time},
+        material,
+        t_out=2,
+        i_count=3,
+    )
+
+    np.testing.assert_allclose(
+        envelope_x,
+        envelope_x_by_time[0].numpy(),
+    )
+
+
 def test_plasticity_mesh_media_logs_images_and_gif(monkeypatch):
     if logging_utils.plt is None:
         pytest.skip("matplotlib is unavailable")
