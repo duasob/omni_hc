@@ -41,6 +41,8 @@ def _format_scientific(value: float, fmt: str) -> str:
     The result is wrapped in \\ensuremath{} so the macro can be used in either
     text or math mode in the chapter tables.
     """
+    if value == 0.0 and ("e" in fmt or "E" in fmt):
+        return "0"
     s = fmt.format(value)
     m = re.fullmatch(r"(-?\d+(?:\.\d+)?)[eE]([+-]?)0*(\d+)", s)
     if not m:
@@ -53,6 +55,8 @@ def _format_scientific(value: float, fmt: str) -> str:
 def _format_value(value: float, fmt: str) -> str:
     if fmt == "flops":
         return _format_flops(value)
+    if fmt == "percent":
+        return rf"{100.0 * value:.2f}\%"
     return _format_scientific(value, fmt)
 
 

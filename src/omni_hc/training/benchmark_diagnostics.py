@@ -30,6 +30,30 @@ def make_benchmark_diagnostic_fn(
     if fn is None:
         return None
 
+    diagnostic_meta = dict(meta)
+    diagnostics_cfg = cfg.get("diagnostics") or {}
+    constraint_cfg = cfg.get("constraint") or {}
+    for key in (
+        "x_left",
+        "x_right",
+        "y_top",
+        "y_bottom",
+        "y_bottom_min",
+        "y_bottom_max",
+        "top_height",
+        "die_speed",
+        "time_duration",
+        "top_envelope_tolerance",
+        "bottom_boundary_tolerance",
+        "below_y_bottom_tolerance",
+        "collapse_spacing_threshold",
+        "top_collapse_rows",
+    ):
+        if key in diagnostics_cfg:
+            diagnostic_meta[key] = diagnostics_cfg[key]
+        if key in constraint_cfg:
+            diagnostic_meta[key] = constraint_cfg[key]
+
     def call(
         pred: torch.Tensor,
         coords: torch.Tensor | None = None,
@@ -38,6 +62,6 @@ def make_benchmark_diagnostic_fn(
         **extra: Any,
     ) -> dict[str, ConstraintDiagnostic]:
         batch = {"coords": coords, "x": fx, "target": target, **extra}
-        return fn(pred, batch, meta)
+        return fn(pred, batch, diagnostic_meta)
 
     return call

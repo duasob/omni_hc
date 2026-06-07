@@ -253,7 +253,12 @@ def _envelope_violation_metrics(
     cap = _envelope_cap_from_input(coords=coords, field=field, batch=batch, meta=meta)
     if cap is not None:
         top_y = coords[:, :, :, 0, 1]
-        top_violation = (top_y - cap).clamp_min(0.0)
+        top_excess = (top_y - cap).clamp_min(0.0)
+        # Default absorbs the intrinsic reconstruction error of the piecewise-
+        # linear moving-die cap (<= 0.0445 vs GT, ~0.3% of the ~15 press height);
+        # only excursions beyond this band are genuine envelope violations.
+        top_tolerance = float(meta.get("top_envelope_tolerance", 5.0e-2))
+        top_violation = (top_excess - top_tolerance).clamp_min(0.0)
         count, fraction = _count_fraction(top_violation)
         out.update(
             {
@@ -277,23 +282,67 @@ def _envelope_violation_metrics(
                     value=(cap - top_y).min(),
                     reduce="min",
                 ),
+                "constraint/top_envelope_excess_raw_mean": ConstraintDiagnostic(
+                    value=top_excess.mean(),
+                    reduce="mean",
+                ),
+                "constraint/top_envelope_excess_raw_max": ConstraintDiagnostic(
+                    value=top_excess.max(),
+                    reduce="max",
+                ),
             }
         )
 
+    # The bottom edge is a pinned (two-sided) Dirichlet boundary: in the GT it
+    # never displaces, staying within the measured band [y_bottom_min,
+    # y_bottom_max] = [-0.10001, -0.09999] across every sample and timestep
+    # (deformed == reference exactly, displacement is identically zero there).
+    # When a reference field is available we compare against the exact per-node
+    # reference position (giving zero offset on GT); otherwise we fall back to
+    # band membership so an in-band bottom row registers zero offset.
+    y_bottom_min = float(meta.get("y_bottom_min", -0.10001))
+    y_bottom_max = float(meta.get("y_bottom_max", -0.09999))
+    bottom_y = coords[:, :, :, -1, 1]
     target = batch.get("target")
     target_field = _reshape_field(target, meta) if target is not None else None
     if target_field is not None and target_field.shape[-1] >= 4:
         material = target_field[..., :2] - target_field[..., 2:4]
-        bottom_target = material[:, :, :, -1, 1]
+        bottom_abs = (bottom_y - material[:, :, :, -1, 1]).abs()
     elif field.shape[-1] >= 4:
         material = field[..., :2] - field[..., 2:4]
-        bottom_target = material[:, :, :, -1, 1]
+        bottom_abs = (bottom_y - material[:, :, :, -1, 1]).abs()
     else:
-        bottom_target = torch.full_like(
-            coords[:, :, :, -1, 1],
-            float(meta.get("y_bottom", -0.1)),
-        )
-    bottom_abs = (coords[:, :, :, -1, 1] - bottom_target).abs()
+        bottom_abs = (y_bottom_min - bottom_y).clamp_min(0.0) + (
+            bottom_y - y_bottom_max
+        ).clamp_min(0.0)
+    bottom_tolerance = float(meta.get("bottom_boundary_tolerance", 1.0e-4))
+    bottom_violation = (bottom_abs - bottom_tolerance).clamp_min(0.0)
+    bottom_count, bottom_fraction = _count_fraction(bottom_violation)
+    out["constraint/bottom_boundary_violation_count"] = ConstraintDiagnostic(
+        value=bottom_count,
+        reduce="sum",
+    )
+    out["constraint/bottom_boundary_violation_fraction"] = ConstraintDiagnostic(
+        value=bottom_fraction,
+        reduce="mean",
+    )
+    out["constraint/bottom_boundary_violation_mean"] = ConstraintDiagnostic(
+        value=bottom_violation.mean(),
+        reduce="mean",
+    )
+    out["constraint/bottom_boundary_violation_max"] = ConstraintDiagnostic(
+        value=bottom_violation.max(),
+        reduce="max",
+    )
+    out["constraint/bottom_boundary_abs_error_mean"] = ConstraintDiagnostic(
+        value=bottom_abs.mean(),
+        reduce="mean",
+    )
+    out["constraint/bottom_boundary_abs_error_max"] = ConstraintDiagnostic(
+        value=bottom_abs.max(),
+        reduce="max",
+    )
+    # Backward-compatible raw absolute-error names.
     out["constraint/bottom_envelope_violation_mean"] = ConstraintDiagnostic(
         value=bottom_abs.mean(),
         reduce="mean",
@@ -302,8 +351,17 @@ def _envelope_violation_metrics(
         value=bottom_abs.max(),
         reduce="max",
     )
-    y_bottom = float(meta.get("y_bottom", -0.1))
-    below_y_bottom = (y_bottom - coords[..., 1]).clamp_min(0.0)
+    # This is a separate one-sided domain-floor check over every mesh node.
+    # The floor defaults to the band lower bound so the GT's lowest node
+    # (y = -0.10001) registers exactly zero raw offset.
+    y_bottom = float(meta.get("y_bottom", y_bottom_min))
+    below_y_bottom_raw = (y_bottom - coords[..., 1]).clamp_min(0.0)
+    below_y_bottom_tolerance = float(
+        meta.get("below_y_bottom_tolerance", 1.0e-4)
+    )
+    below_y_bottom = (
+        below_y_bottom_raw - below_y_bottom_tolerance
+    ).clamp_min(0.0)
     below_count, below_fraction = _count_fraction(below_y_bottom)
     out["constraint/below_y_bottom_violation_count"] = ConstraintDiagnostic(
         value=below_count,
@@ -315,6 +373,10 @@ def _envelope_violation_metrics(
     )
     out["constraint/below_y_bottom_violation_max"] = ConstraintDiagnostic(
         value=below_y_bottom.max(),
+        reduce="max",
+    )
+    out["constraint/below_y_bottom_excess_raw_max"] = ConstraintDiagnostic(
+        value=below_y_bottom_raw.max(),
         reduce="max",
     )
     return out

@@ -109,6 +109,33 @@ def test_macro_rendering_formats_flops(tmp_path: Path):
     assert results[0].ok
 
 
+def test_macro_rendering_formats_latex_percent(tmp_path: Path):
+    metrics_dir = tmp_path / "report" / "metrics"
+    metrics_dir.mkdir(parents=True)
+    (metrics_dir / "generated.yaml").write_text(
+        yaml.safe_dump({"metrics": {"constraint/fraction": 0.022444}})
+    )
+    artifact = ReportArtifact(
+        name="demo",
+        chapter=5,
+        kind="tex_macros",
+        output_subpath="macros/demo.tex",
+        rows=[
+            Row(
+                run=MetricFileRef("generated.yaml"),
+                metric_key="constraint/fraction",
+                macro=r"\Fraction",
+                format="percent",
+            ),
+        ],
+    )
+
+    content, results = render_macro_table(artifact, tmp_path, metrics_dir=metrics_dir)
+
+    assert r"\newcommand{\Fraction}{2.24\%}" in content
+    assert results[0].ok
+
+
 def test_plasticity_neg_spacing_fraction_can_be_derived(tmp_path: Path):
     run_dir = tmp_path / "outputs" / "plasticity"
     run_dir.mkdir(parents=True)
@@ -139,6 +166,28 @@ def test_plasticity_flipped_cell_count_can_be_derived(tmp_path: Path):
     )
 
     assert value == 0.0
+
+
+def test_plasticity_bottom_boundary_metrics_can_be_derived_within_tolerance(
+    tmp_path: Path,
+):
+    run_dir = tmp_path / "outputs" / "plasticity"
+    run_dir.mkdir(parents=True)
+    (run_dir / "test_metrics.yaml").write_text(
+        yaml.safe_dump(
+            {"metrics": {"constraint/bottom_y_abs_error_max": 7.0e-6}}
+        )
+    )
+    (run_dir / "resolved_config.yaml").write_text(
+        yaml.safe_dump(
+            {"diagnostics": {"bottom_boundary_tolerance": 1.0e-4}}
+        )
+    )
+
+    data = load_run(RunRef("outputs/plasticity"), tmp_path)
+
+    assert get_metric(data, "constraint/bottom_boundary_violation_count") == 0.0
+    assert get_metric(data, "constraint/bottom_boundary_violation_fraction") == 0.0
 
 
 def test_missing_runs_file_deduplicates_runnable_run_refs(tmp_path: Path):

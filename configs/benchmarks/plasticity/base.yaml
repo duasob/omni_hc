@@ -18,3 +18,18 @@ data:
   normalize: false
   norm_type: "UnitTransformer"
   channel_semantics: "verified by Geo-FNO visualization and local diagnostics: channels 0:2 are deformed physical coordinates, channels 2:4 are displacement components"
+
+diagnostics:
+  # Bottom edge is a pinned (two-sided) Dirichlet boundary. The GT never
+  # displaces it; deformed == reference exactly, with the y-coordinate spanning
+  # the band [-0.10001, -0.09999] across all samples/timesteps (centred on -0.1).
+  y_bottom_min: -0.10001
+  y_bottom_max: -0.09999
+  # The top cap is a piecewise-linear reconstruction of the moving-die envelope
+  # (die_profile - die_speed*t), which systematically undershoots the true
+  # curved die contact as the press deepens. Its intrinsic reconstruction error
+  # against GT is <= 0.0445 (~0.3% of the ~15 press height), so the tolerance
+  # absorbs that band; only excursions beyond it are genuine model violations.
+  top_envelope_tolerance: 5.0e-2
+  bottom_boundary_tolerance: 1.0e-4
+  below_y_bottom_tolerance: 1.0e-4

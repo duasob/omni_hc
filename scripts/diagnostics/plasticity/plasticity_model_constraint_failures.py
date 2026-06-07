@@ -31,6 +31,7 @@ for path in (SRC_ROOT, NSL_ROOT):
         sys.path.insert(0, str(path))
 
 from _common import require_matplotlib, write_csv
+
 from omni_hc.benchmarks.plasticity.data import build_test_loader
 from omni_hc.core import compose_run_config, parse_dotted_overrides
 from omni_hc.integrations.nsl import create_model
@@ -60,7 +61,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--constraint",
         type=str,
-        default=None,
+        default="none",
         help="Constraint used for model construction. Omit for unconstrained checkpoints.",
     )
     parser.add_argument("--budget", type=str, default="debug")
@@ -409,7 +410,9 @@ def apply_focus_crop(
     )
 
 
-def add_mesh(ax, coords: np.ndarray, *, color: str, linewidth: float, alpha: float) -> None:
+def add_mesh(
+    ax, coords: np.ndarray, *, color: str, linewidth: float, alpha: float
+) -> None:
     collection = LineCollection(
         mesh_segments(coords),
         colors=color,
@@ -483,7 +486,9 @@ def draw_frame(
         ax.set_ylim(float(window[2]), float(window[3]))
 
     ax = axes[1]
-    max_area = max(float(np.nanpercentile(np.abs(area), 99)), args.cell_area_tol, 1.0e-12)
+    max_area = max(
+        float(np.nanpercentile(np.abs(area), 99)), args.cell_area_tol, 1.0e-12
+    )
     extent = None
     if active_focus is not None:
         i_slice, j_slice, _ = active_focus
@@ -546,7 +551,9 @@ def save_gif(frames: list[np.ndarray], out_path: Path, *, fps: int) -> Path | No
     return out_path
 
 
-def get_sample_batch(loader, sample_idx: int, *, device: torch.device) -> dict[str, torch.Tensor]:
+def get_sample_batch(
+    loader, sample_idx: int, *, device: torch.device
+) -> dict[str, torch.Tensor]:
     dataset = loader.dataset
     if sample_idx < 0 or sample_idx >= len(dataset):
         raise IndexError(f"sample {sample_idx} is outside [0, {len(dataset)})")
@@ -554,7 +561,9 @@ def get_sample_batch(loader, sample_idx: int, *, device: torch.device) -> dict[s
     return {key: value.unsqueeze(0).to(device) for key, value in item.items()}
 
 
-def predict_sequence(model, batch: dict[str, torch.Tensor], *, y_normalizer, t_out: int, out_dim: int):
+def predict_sequence(
+    model, batch: dict[str, torch.Tensor], *, y_normalizer, t_out: int, out_dim: int
+):
     preds = []
     aux_by_timestep = []
     with torch.no_grad():
@@ -592,7 +601,9 @@ def main() -> None:
     device = resolve_device(args.device)
     output_dir = resolve_output_dir(cfg)
     checkpoint_path = args.checkpoint or output_dir / "best.pt"
-    out_dir = args.out_dir or output_dir / "diagnostics" / "plasticity_constraint_failures"
+    out_dir = (
+        args.out_dir or output_dir / "diagnostics" / "plasticity_constraint_failures"
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
 
     loader = build_test_loader(cfg)

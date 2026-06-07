@@ -963,13 +963,53 @@ GT_MESH_COLOR = "#94a3b8"
 PRED_MESH_COLOR = "#dc2626"
 
 
-def load_model_prediction(run_dir, sample_idx, *, device=None):
+PRED_CACHE_DIR = REPO_ROOT / "artifacts/plasticity/pred_cache"
+
+
+def _pred_cache_path(run_dir, sample_idx):
+    # Slug from the trailing <family>/<backbone>/<budget>/<seed> path parts.
+    slug = "_".join(Path(run_dir).parts[-4:])
+    return PRED_CACHE_DIR / f"{slug}__sample{int(sample_idx):04d}.npz"
+
+
+def _checkpoint_path(run_dir):
+    run_dir = Path(run_dir)
+    best = run_dir / "best.pt"
+    return best if best.exists() else run_dir / "latest.pt"
+
+
+def predict_model_sequences(run_dir, sample_idx, *, device=None, use_cache=True):
     """Roll a trained checkpoint out on one test sample.
 
-    Returns ``(pred_coords, target_coords)``, each of shape ``(H, W, T, 2)`` in
-    physical space, reconstructed the same way as the diagnostics GIFs.
+    Returns ``(pred_seq, target_seq, meta)`` with the raw 4-channel sequences
+    shaped ``(H, W, T, out_dim)`` (coords + displacement), reconstructed the same
+    way as the diagnostics GIFs.
+
+    Results are cached under ``artifacts/plasticity/pred_cache`` keyed by run and
+    sample (rolling a checkpoint out is the slow part). The cache is invalidated
+    automatically when the checkpoint is newer than the cached file.
     """
     run_dir = Path(run_dir)
+    cache_path = _pred_cache_path(run_dir, sample_idx)
+    checkpoint = _checkpoint_path(run_dir)
+    if (
+        use_cache
+        and cache_path.exists()
+        and (
+            not checkpoint.exists()
+            or checkpoint.stat().st_mtime <= cache_path.stat().st_mtime
+        )
+    ):
+        cached = np.load(cache_path)
+        meta = {
+            "shapelist": tuple(int(v) for v in cached["shapelist"]),
+            "t_out": int(cached["t_out"]),
+            "out_dim": int(cached["out_dim"]),
+        }
+        print(f"[pred cache] HIT  {cache_path.name}")
+        return cached["pred_seq"], cached["target_seq"], meta
+
+    print(f"[pred cache] MISS {cache_path.name} (rolling out checkpoint...)")
     device = device or torch.device("cpu")
     cfg = compose_run_config(
         experiment=str(run_dir / "resolved_config.yaml"),
@@ -1015,6 +1055,24 @@ def load_model_prediction(run_dir, sample_idx, *, device=None):
     t_out, out_dim = int(meta["t_out"]), int(meta["out_dim"])
     pred_seq = pred[0].detach().cpu().reshape(h, w, t_out, out_dim).numpy()
     target_seq = target[0].detach().cpu().reshape(h, w, t_out, out_dim).numpy()
+    if use_cache:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(
+            cache_path,
+            pred_seq=pred_seq,
+            target_seq=target_seq,
+            shapelist=np.asarray([h, w], dtype=np.int64),
+            t_out=np.int64(t_out),
+            out_dim=np.int64(out_dim),
+        )
+    return pred_seq, target_seq, meta
+
+
+def load_model_prediction(run_dir, sample_idx, *, device=None):
+    """Return ``(pred_coords, target_coords)`` in physical space, each (H, W, T, 2)."""
+    pred_seq, target_seq, _meta = predict_model_sequences(
+        run_dir, sample_idx, device=device
+    )
     material = pmg.infer_material(target_seq)
     return pmg.plot_coords(pred_seq, material), pmg.plot_coords(target_seq, material)
 
@@ -1134,6 +1192,276 @@ for spine in ax.spines.values():
     spine.set_linewidth(0.8)
 
 out_path = FIGURES_DIR / f"plasticity_val_rel_l2_{VAL_CURVE_BUDGET}.png"
+fig.savefig(out_path, bbox_inches="tight")
+plt.show()
+print(f"Saved {out_path}")
+
+
+# %% Failure mode 1: cell collapse (filmstrip from the constraint-failure GIF)
+# The pre-rendered diagnostic GIF (left: prediction mesh with inverted cells in
+# red; right: oriented cell-area matrix) is the clearest illustration, so we
+# simply lay a few of its frames out as a static figure.
+from PIL import Image
+
+FIG1_GIF = FIGURES_DIR / "sample_0100_constraint_failures.gif"
+FIG1_FRAMES = [0, 6, 13, 19]  # which GIF frames (timesteps) to lay out
+FIG1_NCOLS = 1  # 1 = vertical filmstrip; 2 = grid
+# Optional per-frame pixel crop (left, top, right, bottom) to trim titles/margins.
+FIG1_CROP = None
+
+f1_gif = Image.open(FIG1_GIF)
+f1_sel = [f for f in FIG1_FRAMES if 0 <= f < f1_gif.n_frames]
+f1_imgs = []
+for f in f1_sel:
+    f1_gif.seek(f)
+    frame = f1_gif.convert("RGB")
+    if FIG1_CROP is not None:
+        frame = frame.crop(tuple(FIG1_CROP))
+    f1_imgs.append(np.asarray(frame))
+
+f1_ncols = max(1, int(FIG1_NCOLS))
+f1_nrows = int(np.ceil(len(f1_imgs) / f1_ncols))
+f1_h, f1_w = f1_imgs[0].shape[:2]
+f1_cell_w = 7.5 / f1_ncols
+f1_cell_h = f1_cell_w * (f1_h / f1_w)
+fig, axes = plt.subplots(
+    f1_nrows,
+    f1_ncols,
+    figsize=(f1_cell_w * f1_ncols, f1_cell_h * f1_nrows),
+)
+axes = np.atleast_1d(axes).reshape(-1)
+for ax in axes:
+    ax.set_axis_off()
+for ax, img in zip(axes, f1_imgs):
+    ax.imshow(img)
+fig.subplots_adjust(hspace=0.02, wspace=0.02)
+
+out_path = FIGURES_DIR / "plasticity_failure_cell_collapse.png"
+fig.savefig(out_path, bbox_inches="tight", dpi=200)
+plt.show()
+print(f"Saved {out_path}")
+
+
+# %% Failure mode 2: boundary constraint diagnostics (top envelope + bottom pin)
+# Panel A: top-row y vs x against the moving-die cap; the unconstrained surface
+# pokes above the die (shaded). Panel B: bottom-row y vs x against the pinned
+# y_bottom, zoomed tight so the unconstrained drift off the pin is visible.
+FIG2_SAMPLE = 0
+FIG2_BUDGET = "final"
+FIG2_TIMESTEP = -1  # last (most deformed) step
+NTEST = 80
+TOP_HEIGHT = 15.1
+Y_BOTTOM = -0.1
+
+FIG2_RUNS = (
+    ("Unconstrained", "none", "#dc2626"),
+    # ("Mesh", "plasticity_mesh_consistency_constraint", "#2563eb"),
+    ("Envelope", "plasticity_envelope_constraint", "#0f766e"),
+)
+
+f2_coords = {}
+f2_material = None
+for label, fam, color in FIG2_RUNS:
+    run = REPO_ROOT / f"outputs/plasticity/{fam}/transolver/{FIG2_BUDGET}/seed_42"
+    ps, ts, _ = predict_model_sequences(run, FIG2_SAMPLE)
+    f2_material = pmg.infer_material(ts)
+    f2_coords[label] = (pmg.plot_coords(ps, f2_material), color)
+
+f2_t_count = f2_material.shape[2]
+f2_t = FIG2_TIMESTEP if FIG2_TIMESTEP >= 0 else f2_t_count + FIG2_TIMESTEP
+
+# Die cap: input die profile dropped to this timestep, clamped at TOP_HEIGHT.
+f2_die_profile = die[die.shape[0] - NTEST + FIG2_SAMPLE]
+f2_top_x_ref = f2_material[:, 0, 0, 0]
+f2_ref_x_min, f2_ref_x_max = (
+    float(np.nanmin(f2_top_x_ref)),
+    float(np.nanmax(f2_top_x_ref)),
+)
+f2_die_x = np.linspace(f2_ref_x_min, f2_ref_x_max, f2_die_profile.shape[0])
+f2_die_y = die_position(
+    f2_die_profile,
+    f2_t,
+    die_speed=DIE_SPEED,
+    time_duration=TIME_DURATION,
+    t_count=f2_t_count,
+)
+f2_dord = np.argsort(f2_die_x)
+
+
+def f2_cap(x_query):
+    cap = np.interp(x_query, f2_die_x[f2_dord], f2_die_y[f2_dord])
+    return np.minimum(cap, TOP_HEIGHT)
+
+
+f2_order = np.argsort(f2_top_x_ref)
+f2_xs = f2_top_x_ref[f2_order]
+
+fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=(7.2, 6.0))
+
+# Panel A: top envelope
+ax_top.plot(
+    f2_die_x[f2_dord],
+    np.minimum(f2_die_y[f2_dord], TOP_HEIGHT),
+    color="#111827",
+    linewidth=1.8,
+    label="moving-die cap",
+)
+for label, (coords, color) in f2_coords.items():
+    top_x = coords[:, 0, f2_t, 0][f2_order]
+    top_y = coords[:, 0, f2_t, 1][f2_order]
+    ax_top.plot(top_x, top_y, color=color, linewidth=1.3, label=label)
+unc_top_y = f2_coords["Unconstrained"][0][:, 0, f2_t, 1][f2_order]
+cap_xs = f2_cap(f2_xs)
+ax_top.fill_between(
+    f2_xs,
+    cap_xs,
+    unc_top_y,
+    where=unc_top_y > cap_xs,
+    color="#dc2626",
+    alpha=0.18,
+    linewidth=0,
+    label="penetration",
+)
+ax_top.set_title(f"Top surface vs moving-die cap ($t={f2_t}$)", fontsize=10)
+ax_top.set_xlabel("x")
+ax_top.set_ylabel("y")
+ax_top.legend(fontsize=8, frameon=False, ncol=2)
+
+# Panel B: bottom pin (zoomed)
+ax_bot.axhline(
+    Y_BOTTOM,
+    color="#111827",
+    linewidth=1.4,
+    linestyle=(0, (5, 3)),
+    label=r"$y_\mathrm{bottom}$",
+)
+f2_dev = 0.0
+for label, (coords, color) in f2_coords.items():
+    bot_x = coords[:, -1, f2_t, 0]
+    bot_y = coords[:, -1, f2_t, 1]
+    border = np.argsort(bot_x)
+    ax_bot.plot(bot_x[border], bot_y[border], color=color, linewidth=1.3, label=label)
+    f2_dev = max(f2_dev, float(np.nanmax(np.abs(bot_y - Y_BOTTOM))))
+f2_margin = max(1.2 * f2_dev, 0.02)
+ax_bot.set_ylim(Y_BOTTOM - f2_margin, Y_BOTTOM + f2_margin)
+ax_bot.set_title(
+    f"Bottom row vs pinned $y_\\mathrm{{bottom}}$ ($t={f2_t}$)", fontsize=10
+)
+ax_bot.set_xlabel("x")
+ax_bot.set_ylabel("y")
+ax_bot.legend(fontsize=8, frameon=False, ncol=2)
+
+fig.tight_layout()
+out_path = FIGURES_DIR / "plasticity_failure_boundary_diagnostics.png"
+fig.savefig(out_path, bbox_inches="tight")
+plt.show()
+print(f"Saved {out_path}")
+
+
+# %% Failure mode 3: qualitative predictions across budgets (family x budget)
+# Each cell: predicted mesh nodes coloured by per-node error over a faint GT mesh,
+# with the rel-L2 printed. Rows are constraint families, columns are data budgets.
+FIG3_SAMPLE = 0
+FIG3_TIMESTEP = -1
+FIG3_FAMILIES = (
+    ("Unconstrained", "none"),
+    ("Mesh", "plasticity_mesh_consistency_constraint"),
+    ("Envelope", "plasticity_envelope_constraint"),
+)
+FIG3_BUDGETS = (
+    ("Tiny", "e5_t50"),
+    ("Small", "e10_t100"),
+    ("Medium", "e50_t500"),
+    ("Large", "e100_t900"),
+    ("Full", "final"),
+)
+
+f3_cells = {}
+f3_err_max = 0.0
+for family_label, family_dir in FIG3_FAMILIES:
+    for budget_label, budget_dir in FIG3_BUDGETS:
+        run = (
+            REPO_ROOT
+            / f"outputs/plasticity/{family_dir}/transolver/{budget_dir}/seed_42"
+        )
+        pred_coords, target_coords = load_model_prediction(run, FIG3_SAMPLE)
+        pred_t = pred_coords[:, :, FIG3_TIMESTEP]
+        target_t = target_coords[:, :, FIG3_TIMESTEP]
+        node_err = np.linalg.norm(pred_t - target_t, axis=-1)
+        rel_l2 = float(
+            np.linalg.norm((pred_t - target_t).reshape(-1))
+            / max(np.linalg.norm(target_t.reshape(-1)), 1.0e-12)
+        )
+        f3_cells[(family_label, budget_label)] = (pred_t, target_t, node_err, rel_l2)
+        f3_err_max = max(f3_err_max, float(np.nanpercentile(node_err, 99)))
+
+# Budgets down the rows, the three families across the columns: each row is a
+# like-for-like comparison of the families at one data budget.
+f3_rows = len(FIG3_BUDGETS)
+f3_cols = len(FIG3_FAMILIES)
+# col_width/row_height control the cell box; the meshes are wide and short, so a
+# small row_height keeps the box close to the content and removes the big gaps
+# between rows. f3_hspace is the residual vertical gap between rows (wspace the
+# horizontal gap between columns). Tune these three to taste.
+col_width = 2.5
+row_height = 1.15
+f3_hspace = 0.05
+f3_wspace = 0.05
+fig, axes = plt.subplots(
+    f3_rows,
+    f3_cols,
+    figsize=(col_width * f3_cols, row_height * f3_rows),
+    sharex=True,
+    sharey=True,
+)
+axes = np.atleast_2d(axes)
+last_scatter = None
+for r, (budget_label, _budget_dir) in enumerate(FIG3_BUDGETS):
+    for c, (family_label, _family_dir) in enumerate(FIG3_FAMILIES):
+        ax = axes[r, c]
+        pred_t, target_t, node_err, rel_l2 = f3_cells[(family_label, budget_label)]
+        pmg.add_mesh(ax, target_t, color="#cbd5e1", linewidth=0.3, alpha=0.85, step=1)
+        last_scatter = ax.scatter(
+            pred_t[..., 0].reshape(-1),
+            pred_t[..., 1].reshape(-1),
+            c=node_err.reshape(-1),
+            s=3.0,
+            cmap="plasma",
+            vmin=0.0,
+            vmax=f3_err_max,
+            linewidths=0,
+        )
+        ax.set_aspect("equal", adjustable="box")
+        if r == 0:
+            ax.set_title(family_label, fontsize=10)
+        if c == 0:
+            ax.set_ylabel(budget_label, fontsize=10)
+        # ax.text(
+        #     0.03,
+        #     0.96,
+        #     rf"rel $L_2$={rel_l2:.3f}",
+        #     transform=ax.transAxes,
+        #     fontsize=7,
+        #     va="top",
+        #     ha="left",
+        # )
+        ax.tick_params(labelsize=6, length=2)
+
+f3_coord_sets = []
+for pred_t, target_t, _err, _rel in f3_cells.values():
+    f3_coord_sets.append(pred_t)
+    f3_coord_sets.append(target_t)
+pmg.set_shared_limits(axes.reshape(-1), *f3_coord_sets)
+fig.subplots_adjust(hspace=f3_hspace, wspace=f3_wspace)
+fig.colorbar(
+    last_scatter,
+    ax=axes,
+    fraction=0.015,
+    pad=0.01,
+    label=r"node error $\|\hat{p} - p\|$",
+)
+
+out_path = FIGURES_DIR / "plasticity_failure_budget_qualitative.png"
 fig.savefig(out_path, bbox_inches="tight")
 plt.show()
 print(f"Saved {out_path}")

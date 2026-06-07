@@ -70,34 +70,30 @@ cv_gt = ReportArtifact(
             metric_key="constraint/dirichlet_corner_max",
             macro=r"\cvGtDarcyDirichletCorner",
         ),
-        Row(run=GT, metric_key="constraint/darcy_res_abs_mean", macro=r"\cvGtDarcyFlux"),
+        Row(
+            run=GT, metric_key="constraint/darcy_res_abs_mean", macro=r"\cvGtDarcyFlux"
+        ),
         Row(run=GT, metric_key="constraint/wall_abs_max", macro=r"\cvGtPipeWall"),
         Row(run=GT, metric_key="constraint/inlet_rmse", macro=r"\cvGtPipeInlet"),
         Row(run=GT, metric_key="constraint/div_rel_mean", macro=r"\cvGtPipeDiv"),
         Row(run=None, metric_key=None, macro=r"\cvGtElasticity", literal="/"),
         Row(
             run=GT,
-            metric_key=(
-                "constraint/neg_spacing_count",
-                "constraint/axis_order_violation_count",
-            ),
+            metric_key="constraint/axis_order_violation_mean",
             macro=r"\cvGtPlasticitySpacing",
-            format="{:.0f}",
+            format="{:.2e}",
         ),
         Row(
             run=GT,
-            metric_key=(
-                "constraint/top_envelope_violation_count",
-                "constraint/top_violation_count",
-            ),
+            metric_key="constraint/top_envelope_excess_raw_mean",
             macro=r"\cvGtPlasticityTopDie",
-            format="{:.0f}",
+            format="{:.2e}",
         ),
         Row(
             run=GT,
-            metric_key="constraint/below_y_bottom_violation_count",
+            metric_key="constraint/bottom_boundary_abs_error_mean",
             macro=r"\cvGtPlasticityBottom",
-            format="{:.0f}",
+            format="{:.2e}",
         ),
     ],
 )
@@ -139,27 +135,21 @@ cv_baseline = ReportArtifact(
         Row(run=ELAS_BL, metric_key=None, macro=r"\cvBlElasticity", literal="/"),
         Row(
             run=PLAS_BL,
-            metric_key=(
-                "constraint/neg_spacing_count",
-                "constraint/axis_order_violation_count",
-            ),
+            metric_key="constraint/axis_order_violation_mean",
             macro=r"\cvBlPlasticitySpacing",
-            format="{:.0f}",
+            format="{:.2e}",
         ),
         Row(
             run=PLAS_BL,
-            metric_key=(
-                "constraint/top_envelope_violation_count",
-                "constraint/top_violation_count",
-            ),
+            metric_key="constraint/top_envelope_excess_raw_mean",
             macro=r"\cvBlPlasticityTopDie",
-            format="{:.0f}",
+            format="{:.2e}",
         ),
         Row(
             run=PLAS_BL,
-            metric_key="constraint/below_y_bottom_violation_count",
+            metric_key="constraint/bottom_boundary_abs_error_mean",
             macro=r"\cvBlPlasticityBottom",
-            format="{:.0f}",
+            format="{:.2e}",
         ),
     ],
 )
@@ -271,27 +261,21 @@ cv_constrained = ReportArtifact(
         ),
         Row(
             run=PLAS_HC,
-            metric_key=(
-                "constraint/neg_spacing_count",
-                "constraint/axis_order_violation_count",
-            ),
+            metric_key="constraint/axis_order_violation_mean",
             macro=r"\cvHcPlasticitySpacing",
-            format="{:.0f}",
+            format="{:.2e}",
         ),
         Row(
             run=PLAS_ENV_HC,
-            metric_key=(
-                "constraint/top_envelope_violation_count",
-                "constraint/top_violation_count",
-            ),
+            metric_key="constraint/top_envelope_excess_raw_mean",
             macro=r"\cvHcPlasticityTopDie",
-            format="{:.0f}",
+            format="{:.2e}",
         ),
         Row(
             run=PLAS_ENV_HC,
-            metric_key="constraint/below_y_bottom_violation_count",
+            metric_key="constraint/bottom_boundary_abs_error_mean",
             macro=r"\cvHcPlasticityBottom",
-            format="{:.0f}",
+            format="{:.2e}",
         ),
     ],
 )

@@ -64,9 +64,23 @@ def _derived_metric(data: RunData, key: str) -> float | None:
         min_area = data.metrics.get("constraint/min_oriented_cell_area")
         if isinstance(min_area, (int, float)) and float(min_area) >= 0.0:
             return 0.0
-    if key == "constraint/below_y_bottom_violation_count":
+    if key in {
+        "constraint/bottom_boundary_violation_count",
+        "constraint/bottom_boundary_violation_fraction",
+    }:
         bottom_error = data.metrics.get("constraint/bottom_y_abs_error_max")
-        if isinstance(bottom_error, (int, float)) and float(bottom_error) <= 0.0:
+        diagnostics_cfg = data.config.get("diagnostics") or {}
+        constraint_cfg = data.config.get("constraint") or {}
+        tolerance = float(
+            constraint_cfg.get(
+                "bottom_boundary_tolerance",
+                diagnostics_cfg.get("bottom_boundary_tolerance", 1.0e-4),
+            )
+        )
+        if (
+            isinstance(bottom_error, (int, float))
+            and float(bottom_error) <= tolerance
+        ):
             return 0.0
     return None
 

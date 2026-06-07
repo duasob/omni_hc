@@ -103,6 +103,32 @@ def test_plasticity_envelope_reconstructs_bottom_and_top_clearance():
     assert output.diagnostics["constraint/top_violation_count"].value == 0.0
 
 
+def test_plasticity_envelope_bounds_extreme_backbone_predictions():
+    constraint = PlasticityEnvelopeConstraint(
+        shapelist=(4, 3),
+        x_left=0.0,
+        x_right=-3.0,
+        y_top=1.0,
+        y_bottom=0.0,
+        min_spacing=1.0e-4,
+        min_gap=1.0e-4,
+        envelope_source="constant",
+        die_speed=0.2,
+        time_duration=1.0,
+    )
+    pred = torch.empty(2, 12, 4).uniform_(-20.0, 20.0)
+    time = torch.tensor([[0.0], [1.0]])
+
+    output = constraint(pred=pred, T=time, return_aux=True)
+    y = output.pred.reshape(2, 4, 3, 4)[..., 1]
+    envelope_y = output.aux["envelope_y"].unsqueeze(-1)
+
+    assert torch.all(y >= constraint.bottom_y - 1.0e-6)
+    assert torch.all(y <= envelope_y + 1.0e-6)
+    assert torch.allclose(y[:, :, -1], torch.zeros_like(y[:, :, -1]))
+    assert output.diagnostics["constraint/top_violation_count"].value == 0.0
+
+
 def test_plasticity_envelope_aligns_input_die_to_physical_x_order():
     constraint = PlasticityEnvelopeConstraint(
         shapelist=(4, 3),

@@ -6,8 +6,9 @@ moving-die envelope constrained model. Missing runs or metric keys emit
 ``\\textit{TBD}`` so the report still compiles.
 
 The main artifact is budget-aligned: each data-budget row can compare the three
-families on relative L2, top-die penetration count, below-floor node count, and
-negative-spacing count.
+families on relative L2 and three mean constraint-distance metrics: the top-die
+penetration distance, the pinned bottom-boundary distance, and the negative
+(inverted) mesh-spacing distance.
 
 Run families and their output layouts (relative to repo root):
     Baseline (unconstrained):  outputs/plasticity/none/transolver/<budget>/seed_42
@@ -96,27 +97,28 @@ def _budget_rows() -> list[Row]:
                 [
                     Row(
                         run=run,
-                        metric_key=(
-                            "constraint/top_envelope_violation_count",
-                            "constraint/top_violation_count",
-                        ),
-                        macro=rf"\plasTopCount{family}{token}",
-                        format="{:.0f}",
+                        # Mean one-sided distance the top surface penetrates
+                        # above the moving-die envelope (0 where below the die).
+                        metric_key="constraint/top_envelope_excess_raw_mean",
+                        macro=rf"\plasTopDist{family}{token}",
+                        format="{:.2e}",
                     ),
                     Row(
                         run=run,
-                        metric_key="constraint/below_y_bottom_violation_count",
-                        macro=rf"\plasBottomCount{family}{token}",
-                        format="{:.0f}",
+                        # Mean distance of the bottom row from its pinned
+                        # position y_bottom (two-sided absolute error).
+                        metric_key="constraint/bottom_boundary_abs_error_mean",
+                        macro=rf"\plasBottomDist{family}{token}",
+                        format="{:.2e}",
                     ),
                     Row(
                         run=run,
-                        metric_key=(
-                            "constraint/neg_spacing_count",
-                            "constraint/axis_order_violation_count",
-                        ),
-                        macro=rf"\plasNegSpacingCount{family}{token}",
-                        format="{:.0f}",
+                        # Mean magnitude of negative (inverted) mesh spacing.
+                        # Reported in scientific notation: values are tiny
+                        # (1e-3 down to 1e-7) and round to 0.0000 in fixed point.
+                        metric_key="constraint/axis_order_violation_mean",
+                        macro=rf"\plasNegSpacingDist{family}{token}",
+                        format="{:.2e}",
                     ),
                 ]
             )
@@ -169,27 +171,21 @@ def _cv_rows() -> list[Row]:
                 ),
                 Row(
                     run=run,
-                    metric_key=(
-                        "constraint/neg_spacing_count",
-                        "constraint/axis_order_violation_count",
-                    ),
+                    metric_key="constraint/axis_order_violation_mean",
                     macro=rf"\plasCv{family}Spacing",
-                    format="{:.0f}",
+                    format="{:.2e}",
                 ),
                 Row(
                     run=run,
-                    metric_key="constraint/below_y_bottom_violation_count",
+                    metric_key="constraint/bottom_boundary_abs_error_mean",
                     macro=rf"\plasCv{family}Bottom",
-                    format="{:.0f}",
+                    format="{:.2e}",
                 ),
                 Row(
                     run=run,
-                    metric_key=(
-                        "constraint/top_envelope_violation_count",
-                        "constraint/top_violation_count",
-                    ),
+                    metric_key="constraint/top_envelope_excess_raw_mean",
                     macro=rf"\plasCv{family}Envelope",
-                    format="{:.0f}",
+                    format="{:.2e}",
                 ),
             ]
         )

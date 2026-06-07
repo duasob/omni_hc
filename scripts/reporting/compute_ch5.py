@@ -91,7 +91,9 @@ def _accumulate_gt(
 ) -> dict[str, float]:
     cfg = load_yaml_file(REPO_ROOT / cfg_path)
     loader = build_loader(cfg)
-    meta = get_meta(loader)
+    meta = dict(get_meta(loader))
+    meta.update(cfg.get("diagnostics") or {})
+    meta.update(cfg.get("constraint") or {})
     metric_fn = BENCHMARK_METRICS[benchmark]
     acc = MetricAccumulator()
     for batch_idx, batch in enumerate(loader):
