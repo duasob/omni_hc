@@ -1,0 +1,36 @@
+# Transolver with the incompressible plane-stress von Mises constraint using the
+# ENGINEERED LATENT DECODER: the (m, d) head decodes from Transolver's internal
+# physics-aware representations (forward hooks on blocks.-2, blocks.-1.Attn, and
+# blocks.-1.ln_3) instead of the projected scalar output. The hookup comes from
+# configs/constraints/elasticity_plane_stress_vm_latent.yaml.
+#
+# Compare against the projected-latent decoder in
+# transolver_plane_stress_vm_data.txt (same backbone/budgets, default decoder).
+#
+# Run via the HPC runner:
+#   RUNS_FILE=experiments/elasticity/transolver_plane_stress_vm_latent_data.txt bash scripts/hpc/runner.sh
+# Or locally:
+#   bash scripts/run_batch.sh experiments/elasticity/transolver_plane_stress_vm_latent_data.txt
+#
+# Output layout:
+#   outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/<budget>/seed_42/{resolved_config.yaml,best.pt}
+
+# --- e5_t50: 5 epochs, 50 train ---
+train: --benchmark elasticity --backbone Transolver --constraint elasticity_plane_stress_vm_latent --budget e5_t50
+test: --config outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/e5_t50/seed_42/resolved_config.yaml --checkpoint outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/e5_t50/seed_42/best.pt
+
+# --- e10_t100: 10 epochs, 100 train ---
+train: --benchmark elasticity --backbone Transolver --constraint elasticity_plane_stress_vm_latent --budget e10_t100
+test: --config outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/e10_t100/seed_42/resolved_config.yaml --checkpoint outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/e10_t100/seed_42/best.pt
+
+# --- e50_t500: 50 epochs, 500 train ---
+train: --benchmark elasticity --backbone Transolver --constraint elasticity_plane_stress_vm_latent --budget e50_t500
+test: --config outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/e50_t500/seed_42/resolved_config.yaml --checkpoint outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/e50_t500/seed_42/best.pt
+
+# --- e100_t900: 100 epochs, 900 train ---
+train: --benchmark elasticity --backbone Transolver --constraint elasticity_plane_stress_vm_latent --budget e100_t900
+test: --config outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/e100_t900/seed_42/resolved_config.yaml --checkpoint outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/e100_t900/seed_42/best.pt
+
+# --- final: 500 epochs, 1000 train ---
+train: --benchmark elasticity --backbone Transolver --constraint elasticity_plane_stress_vm_latent --budget final
+test: --config outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/final/seed_42/resolved_config.yaml --checkpoint outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/final/seed_42/best.pt

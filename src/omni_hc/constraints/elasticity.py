@@ -89,6 +89,13 @@ class ElasticityPlaneStressVMConstraint(ConstraintModule):
     stretches (m, d). With backbone_out_dim=2, the backbone output is
     interpreted directly as the raw (m, d) parameters.
 
+    An engineered-decoder mode is also available: when an `extractor` is
+    supplied (via `latent_module` in the config and `build`), the head decodes
+    (m, d) from internal backbone representations captured by forward hooks
+    instead of the projected output. For Transolver this exposes the
+    physics-aware slice representations (e.g. `blocks.-1.Attn`) to the decoder,
+    mirroring the Navier-Stokes `latent_engineered` constraint.
+
         lambda_1 = exp(m + d)
         lambda_2 = exp(m - d)
         lambda_3 = exp(-2m)
@@ -113,6 +120,9 @@ class ElasticityPlaneStressVMConstraint(ConstraintModule):
         head_init_scale: float = 1e-3,
         mean_log_stretch_bias: float = 0.0,
         deviatoric_log_stretch_bias: float = 0.4,
+        latent_dim: int | None = None,
+        decoder_include_coords: bool = True,
+        extractor: ForwardHookLatentExtractor | None = None,
     ) -> None:
         super().__init__()
         self.backbone_out_dim = int(backbone_out_dim)
@@ -126,6 +136,9 @@ class ElasticityPlaneStressVMConstraint(ConstraintModule):
         self.head_init_scale = float(head_init_scale)
         self.mean_log_stretch_bias = float(mean_log_stretch_bias)
         self.deviatoric_log_stretch_bias = float(deviatoric_log_stretch_bias)
+        self.latent_dim = int(latent_dim) if latent_dim is not None else None
+        self.decoder_include_coords = bool(decoder_include_coords)
+        self.extractor = extractor
         self.target_normalizer = None
 
         if self.backbone_out_dim <= 0:
@@ -140,8 +153,25 @@ class ElasticityPlaneStressVMConstraint(ConstraintModule):
         if self.max_deviatoric_log_stretch <= 0.0:
             raise ValueError("max_deviatoric_log_stretch must be positive.")
 
+        # Engineered-decoder mode: the head consumes hooked backbone latents
+        # instead of the projected output. This takes precedence over the
+        # projected-latent / direct modes below.
         self.param_head = None
-        if self.backbone_out_dim != 2:
+        if self.extractor is not None:
+            if self.latent_dim is None:
+                raise ValueError(
+                    "latent_dim is required when an extractor is supplied "
+                    "(engineered-decoder mode)."
+                )
+            head_in_dim = self.latent_dim + (2 if self.decoder_include_coords else 0)
+            self.param_head = _make_mlp(
+                in_dim=head_in_dim,
+                hidden_dim=self.head_hidden_dim,
+                out_dim=2,
+                n_layers=self.head_layers,
+            )
+            self._init_param_head()
+        elif self.backbone_out_dim != 2:
             self.param_head = _make_mlp(
                 in_dim=self.backbone_out_dim + 2,
                 hidden_dim=self.head_hidden_dim,
@@ -149,6 +179,56 @@ class ElasticityPlaneStressVMConstraint(ConstraintModule):
                 n_layers=self.head_layers,
             )
             self._init_param_head()
+
+    @classmethod
+    def build(
+        cls,
+        backbone: nn.Module,
+        model_context: dict[str, Any],
+        cfg: dict[str, Any],
+    ) -> ConstrainedModel:
+        """Construct the constraint, wiring a latent extractor when requested.
+
+        When `constraint.latent_module` is present the head decodes (m, d) from
+        backbone forward-hook latents (engineered-decoder mode); otherwise this
+        reproduces the default `ConstraintModule.build` behaviour.
+        """
+        constraint_section = cfg.get("constraint", {}) or {}
+        meta_keys = _BUILD_META_KEYS | {"latent_module"}
+        params = {k: v for k, v in constraint_section.items() if k not in meta_keys}
+
+        sig = inspect.signature(cls.__init__)
+        for key, value in model_context.items():
+            if key in sig.parameters and key not in params:
+                params[key] = value
+
+        extractor = None
+        latent_module = constraint_section.get("latent_module")
+        if latent_module:
+            extractor = ForwardHookLatentExtractor(backbone, latent_module)
+            backbone.register_forward_pre_hook(lambda *_: extractor.reset())
+            if params.get("latent_dim") is None:
+                n_hidden = model_context.get("n_hidden")
+                if n_hidden is not None:
+                    n_hooks = 1 if isinstance(latent_module, str) else len(latent_module)
+                    params["latent_dim"] = int(n_hidden) * n_hooks
+            elif isinstance(params["latent_dim"], (list, tuple)):
+                params["latent_dim"] = sum(int(d) for d in params["latent_dim"])
+
+        try:
+            constraint = cls(**params, extractor=extractor)
+        except TypeError as exc:
+            raise ValueError(
+                f"Failed to construct {cls.__name__} — ensure all required "
+                f"parameters are present in the constraint YAML config. "
+                f"Detail: {exc}"
+            ) from exc
+
+        wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)
+        if constraint_section.get("freeze_base", False):
+            for param in wrapped.backbone.parameters():
+                param.requires_grad = False
+        return wrapped
 
     def _init_param_head(self) -> None:
         if self.param_head is None:
@@ -181,7 +261,9 @@ class ElasticityPlaneStressVMConstraint(ConstraintModule):
             )
 
     def _validate_coords(self, pred: torch.Tensor, coords: torch.Tensor | None) -> None:
-        if self.backbone_out_dim == 2:
+        if self.extractor is not None and not self.decoder_include_coords:
+            return
+        if self.extractor is None and self.backbone_out_dim == 2:
             return
         if coords is None:
             raise ValueError(
@@ -204,7 +286,25 @@ class ElasticityPlaneStressVMConstraint(ConstraintModule):
         coords: torch.Tensor | None,
     ) -> tuple[torch.Tensor, torch.Tensor, dict]:
         self._validate_pred(pred)
-        if self.backbone_out_dim == 2:
+        if self.extractor is not None:
+            assert self.param_head is not None
+            latent = self.extractor.get()
+            if latent is None:
+                raise ValueError(
+                    "Engineered decoder latent was not captured — ensure the "
+                    "backbone ran before the constraint."
+                )
+            aux = {"param_head_latent": latent}
+            if self.decoder_include_coords:
+                self._validate_coords(pred, coords)
+                assert coords is not None
+                head_input = torch.cat((latent, coords[..., :2]), dim=-1)
+                aux["param_head_input_x"] = coords[..., 0:1]
+                aux["param_head_input_y"] = coords[..., 1:2]
+            else:
+                head_input = latent
+            mean_raw, deviatoric_raw = self.param_head(head_input).unbind(dim=-1)
+        elif self.backbone_out_dim == 2:
             mean_raw, deviatoric_raw = pred.unbind(dim=-1)
             aux = {}
         else:

@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 
 from omni_hc.constraints import ElasticityPlaneStressVMConstraint
 
@@ -184,3 +185,124 @@ def test_plane_stress_vm_default_initialization_has_finite_gradients():
     for parameter in constraint.parameters():
         assert parameter.grad is not None
         assert torch.all(torch.isfinite(parameter.grad))
+
+
+class _FixedExtractor:
+    """Minimal stand-in for ForwardHookLatentExtractor in unit tests."""
+
+    def __init__(self, latent):
+        self._latent = latent
+
+    def get(self):
+        return self._latent
+
+
+def test_engineered_decoder_decodes_from_latent_and_preserves_guarantees():
+    latent_dim = 24
+    latent = torch.randn(2, 9, latent_dim)
+    constraint = ElasticityPlaneStressVMConstraint(
+        backbone_out_dim=1,
+        latent_dim=latent_dim,
+        head_hidden_dim=16,
+        head_layers=1,
+        extractor=_FixedExtractor(latent),
+    )
+    pred = torch.randn(2, 9, 1)
+    coords = torch.rand(2, 9, 2)
+
+    out = constraint(pred=pred, coords=coords, return_aux=True)
+
+    assert out.pred.shape == (2, 9, 1)
+    assert constraint.param_head[0].in_features == latent_dim + 2
+    assert out.aux["param_head_latent"].shape == (2, 9, latent_dim)
+    assert "param_head_input_z" not in out.aux
+    assert torch.allclose(
+        out.aux["full_det_f"], torch.ones_like(out.aux["full_det_f"]), atol=1e-5
+    )
+    assert torch.allclose(
+        out.aux["principal_cauchy_stress_3"],
+        torch.zeros_like(out.aux["principal_cauchy_stress_3"]),
+        atol=1e-5,
+    )
+
+
+def test_engineered_decoder_without_coords_consumes_latent_only():
+    latent_dim = 12
+    latent = torch.randn(2, 5, latent_dim)
+    constraint = ElasticityPlaneStressVMConstraint(
+        backbone_out_dim=1,
+        latent_dim=latent_dim,
+        head_hidden_dim=8,
+        head_layers=1,
+        decoder_include_coords=False,
+        extractor=_FixedExtractor(latent),
+    )
+    pred = torch.randn(2, 5, 1)
+
+    out = constraint(pred=pred, return_aux=True)
+
+    assert out.pred.shape == (2, 5, 1)
+    assert constraint.param_head[0].in_features == latent_dim
+
+
+class _MidBlock(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.lin = nn.Linear(dim, dim)
+
+    def forward(self, fx):
+        return self.lin(fx)
+
+
+class _LastBlock(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.Attn = nn.Linear(dim, dim)
+        self.ln_3 = nn.Identity()
+        self.out = nn.Linear(dim, 1)
+
+    def forward(self, fx):
+        fx = self.Attn(fx) + fx
+        return self.out(self.ln_3(fx))
+
+
+class _FakeTransolver(nn.Module):
+    """Exposes the blocks.-2 / blocks.-1.Attn / blocks.-1.ln_3 hook paths."""
+
+    def __init__(self, dim, space_dim=2):
+        super().__init__()
+        self.n_hidden = dim
+        self.embed = nn.Linear(space_dim, dim)
+        self.blocks = nn.ModuleList([_MidBlock(dim), _MidBlock(dim), _LastBlock(dim)])
+
+    def forward(self, coords, fx=None):
+        h = self.embed(coords)
+        for block in self.blocks:
+            h = block(h)
+        return h
+
+
+def test_engineered_decoder_build_wires_extractor_and_infers_latent_dim():
+    dim = 8
+    backbone = _FakeTransolver(dim=dim)
+    cfg = {
+        "constraint": {
+            "name": "elasticity_plane_stress_vm_constraint",
+            "backbone_out_dim": 1,
+            "latent_module": ["blocks.-2", "blocks.-1.Attn", "blocks.-1.ln_3"],
+            "head_hidden_dim": 16,
+            "head_layers": 1,
+        }
+    }
+    model_context = {"backbone_out_dim": 1, "target_out_dim": 1, "n_hidden": dim}
+
+    model = ElasticityPlaneStressVMConstraint.build(backbone, model_context, cfg)
+
+    assert model.constraint.latent_dim == dim * 3
+    assert model.constraint.param_head[0].in_features == dim * 3 + 2
+
+    coords = torch.rand(2, 6, 2)
+    out = model(coords, return_aux=True)
+
+    assert out.pred.shape == (2, 6, 1)
+    assert out.aux["param_head_latent"].shape == (2, 6, dim * 3)

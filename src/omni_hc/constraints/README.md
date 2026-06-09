@@ -144,6 +144,28 @@ initialization and scale controls while the backbone remains benchmark-generic.
 For direct ablations, the same class also supports `backbone_out_dim=2`, where
 the backbone output is interpreted directly as `(m_raw, d_raw)`.
 
+#### Engineered decoder (Transolver latent hook)
+
+Instead of decoding from the projected output `z`, the head can decode `(m, d)`
+from the backbone's *internal* physics-aware representations, captured with
+forward hooks. This mirrors the Navier-Stokes `latent_engineered` constraint and
+is selected by adding a `latent_module` list to the constraint config:
+
+```text
+hooks -> latent  (e.g. concat of blocks[-2], blocks[-1].Attn, blocks[-1].ln_3)
+constraint head([latent, x, y]) -> m_raw, d_raw
+```
+
+`ElasticityPlaneStressVMConstraint.build` wires a `ForwardHookLatentExtractor`
+over those module paths, infers `latent_dim = n_hidden * num_hooks` when it is not
+set explicitly, and (by default) concatenates the physical coordinates onto the
+latent (`decoder_include_coords: true`). The projected output is unused in this
+mode, so `backbone_out_dim` is set to `1`. The hook paths are Transolver-specific,
+so this path is shipped as a separate experiment
+(`configs/experiments/elasticity/transolver_plane_stress_vm_latent.yaml` with
+`configs/constraints/elasticity_plane_stress_vm_latent.yaml`); the default FNO/
+projected-latent path is unaffected.
+
 ## Supported Constraint Families
 
 ## Mean Correction

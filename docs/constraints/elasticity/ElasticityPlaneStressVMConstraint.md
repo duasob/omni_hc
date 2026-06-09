@@ -67,6 +67,20 @@ The implementation retains:
 The default bounds are much smaller than the previous 2D reparameterization
 because the physically complete plane-stress law is substantially stiffer.
 
+## Engineered Decoder (Transolver latent hook)
+
+The decoder can instead consume the backbone's internal physics-aware
+representations rather than the projected output `z`. When the constraint config
+declares a `latent_module` list, `build` attaches a `ForwardHookLatentExtractor`
+over those module paths and feeds the concatenated latent (optionally with
+coordinates, via `decoder_include_coords`) to the head. For Transolver the
+default hooks are `blocks.-2`, `blocks.-1.Attn`, and `blocks.-1.ln_3`, giving the
+decoder the desliced physics-attention features that a single projected scalar
+discards. This mirrors the Navier-Stokes `latent_engineered` constraint and is
+shipped as a separate experiment
+(`configs/experiments/elasticity/transolver_plane_stress_vm_latent.yaml`); the
+plane-stress kinematics and hard guarantees above are unchanged.
+
 ## Diagnostics
 
 The auxiliary output includes \(m,d,\lambda_1,\lambda_2,\lambda_3\), the

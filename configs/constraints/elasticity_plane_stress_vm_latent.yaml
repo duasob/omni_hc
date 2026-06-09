@@ -1,0 +1,26 @@
+training:
+  max_grad_norm: 1.0
+
+constraint:
+  name: "elasticity_plane_stress_vm_constraint"
+  # Engineered-decoder mode: the head decodes (m, d) from Transolver's internal
+  # physics-aware representations instead of the projected scalar output. Only
+  # Transolver exposes these hook paths, so this config is backbone-specific.
+  # backbone_out_dim=1 because the final projection is unused here.
+  backbone_out_dim: 1
+  target_out_dim: 32
+  latent_module:
+    - "blocks.-2" # penultimate block output
+    - "blocks.-1.Attn" # physics-attention output (slice mechanism)
+    - "blocks.-1.ln_3" # final representation before projection
+  # latent_dim is auto-inferred as n_hidden * num_hooks (e.g. 128 * 3 = 384).
+  decoder_include_coords: true
+  c1: 1.863e5
+  c2: 9.79e3
+  max_mean_log_stretch: 1.0e-3
+  max_deviatoric_log_stretch: 1.0e-3
+  head_hidden_dim: 128
+  head_layers: 2
+  head_init_scale: 1.0e-3
+  mean_log_stretch_bias: 0.0
+  deviatoric_log_stretch_bias: 0.4

@@ -1,0 +1,14 @@
+name: "elasticity_transolver_plane_stress_vm_latent"
+benchmark: "elasticity"
+backbone: "Transolver"
+constraint: "elasticity_plane_stress_vm_latent"
+budget: "debug"
+
+overrides:
+  paths:
+    output_dir: "outputs/elasticity/transolver_plane_stress_vm_latent"
+  wandb_logging:
+    run_name: "elasticity_transolver_plane_stress_vm_latent"
+    point_size: 28.0
+  training:
+    debug_nan_checks: true
