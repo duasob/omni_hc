@@ -8,7 +8,7 @@ constraint:
   # Transolver exposes these hook paths, so this config is backbone-specific.
   # backbone_out_dim=1 because the final projection is unused here.
   backbone_out_dim: 1
-  target_out_dim: 32
+  target_out_dim: 1
   latent_module:
     - "blocks.-2" # penultimate block output
     - "blocks.-1.Attn" # physics-attention output (slice mechanism)
