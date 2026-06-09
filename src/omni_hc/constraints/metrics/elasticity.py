@@ -1,21 +1,14 @@
 """Constraint-error metrics for the Elasticity 2D benchmark.
 
-Methodology table row:
-    Elasticity / Incompressibility -> |det Ĉ - 1|_max
+The plane-stress constraint reports 3D incompressibility and out-of-plane
+stress residuals directly from its latent stretch field. An unconstrained
+scalar-stress baseline has no deformation tensor, so neither residual can be
+reconstructed from its prediction alone.
 
-Important asymmetry: the *constrained* model emits the right Cauchy-Green
-tensor C as part of its forward pass (DeviatoricStressConstraint), and
-|det C - 1| is directly measurable. The *unconstrained* baseline outputs
-a raw stress tensor (no C), so the incompressibility residual cannot be
-computed from pred alone. The methodology table marks this row "/" for
-the baseline; we propagate that by emitting no diagnostics when C is
-absent from the batch/aux.
-
-For now this returns an empty dict — the constrained-model diagnostics
-already live in ``src/omni_hc/constraints/elasticity.py`` under the keys
-``constraint/det_c_abs_error_{mean,max}``. We can re-export them here once
-the test pipeline integration is in place, so the registry doesn't need
-to special-case elasticity.
+For now this returns an empty dict. The constrained-model diagnostics live in
+``src/omni_hc/constraints/elasticity.py`` under
+``constraint/full_det_f_abs_error_*`` and
+``constraint/plane_stress_abs_error_*``.
 """
 
 from __future__ import annotations
@@ -33,7 +26,6 @@ def compute(
     meta: dict[str, Any],
 ) -> dict[str, ConstraintDiagnostic]:
     del pred, batch, meta
-    # TODO: once test-pipeline integration lands, surface
-    # constraint/det_c_abs_error_{mean,max} from the constraint module's
-    # aux tensors here so the registry sees a single canonical key.
+    # TODO: surface the constraint module's residuals here once the test
+    # pipeline passes auxiliary tensors to metric functions.
     return {}

@@ -8,7 +8,7 @@ import torch
 from omni_hc.constraints import (
     DarcyFluxConstraint,
     DirichletBoundaryAnsatz,
-    ElasticityDeviatoricStressConstraint,
+    ElasticityPlaneStressVMConstraint,
     MeanConstraint,
     PipeInletParabolicAnsatz,
     PipeStreamFunctionBoundaryAnsatz,
@@ -52,7 +52,7 @@ _CONSTRAINT_CLASSES: dict[str, type] = {
     "pipe_stream_function_ux_constraint": PipeStreamFunctionUxConstraint,
     "pipe_stream_function_boundary_ansatz": PipeStreamFunctionBoundaryAnsatz,
     "darcy_flux_constraint": DarcyFluxConstraint,
-    "elasticity_deviatoric_stress_constraint": ElasticityDeviatoricStressConstraint,
+    "elasticity_plane_stress_vm_constraint": ElasticityPlaneStressVMConstraint,
     "plasticity_envelope_constraint": PlasticityEnvelopeConstraint,
     "plasticity_envelope_y_free_x": PlasticityEnvelopeYFreeXConstraint,
     "plasticity_isotonic_regression": PlasticityIsotonicRegression,

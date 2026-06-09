@@ -1,0 +1,16 @@
+training:
+  max_grad_norm: 1.0
+
+constraint:
+  name: "elasticity_plane_stress_vm_constraint"
+  backbone_out_dim: 1
+  target_out_dim: 1
+  c1: 1.863e5
+  c2: 9.79e3
+  max_mean_log_stretch: 1.0e-3
+  max_deviatoric_log_stretch: 1.0e-3
+  head_hidden_dim: 32
+  head_layers: 2
+  head_init_scale: 1.0e-3
+  mean_log_stretch_bias: 0.0
+  deviatoric_log_stretch_bias: 0.15

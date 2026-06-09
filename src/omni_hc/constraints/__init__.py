@@ -26,7 +26,7 @@ from .boundary import (
     unit_box_distance,
 )
 from .darcy_flux import DarcyFluxConstraint
-from .elasticity import ElasticityDeviatoricStressConstraint
+from .elasticity import ElasticityPlaneStressVMConstraint
 from .mean import MeanConstraint, MeanCorrection, build_mlp, match_mean
 from .sine_boundary import SineBoundaryConstraint
 from .plasticity import (
@@ -51,7 +51,7 @@ __all__ = [
     "derived_mach",
     "DarcyFluxConstraint",
     "DirichletBoundaryAnsatz",
-    "ElasticityDeviatoricStressConstraint",
+    "ElasticityPlaneStressVMConstraint",
     "ForwardHookLatentExtractor",
     "MeanConstraint",
     "MeanCorrection",

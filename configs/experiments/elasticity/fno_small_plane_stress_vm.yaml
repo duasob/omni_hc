@@ -1,0 +1,14 @@
+name: "elasticity_fno_plane_stress_vm"
+benchmark: "elasticity"
+backbone: "FNO"
+constraint: "elasticity_plane_stress_vm_constraint"
+budget: "debug"
+
+overrides:
+  paths:
+    output_dir: "outputs/elasticity/fno_plane_stress_vm"
+  wandb_logging:
+    run_name: "elasticity_fno_plane_stress_vm"
+    point_size: 28.0
+  training:
+    debug_nan_checks: true

@@ -20,13 +20,13 @@ The benchmark defaults live in
 
 The first documented hard-constraint variant is:
 
-- [ElasticityDeviatoricStressConstraint](../constraints/elasticity/ElasticityDeviatoricStressConstraint.md):
-  maps two latent channels, $\theta$ and $\log\lambda$, to a 2D
-  incompressible Right Cauchy-Green tensor and returns von Mises
-  stress.
+- [ElasticityPlaneStressVMConstraint](../constraints/elasticity/ElasticityPlaneStressVMConstraint.md):
+  maps two latent channels, the mean and deviatoric in-plane log stretches
+  $(m,d)$, to three incompressible principal stretches, enforces
+  $\sigma_3=0$, and returns the plane-stress von Mises stress.
 
 The corresponding experiment config is
-[`configs/experiments/elasticity/fno_small_deviatoric_stress.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/elasticity/fno_small_deviatoric_stress.yaml).
+[`configs/experiments/elasticity/fno_small_plane_stress_vm.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/elasticity/fno_small_plane_stress_vm.yaml).
 
 ## Dataset Checks
 

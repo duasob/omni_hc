@@ -73,17 +73,18 @@ def test_darcy_flux_config_builds_pressure_with_dirichlet_boundary():
     )
 
 
-def test_elasticity_deviatoric_stress_config_builds_scalar_constraint():
+def test_elasticity_plane_stress_vm_config_builds_scalar_constraint():
     pred = torch.randn(2, 13, 1)
     coords = torch.rand(2, 13, 2)
-    cfg = load_yaml_file("configs/constraints/elasticity_deviatoric_stress_constraint.yaml")
+    cfg = load_yaml_file("configs/constraints/elasticity_plane_stress_vm_constraint.yaml")
 
     model = _build_constraint(DummyBackbone(pred), _args(out_dim=1), cfg)
     out = model(coords, return_aux=True)
 
     assert isinstance(model, ConstrainedModel)
     assert out.pred.shape == (2, 13, 1)
-    assert "constraint/det_c_abs_error_max" in out.diagnostics
+    assert "constraint/full_det_f_abs_error_max" in out.diagnostics
+    assert "constraint/plane_stress_abs_error_max" in out.diagnostics
 
 
 def test_plasticity_mesh_consistency_config_builds_ordered_mesh():
@@ -147,7 +148,7 @@ def test_constraint_backbone_out_dim_overrides_backbone_output_only():
             },
         },
         "constraint": {
-            "name": "elasticity_deviatoric_stress_constraint",
+            "name": "elasticity_plane_stress_vm_constraint",
             "backbone_out_dim": 2,
         },
     }

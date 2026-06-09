@@ -106,40 +106,43 @@ into the constraint layer.
 
 ### `elasticity.py`
 
-Contains the 2D incompressible elasticity stress constraint:
+Contains the incompressible plane-stress elasticity constraint:
 
-- `ElasticityDeviatoricStressConstraint`
+- `ElasticityPlaneStressVMConstraint`
 
 The default elasticity path keeps the backbone output scalar and treats it as a
 latent field:
 
 ```text
 backbone(coords) -> z
-constraint head([z, x, y]) -> theta_raw, log_lambda_raw
+constraint head([z, x, y]) -> m_raw, d_raw
 ```
 
-The constraint then constructs the Right Cauchy-Green tensor spectrally:
+The bounded log stretches recover three principal stretches:
 
 ```text
-C = R(theta) diag(lambda^2, lambda^-2) R(theta)^T
+lambda_1 = exp(m + d)
+lambda_2 = exp(m - d)
+lambda_3 = exp(-2m)
 ```
 
 This guarantees:
 
-- `C` is symmetric
-- `C` is positive definite
-- `det(C) = 1`
+- `lambda_1 lambda_2 lambda_3 = 1`
+- the incompressible pressure can be selected so `sigma_3 = 0`
+- the returned scalar is the 3D von Mises stress under plane stress
 
-The logarithmic stretch is bounded smoothly:
+Both latent log stretches are bounded smoothly:
 
 ```text
-log_lambda = max_log_lambda * tanh(log_lambda_raw)
+m = max_mean_log_stretch * tanh(m_raw)
+d = max_deviatoric_log_stretch * tanh(d_raw)
 ```
 
 The internal head exists so the fragile kinematic parameterization has its own
 initialization and scale controls while the backbone remains benchmark-generic.
 For direct ablations, the same class also supports `backbone_out_dim=2`, where
-the backbone output is interpreted directly as `(theta_raw, log_lambda_raw)`.
+the backbone output is interpreted directly as `(m_raw, d_raw)`.
 
 ## Supported Constraint Families
 

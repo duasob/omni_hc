@@ -1,5 +1,5 @@
 # Unconstrained Transolver baseline on the Elasticity benchmark across four
-# data budgets. Pair with transolver_deviatoric_stress_data.txt for the
+# data budgets. Pair with transolver_plane_stress_vm_data.txt for the
 # constrained side of the comparison.
 #
 # Run via the HPC runner:

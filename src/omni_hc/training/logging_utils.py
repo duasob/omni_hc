@@ -684,44 +684,24 @@ def save_unstructured_point_cloud_images(
     return paths
 
 
-# --- Elasticity constraint latent panels (called from ElasticityDeviatoricStressConstraint.log_media) ---
+# --- Elasticity constraint latent panels ---
 
 _ELASTICITY_LATENT_KEYS = [
-    ("theta", "theta", "twilight"),
-    ("theta_raw", "theta raw", "coolwarm"),
-    ("log_lambda", "log lambda", "coolwarm"),
-    ("log_lambda_raw", "log lambda raw", "coolwarm"),
-    ("lambda", "lambda", "magma"),
-    ("det_c", "det C", "coolwarm"),
-    ("right_cauchy_green_c11", "C 11", "viridis"),
-    ("right_cauchy_green_c12", "C 12", "coolwarm"),
-    ("right_cauchy_green_c22", "C 22", "viridis"),
-    ("det_fhat", "det F hat", "coolwarm"),
-    ("i1", "I1", "plasma"),
-    ("i2", "I2", "plasma"),
-    ("stress_11", "stress 11", "viridis"),
-    ("stress_22", "stress 22", "viridis"),
-    ("stress_12", "stress 12", "coolwarm"),
-    ("stress_trace", "stress trace", "viridis"),
-    ("stress_dev_11", "dev stress 11", "coolwarm"),
-    ("stress_dev_22", "dev stress 22", "coolwarm"),
-    ("stress_dev_12", "dev stress 12", "coolwarm"),
-    ("stress_dev_inner", "dev stress inner", "plasma"),
-    ("fhat_11", "F hat 11", "coolwarm"),
-    ("fhat_12", "F hat 12", "coolwarm"),
-    ("fhat_21", "F hat 21", "coolwarm"),
-    ("fhat_22", "F hat 22", "coolwarm"),
-    ("deformation_f11", "F 11", "coolwarm"),
-    ("deformation_f12", "F 12", "coolwarm"),
-    ("deformation_f21", "F 21", "coolwarm"),
-    ("deformation_f22", "F 22", "coolwarm"),
-    ("stretch_raw", "stretch raw", "coolwarm"),
-    ("phi", "phi", "twilight"),
-    ("phi_raw", "phi raw", "coolwarm"),
-    ("amplitude_raw", "amplitude raw", "coolwarm"),
-    ("amplitude", "amplitude", "viridis"),
-    ("directional_stretch", "directional stretch", "plasma"),
-    ("det_f", "det F", "coolwarm"),
+    ("mean_log_stretch", "mean log stretch m", "coolwarm"),
+    ("deviatoric_log_stretch", "deviatoric log stretch d", "coolwarm"),
+    ("mean_log_stretch_raw", "m raw", "coolwarm"),
+    ("deviatoric_log_stretch_raw", "d raw", "coolwarm"),
+    ("lambda_1", "lambda 1", "magma"),
+    ("lambda_2", "lambda 2", "magma"),
+    ("lambda_3", "lambda 3", "magma"),
+    ("in_plane_det_f", "in-plane det F", "coolwarm"),
+    ("full_det_f", "3D det F", "coolwarm"),
+    ("c_33", "C 33", "viridis"),
+    ("pressure", "pressure", "coolwarm"),
+    ("principal_cauchy_stress_1", "principal stress 1", "coolwarm"),
+    ("principal_cauchy_stress_2", "principal stress 2", "coolwarm"),
+    ("principal_cauchy_stress_3", "principal stress 3", "coolwarm"),
+    ("sigma_physical", "von Mises stress", "plasma"),
 ]
 
 
@@ -740,7 +720,7 @@ def _make_elasticity_latent_figure(coords_np, aux_tensors, *, point_size):
     for ax, (key, title, cmap) in zip(axes.ravel(), available):
         values = aux_tensors[key][0, :, 0].detach().cpu().numpy()
         vmin = vmax = None
-        if key in {"det_f", "det_c"}:
+        if key == "full_det_f":
             spread = max(float(np.abs(values - 1.0).max()), 1e-12)
             vmin, vmax = 1.0 - spread, 1.0 + spread
         im = _plot_point_cloud_field(ax, coords_np, values, title=title,

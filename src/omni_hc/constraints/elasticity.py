@@ -7,43 +7,6 @@ from .base import ConstraintDiagnostic, ConstraintModule
 from .utils.boundary_ops import encode_target
 
 
-def _det2(matrix: torch.Tensor) -> torch.Tensor:
-    return matrix[..., 0, 0] * matrix[..., 1, 1] - matrix[..., 0, 1] * matrix[..., 1, 0]
-
-
-def _identity_like(matrix: torch.Tensor) -> torch.Tensor:
-    eye = torch.eye(2, dtype=matrix.dtype, device=matrix.device)
-    return eye.expand(*matrix.shape[:-2], 2, 2)
-
-
-def _wrap_angle(angle: torch.Tensor) -> torch.Tensor:
-    return torch.atan2(torch.sin(angle), torch.cos(angle))
-
-
-def _right_cauchy_green_from_spectral_params(
-    theta: torch.Tensor,
-    log_lambda: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Return C = R diag(lambda^2, lambda^-2) R^T and lambda."""
-    c = torch.cos(theta)
-    s = torch.sin(theta)
-    lambda_stretch = torch.exp(log_lambda)
-    lambda_sq = torch.exp(2.0 * log_lambda)
-    inv_lambda_sq = torch.exp(-2.0 * log_lambda)
-
-    c11 = c.square() * lambda_sq + s.square() * inv_lambda_sq
-    c22 = s.square() * lambda_sq + c.square() * inv_lambda_sq
-    c12 = c * s * (lambda_sq - inv_lambda_sq)
-    right_cauchy_green = torch.stack(
-        (
-            torch.stack((c11, c12), dim=-1),
-            torch.stack((c12, c22), dim=-1),
-        ),
-        dim=-2,
-    )
-    return right_cauchy_green, lambda_stretch
-
-
 def _make_mlp(
     *,
     in_dim: int,
@@ -61,26 +24,70 @@ def _make_mlp(
     return nn.Sequential(*layers)
 
 
-class ElasticityDeviatoricStressConstraint(ConstraintModule):
+def _principal_stretches(
+    mean_log_stretch: torch.Tensor,
+    deviatoric_log_stretch: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Computes 2D incompressible hyperelastic von Mises stress.
+    Recover in-plane stretches and the incompressible thickness stretch.
 
-    With backbone_out_dim=1, the backbone emits a scalar latent z per point. The
-    constraint predicts (theta, log_lambda) with an internal head over [z, x, y].
+    The sign of d only swaps the two in-plane principal directions.
+    """
+    lambda_1 = torch.exp(mean_log_stretch + deviatoric_log_stretch)
+    lambda_2 = torch.exp(mean_log_stretch - deviatoric_log_stretch)
+    lambda_3 = torch.exp(-2.0 * mean_log_stretch)
+    return lambda_1, lambda_2, lambda_3
 
-    With backbone_out_dim=2, the backbone output is interpreted directly as
-    (theta_raw, log_lambda_raw).
 
-    In both modes, the Right Cauchy-Green tensor is constructed as
+def _plane_stress_principal_cauchy(
+    *,
+    lambda_1: torch.Tensor,
+    lambda_2: torch.Tensor,
+    lambda_3: torch.Tensor,
+    c1: float,
+    c2: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return the principal Cauchy stresses and incompressibility pressure."""
+    lambda_1_sq = lambda_1.square()
+    lambda_2_sq = lambda_2.square()
+    lambda_3_sq = lambda_3.square()
+    inv_lambda_1_sq = lambda_1_sq.reciprocal()
+    inv_lambda_2_sq = lambda_2_sq.reciprocal()
+    inv_lambda_3_sq = lambda_3_sq.reciprocal()
 
-        C = R(theta) diag(lambda^2, lambda^-2) R(theta)^T.
+    # This pressure makes the out-of-plane Cauchy stress exactly zero.
+    pressure = 2.0 * c1 * lambda_3_sq - 2.0 * c2 * inv_lambda_3_sq
+    # Substitute the plane-stress pressure before evaluating the in-plane
+    # stresses. This avoids subtracting two nearly equal O(C1) terms.
+    sigma_1 = (
+        2.0 * c1 * (lambda_1_sq - lambda_3_sq)
+        - 2.0 * c2 * (inv_lambda_1_sq - inv_lambda_3_sq)
+    )
+    sigma_2 = (
+        2.0 * c1 * (lambda_2_sq - lambda_3_sq)
+        - 2.0 * c2 * (inv_lambda_2_sq - inv_lambda_3_sq)
+    )
+    sigma_3 = torch.zeros_like(sigma_1)
+    return sigma_1, sigma_2, sigma_3, pressure
 
-    This enforces C symmetric positive definite and det(C) = 1 by construction.
-    The returned scalar is computed from the 2D deviatoric Second
-    Piola-Kirchhoff stress.
+
+class ElasticityPlaneStressVMConstraint(ConstraintModule):
+    """
+    Plane-stress von Mises reparameterization for an incompressible membrane.
+
+    With backbone_out_dim=1, a pointwise head maps [z, x, y] to raw mean and
+    deviatoric in-plane log stretches (m, d). With backbone_out_dim=2, the
+    backbone output is interpreted directly as the raw (m, d) parameters.
+
+        lambda_1 = exp(m + d)
+        lambda_2 = exp(m - d)
+        lambda_3 = exp(-2m)
+
+    This enforces 3D incompressibility. The pressure is selected to enforce the
+    plane-stress condition sigma_3 = 0 before computing von Mises stress.
     """
 
-    name = "elasticity_deviatoric_stress"
+    name = "elasticity_plane_stress_vm"
 
     def __init__(
         self,
@@ -89,36 +96,42 @@ class ElasticityDeviatoricStressConstraint(ConstraintModule):
         target_out_dim: int = 1,
         c1: float = 1.863e5,
         c2: float = 9.79e3,
-        max_log_lambda: float = 0.03,
+        max_mean_log_stretch: float = 1.0e-3,
+        max_deviatoric_log_stretch: float = 1.0e-3,
         head_hidden_dim: int = 32,
         head_layers: int = 2,
         head_init_scale: float = 1e-3,
-        theta_bias: float = 0.0,
-        log_lambda_bias: float = 0.0,
+        mean_log_stretch_bias: float = 0.0,
+        deviatoric_log_stretch_bias: float = 0.15,
     ) -> None:
         super().__init__()
         self.backbone_out_dim = int(backbone_out_dim)
         self.target_out_dim = int(target_out_dim)
         self.c1 = float(c1)
         self.c2 = float(c2)
-        self.max_log_lambda = float(max_log_lambda)
+        self.max_mean_log_stretch = float(max_mean_log_stretch)
+        self.max_deviatoric_log_stretch = float(max_deviatoric_log_stretch)
         self.head_hidden_dim = int(head_hidden_dim)
         self.head_layers = int(head_layers)
         self.head_init_scale = float(head_init_scale)
-        self.theta_bias = float(theta_bias)
-        self.log_lambda_bias = float(log_lambda_bias)
+        self.mean_log_stretch_bias = float(mean_log_stretch_bias)
+        self.deviatoric_log_stretch_bias = float(deviatoric_log_stretch_bias)
         self.target_normalizer = None
 
         if self.backbone_out_dim not in {1, 2}:
             raise ValueError(
-                "ElasticityDeviatoricStressConstraint expects "
+                "ElasticityPlaneStressVMConstraint expects "
                 f"backbone_out_dim=1 or 2, got {self.backbone_out_dim}."
             )
         if self.target_out_dim != 1:
             raise ValueError(
-                "ElasticityDeviatoricStressConstraint returns one scalar stress "
+                "ElasticityPlaneStressVMConstraint returns one scalar stress "
                 f"channel, got target_out_dim={self.target_out_dim}."
             )
+        if self.max_mean_log_stretch <= 0.0:
+            raise ValueError("max_mean_log_stretch must be positive.")
+        if self.max_deviatoric_log_stretch <= 0.0:
+            raise ValueError("max_deviatoric_log_stretch must be positive.")
 
         self.param_head = None
         if self.backbone_out_dim == 1:
@@ -140,7 +153,10 @@ class ElasticityDeviatoricStressConstraint(ConstraintModule):
             final.weight.mul_(self.head_init_scale)
             final.bias.copy_(
                 torch.tensor(
-                    [self.theta_bias, self.log_lambda_bias],
+                    [
+                        self.mean_log_stretch_bias,
+                        self.deviatoric_log_stretch_bias,
+                    ],
                     dtype=final.bias.dtype,
                     device=final.bias.device,
                 )
@@ -152,7 +168,7 @@ class ElasticityDeviatoricStressConstraint(ConstraintModule):
     def _validate_pred(self, pred: torch.Tensor) -> None:
         if pred.ndim != 3 or pred.shape[-1] != self.backbone_out_dim:
             raise ValueError(
-                "ElasticityDeviatoricStressConstraint expects backbone output "
+                "ElasticityPlaneStressVMConstraint expects backbone output "
                 f"with shape (batch, n_points, {self.backbone_out_dim}), got "
                 f"{tuple(pred.shape)!r}."
             )
@@ -162,7 +178,7 @@ class ElasticityDeviatoricStressConstraint(ConstraintModule):
             return
         if coords is None:
             raise ValueError(
-                "ElasticityDeviatoricStressConstraint with backbone_out_dim=1 "
+                "ElasticityPlaneStressVMConstraint with backbone_out_dim=1 "
                 "requires coords so the parameter head can consume [z, x, y]."
             )
         if (
@@ -171,159 +187,154 @@ class ElasticityDeviatoricStressConstraint(ConstraintModule):
             or coords.shape[-1] < 2
         ):
             raise ValueError(
-                "ElasticityDeviatoricStressConstraint expects coords with shape "
+                "ElasticityPlaneStressVMConstraint expects coords with shape "
                 f"(batch, n_points, >=2), got {tuple(coords.shape)!r}."
             )
 
-    def _spectral_params(
+    def _stretch_params(
         self,
         pred: torch.Tensor,
         coords: torch.Tensor | None,
     ) -> tuple[torch.Tensor, torch.Tensor, dict]:
         self._validate_pred(pred)
         if self.backbone_out_dim == 2:
-            theta_raw, log_lambda_raw = pred.unbind(dim=-1)
+            mean_raw, deviatoric_raw = pred.unbind(dim=-1)
             aux = {}
         else:
             self._validate_coords(pred, coords)
             assert coords is not None
             assert self.param_head is not None
             head_input = torch.cat((pred, coords[..., :2]), dim=-1)
-            theta_raw, log_lambda_raw = self.param_head(head_input).unbind(dim=-1)
+            mean_raw, deviatoric_raw = self.param_head(head_input).unbind(dim=-1)
             aux = {
                 "param_head_input_z": pred,
                 "param_head_input_x": coords[..., 0:1],
                 "param_head_input_y": coords[..., 1:2],
             }
 
-        log_lambda = self.max_log_lambda * torch.tanh(log_lambda_raw)
-        return theta_raw, log_lambda, {"log_lambda_raw": log_lambda_raw, **aux}
+        mean_log_stretch = self.max_mean_log_stretch * torch.tanh(mean_raw)
+        deviatoric_log_stretch = (
+            self.max_deviatoric_log_stretch * torch.tanh(deviatoric_raw)
+        )
+        return mean_log_stretch, deviatoric_log_stretch, {
+            "mean_log_stretch_raw": mean_raw,
+            "deviatoric_log_stretch_raw": deviatoric_raw,
+            **aux,
+        }
 
     def _physical_stress(
         self,
         pred: torch.Tensor,
         coords: torch.Tensor | None,
     ) -> tuple[torch.Tensor, dict]:
-        theta_raw, log_lambda, aux = self._spectral_params(pred, coords)
-
-        right_cauchy_green, lambda_stretch = _right_cauchy_green_from_spectral_params(
-            theta_raw,
-            log_lambda,
+        mean_log_stretch, deviatoric_log_stretch, aux = self._stretch_params(
+            pred, coords
         )
-        i1 = right_cauchy_green[..., 0, 0] + right_cauchy_green[..., 1, 1]
-        c_squared = torch.matmul(right_cauchy_green, right_cauchy_green)
-        tr_c_squared = c_squared[..., 0, 0] + c_squared[..., 1, 1]
-        i2 = 0.5 * (i1.square() - tr_c_squared)
-
-        identity = _identity_like(right_cauchy_green)
-        stress = 2.0 * self.c1 * identity + 2.0 * self.c2 * (
-            i1[..., None, None] * identity - right_cauchy_green
+        lambda_1, lambda_2, lambda_3 = _principal_stretches(
+            mean_log_stretch,
+            deviatoric_log_stretch,
         )
-        stress_trace = stress[..., 0, 0] + stress[..., 1, 1]
-        stress_dev = stress - 0.5 * stress_trace[..., None, None] * identity
-        stress_dev_inner = stress_dev.square().sum(dim=(-1, -2))
-        sigma_vm = (1.5 * stress_dev_inner.clamp_min(0.0) + 1e-8).sqrt().unsqueeze(-1)
-        det_c = _det2(right_cauchy_green)
+        sigma_1, sigma_2, sigma_3, pressure = _plane_stress_principal_cauchy(
+            lambda_1=lambda_1,
+            lambda_2=lambda_2,
+            lambda_3=lambda_3,
+            c1=self.c1,
+            c2=self.c2,
+        )
+
+        sigma_vm_sq = sigma_1.square() - sigma_1 * sigma_2 + sigma_2.square()
+        sigma_vm = (sigma_vm_sq.clamp_min(0.0) + 1e-8).sqrt().unsqueeze(-1)
+        full_det_f = lambda_1 * lambda_2 * lambda_3
+        in_plane_det_f = lambda_1 * lambda_2
 
         aux.update(
             {
-                "theta_raw": theta_raw.unsqueeze(-1),
-                "theta": _wrap_angle(theta_raw).unsqueeze(-1),
-                "log_lambda": log_lambda.unsqueeze(-1),
-                "lambda": lambda_stretch.unsqueeze(-1),
-                "right_cauchy_green_c11": right_cauchy_green[..., 0, 0].unsqueeze(-1),
-                "right_cauchy_green_c12": right_cauchy_green[..., 0, 1].unsqueeze(-1),
-                "right_cauchy_green_c22": right_cauchy_green[..., 1, 1].unsqueeze(-1),
-                "det_c": det_c.unsqueeze(-1),
-                "i1": i1.unsqueeze(-1),
-                "i2": i2.unsqueeze(-1),
-                "stress_11": stress[..., 0, 0].unsqueeze(-1),
-                "stress_22": stress[..., 1, 1].unsqueeze(-1),
-                "stress_12": stress[..., 0, 1].unsqueeze(-1),
-                "stress_trace": stress_trace.unsqueeze(-1),
-                "stress_dev_11": stress_dev[..., 0, 0].unsqueeze(-1),
-                "stress_dev_22": stress_dev[..., 1, 1].unsqueeze(-1),
-                "stress_dev_12": stress_dev[..., 0, 1].unsqueeze(-1),
-                "stress_dev_inner": stress_dev_inner.unsqueeze(-1),
+                "mean_log_stretch": mean_log_stretch.unsqueeze(-1),
+                "deviatoric_log_stretch": deviatoric_log_stretch.unsqueeze(-1),
+                "lambda_1": lambda_1.unsqueeze(-1),
+                "lambda_2": lambda_2.unsqueeze(-1),
+                "lambda_3": lambda_3.unsqueeze(-1),
+                "in_plane_det_f": in_plane_det_f.unsqueeze(-1),
+                "full_det_f": full_det_f.unsqueeze(-1),
+                "c_33": lambda_3.square().unsqueeze(-1),
+                "pressure": pressure.unsqueeze(-1),
+                "principal_cauchy_stress_1": sigma_1.unsqueeze(-1),
+                "principal_cauchy_stress_2": sigma_2.unsqueeze(-1),
+                "principal_cauchy_stress_3": sigma_3.unsqueeze(-1),
+                "sigma_vm_squared": sigma_vm_sq.unsqueeze(-1),
             }
         )
-        aux["log_lambda_raw"] = aux["log_lambda_raw"].unsqueeze(-1)
+        aux["mean_log_stretch_raw"] = aux["mean_log_stretch_raw"].unsqueeze(-1)
+        aux["deviatoric_log_stretch_raw"] = aux[
+            "deviatoric_log_stretch_raw"
+        ].unsqueeze(-1)
         return sigma_vm, aux
 
     def _diagnostics(self, sigma_physical: torch.Tensor, aux: dict) -> dict:
-        det_error = (aux["det_c"] - 1.0).abs()
-        diagnostics = {
+        det_error = (aux["full_det_f"] - 1.0).abs()
+        plane_stress_error = aux["principal_cauchy_stress_3"].abs()
+        return {
             "constraint/sigma_min": ConstraintDiagnostic(
-                value=sigma_physical.min(),
-                reduce="min",
+                value=sigma_physical.min(), reduce="min"
             ),
             "constraint/sigma_mean": ConstraintDiagnostic(
-                value=sigma_physical.mean(),
-                reduce="mean",
+                value=sigma_physical.mean(), reduce="mean"
             ),
             "constraint/sigma_max": ConstraintDiagnostic(
-                value=sigma_physical.max(),
-                reduce="max",
+                value=sigma_physical.max(), reduce="max"
             ),
-            "constraint/det_c_abs_error_mean": ConstraintDiagnostic(
-                value=det_error.mean(),
+            "constraint/full_det_f_abs_error_mean": ConstraintDiagnostic(
+                value=det_error.mean(), reduce="mean"
+            ),
+            "constraint/full_det_f_abs_error_max": ConstraintDiagnostic(
+                value=det_error.max(), reduce="max"
+            ),
+            "constraint/plane_stress_abs_error_mean": ConstraintDiagnostic(
+                value=plane_stress_error.mean(), reduce="mean"
+            ),
+            "constraint/plane_stress_abs_error_max": ConstraintDiagnostic(
+                value=plane_stress_error.max(), reduce="max"
+            ),
+            "constraint/lambda_1_min": ConstraintDiagnostic(
+                value=aux["lambda_1"].min(), reduce="min"
+            ),
+            "constraint/lambda_1_max": ConstraintDiagnostic(
+                value=aux["lambda_1"].max(), reduce="max"
+            ),
+            "constraint/lambda_2_min": ConstraintDiagnostic(
+                value=aux["lambda_2"].min(), reduce="min"
+            ),
+            "constraint/lambda_2_max": ConstraintDiagnostic(
+                value=aux["lambda_2"].max(), reduce="max"
+            ),
+            "constraint/lambda_3_min": ConstraintDiagnostic(
+                value=aux["lambda_3"].min(), reduce="min"
+            ),
+            "constraint/lambda_3_max": ConstraintDiagnostic(
+                value=aux["lambda_3"].max(), reduce="max"
+            ),
+            "constraint/in_plane_det_f_mean": ConstraintDiagnostic(
+                value=aux["in_plane_det_f"].mean(), reduce="mean"
+            ),
+            "constraint/mean_log_stretch_raw_mean": ConstraintDiagnostic(
+                value=aux["mean_log_stretch_raw"].mean(), reduce="mean"
+            ),
+            "constraint/mean_log_stretch_raw_std": ConstraintDiagnostic(
+                value=aux["mean_log_stretch_raw"].std(unbiased=False),
                 reduce="mean",
             ),
-            "constraint/det_c_abs_error_max": ConstraintDiagnostic(
-                value=det_error.max(),
-                reduce="max",
+            "constraint/deviatoric_log_stretch_raw_mean": ConstraintDiagnostic(
+                value=aux["deviatoric_log_stretch_raw"].mean(), reduce="mean"
             ),
-            "constraint/i1_mean": ConstraintDiagnostic(
-                value=aux["i1"].mean(),
-                reduce="mean",
-            ),
-            "constraint/i2_mean": ConstraintDiagnostic(
-                value=aux["i2"].mean(),
-                reduce="mean",
-            ),
-            "constraint/lambda_mean": ConstraintDiagnostic(
-                value=aux["lambda"].mean(),
-                reduce="mean",
-            ),
-            "constraint/lambda_min": ConstraintDiagnostic(
-                value=aux["lambda"].min(),
-                reduce="min",
-            ),
-            "constraint/lambda_max": ConstraintDiagnostic(
-                value=aux["lambda"].max(),
-                reduce="max",
-            ),
-            "constraint/stress_trace_mean": ConstraintDiagnostic(
-                value=aux["stress_trace"].mean(),
-                reduce="mean",
-            ),
-            "constraint/stress_dev_inner_mean": ConstraintDiagnostic(
-                value=aux["stress_dev_inner"].mean(),
-                reduce="mean",
-            ),
-            "constraint/theta_std": ConstraintDiagnostic(
-                value=aux["theta"].std(unbiased=False),
-                reduce="mean",
-            ),
-            "constraint/log_lambda_std": ConstraintDiagnostic(
-                value=aux["log_lambda"].std(unbiased=False),
-                reduce="mean",
-            ),
-            "constraint/log_lambda_raw_mean": ConstraintDiagnostic(
-                value=aux["log_lambda_raw"].mean(),
-                reduce="mean",
-            ),
-            "constraint/log_lambda_raw_std": ConstraintDiagnostic(
-                value=aux["log_lambda_raw"].std(unbiased=False),
+            "constraint/deviatoric_log_stretch_raw_std": ConstraintDiagnostic(
+                value=aux["deviatoric_log_stretch_raw"].std(unbiased=False),
                 reduce="mean",
             ),
         }
-        return diagnostics
 
     def forward(self, *, pred, coords=None, return_aux=False, **_unused):
         sigma_physical, aux = self._physical_stress(pred, coords)
         sigma = encode_target(sigma_physical, self.target_normalizer)
-
         if return_aux:
             return self.as_output(
                 sigma,
@@ -339,15 +350,26 @@ class ElasticityDeviatoricStressConstraint(ConstraintModule):
             return {}
         if ctx.out_dir is None:
             from omni_hc.training.logging_utils import log_elasticity_latent_panels
+
             log_elasticity_latent_panels(
-                ctx.coords, aux,
-                prefix=ctx.prefix, epoch=ctx.epoch, step=ctx.step,
-                point_size=float((ctx.cfg.get("wandb_logging") or {}).get("point_size", 24.0)),
+                ctx.coords,
+                aux,
+                prefix=ctx.prefix,
+                epoch=ctx.epoch,
+                step=ctx.step,
+                point_size=float(
+                    (ctx.cfg.get("wandb_logging") or {}).get("point_size", 24.0)
+                ),
             )
             return {}
         from omni_hc.training.logging_utils import save_elasticity_latent_panels
+
         return save_elasticity_latent_panels(
-            ctx.coords, aux,
-            out_dir=ctx.out_dir, prefix=ctx.prefix,
-            point_size=float((ctx.cfg.get("wandb_logging") or {}).get("point_size", 24.0)),
+            ctx.coords,
+            aux,
+            out_dir=ctx.out_dir,
+            prefix=ctx.prefix,
+            point_size=float(
+                (ctx.cfg.get("wandb_logging") or {}).get("point_size", 24.0)
+            ),
         )

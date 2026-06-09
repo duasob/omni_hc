@@ -12,9 +12,9 @@ physically restricted output space.
 - Darcy constraints:
   - [DarcyFluxConstraint](stream/DarcyFluxConstraint.md): stream-function flux
     construction that hard-builds `div(v) = 1` before recovering pressure.
-- [Elasticity deviatoric stress](elasticity/ElasticityDeviatoricStressConstraint.md):
-  2D incompressible hyperelastic von Mises stress from a scalar backbone latent,
-  coordinates, and a constrained Right Cauchy-Green tensor.
+- [Elasticity plane-stress von Mises](elasticity/ElasticityPlaneStressVMConstraint.md):
+  3D-incompressible membrane stresses from bounded principal log stretches,
+  with the pressure chosen to enforce zero out-of-plane stress.
 - [Plasticity mesh consistency](plasticity/PlasticityMeshConsistencyConstraint.md):
   ordered deformation mesh reconstruction from positive learned spacings,
   returning consistent `[x, y, u_x, u_y]` channels.

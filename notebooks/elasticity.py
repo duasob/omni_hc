@@ -122,7 +122,10 @@ from omni_hc.training.common import (
 )
 
 DEVICE = torch.device("cpu")
-RUN_DIR = REPO_ROOT / "outputs/elasticity/fno_deviatoric_stress"  # TODO: real run
+RUN_DIR = (
+    REPO_ROOT
+    / "outputs/elasticity/elasticity_plane_stress_vm_constraint/transolver/smoke/seed_42"
+)
 
 if (RUN_DIR / "resolved_config.yaml").exists():
     cfg = yaml.safe_load((RUN_DIR / "resolved_config.yaml").read_text())
@@ -134,6 +137,7 @@ if (RUN_DIR / "resolved_config.yaml").exists():
     model, _, _ = create_model(
         cfg, device=DEVICE, runtime_overrides=_runtime_overrides(meta)
     )
+    model.constraint.set_target_normalizer(test_loader.y_normalizer.to(DEVICE))
     ckpt = load_checkpoint_state(RUN_DIR / "best.pt", device=DEVICE)
     load_model_state_dict(model, ckpt["model_state_dict"])
     model.eval()
@@ -146,147 +150,157 @@ if (RUN_DIR / "resolved_config.yaml").exists():
 else:
     print(f"[scaffold] no run at {RUN_DIR}; skip inference until a run exists.")
 
-# %% Strain-ellipse diagram - what theta and lambda mean per point
-# C = R(theta) diag(lambda^2, lambda^-2) R(theta)^T maps a unit circle of
-# material directions to an ellipse with semi-axes (lambda, 1/lambda) tilted by
-# theta. Area is preserved (lambda * 1/lambda = 1), so incompressibility is
-# directly visible as constant glyph area.
-from matplotlib.collections import PatchCollection
-from matplotlib.patches import Arc, Circle, Ellipse, FancyArrowPatch
+# %% 3D latent membrane - relative thickness change from lambda_3
+# The plane-stress model gives local principal stretch magnitudes, including
+# lambda_3 = exp(-2m). If an undeformed membrane has thickness h0, the local
+# plane-stress model implies h/h0 = lambda_3. The dataset does not provide h0,
+# so the physically meaningful quantity here is the relative thickness change
+# lambda_3 - 1, not an absolute thickness.
+import matplotlib.tri as mtri
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-DIAGRAM_SAMPLE = 0
-GLYPH_FRACTION = 1 / 65  # base glyph radius as a fraction of the cloud extent
-AR_EXAGGERATE = 12.0  # aspect-ratio exponent; lambda sits near 1 so amplify it
-# The trained checkpoint currently collapses to a near-constant (theta, lambda);
-# default to a smoothly varying illustrative field that actually shows what the
-# two parameters mean. Flip to True once a run predicts a non-degenerate field.
-USE_MODEL_PREDICTIONS = False
-
-aux = out.get("aux_tensors", {}) if "out" in globals() else {}
-if USE_MODEL_PREDICTIONS and aux.get("lambda") is not None:
-    coords_d = coords_b[DIAGRAM_SAMPLE].cpu().numpy()
-    theta_d = aux["theta"][DIAGRAM_SAMPLE, :, 0].cpu().numpy()
-    lambda_d = aux["lambda"][DIAGRAM_SAMPLE, :, 0].cpu().numpy()
-    source = "model prediction"
-    if lambda_d.std() < 1e-3:
-        print(
-            f"[warn] predicted lambda nearly constant "
-            f"(std={lambda_d.std():.2e}); glyph field will look uniform."
-        )
+if "out" not in globals():
+    print("[3D visualization] run the inference cell first.")
 else:
-    coords_d = coords[DIAGRAM_SAMPLE]
-    cx, cy = coords_d[:, 0].mean(), coords_d[:, 1].mean()
-    rel = coords_d - np.array([cx, cy])
-    radius = np.hypot(rel[:, 0], rel[:, 1])
-    theta_d = np.arctan2(rel[:, 1], rel[:, 0])  # orientation fans out radially
-    lambda_d = 1.0 + 0.06 * (radius / (radius.max() + 1e-9))  # stretch grows out
-    source = ""
+    VIS_SAMPLE = 0
+    REFERENCE_DISPLAY_THICKNESS = 0.08
+    THICKNESS_VARIATION_EXAGGERATION = 10000.0
 
-extent = max(
-    coords_d[:, 0].max() - coords_d[:, 0].min(),
-    coords_d[:, 1].max() - coords_d[:, 1].min(),
-)
-glyph_r = GLYPH_FRACTION * extent
+    aux = out["aux_tensors"]
+    coords_3d = coords_b[VIS_SAMPLE].cpu().numpy()
+    lambda_1 = aux["lambda_1"][VIS_SAMPLE, :, 0].cpu().numpy()
+    lambda_2 = aux["lambda_2"][VIS_SAMPLE, :, 0].cpu().numpy()
+    lambda_3 = aux["lambda_3"][VIS_SAMPLE, :, 0].cpu().numpy()
+    sigma_vm = aux["sigma_physical"][VIS_SAMPLE, :, 0].cpu().numpy()
 
-sub = np.arange(len(coords_d))
+    relative_thickness_change = lambda_3 - 1.0
 
-fig, (ax_concept, ax_field) = plt.subplots(
-    1,
-    2,
-    figsize=(6, 10),
-)
+    # REFERENCE_DISPLAY_THICKNESS is a drawing scale, not a measured h0.
+    # Exaggerate only the variation around lambda_3=1.
+    lambda_3_visual = 1.0 + THICKNESS_VARIATION_EXAGGERATION * (lambda_3 - 1.0)
+    lambda_3_visual = np.maximum(lambda_3_visual, 0.05)
+    half_thickness = 0.5 * REFERENCE_DISPLAY_THICKNESS * lambda_3_visual
 
-# --- concept inset: unit circle -> strain ellipse, defining theta and lambda --
-lam0, theta0 = 1.6, np.deg2rad(35.0)
-deg0 = np.rad2deg(theta0)
-accent = plt.get_cmap(CMAP)(0.55)
+    triangulation = mtri.Triangulation(coords_3d[:, 0], coords_3d[:, 1])
+    triangles = triangulation.triangles
 
-ax_concept.add_patch(Circle((0, 0), 1.0, fill=False, ls="--", lw=1.0, ec="0.55"))
-ax_concept.add_patch(
-    Ellipse(
-        (0, 0),
-        width=2 * lam0,
-        height=2 / lam0,
-        angle=deg0,
-        facecolor=accent,
-        alpha=0.22,
-        edgecolor=accent,
-        lw=1.8,
+    # Delaunay triangulation bridges the central void. Mask triangles containing
+    # an unusually long edge so the hole remains visible.
+    triangle_xy = coords_3d[triangles]
+    edge_lengths = np.stack(
+        (
+            np.linalg.norm(triangle_xy[:, 0] - triangle_xy[:, 1], axis=1),
+            np.linalg.norm(triangle_xy[:, 1] - triangle_xy[:, 2], axis=1),
+            np.linalg.norm(triangle_xy[:, 2] - triangle_xy[:, 0], axis=1),
+        ),
+        axis=1,
     )
-)
-maj = lam0 * np.array([np.cos(theta0), np.sin(theta0)])
-minr = (1 / lam0) * np.array([-np.sin(theta0), np.cos(theta0)])
-for vec, lab in ((maj, r"$\lambda$"), (minr, r"$\lambda^{-1}$")):
-    ax_concept.add_patch(
-        FancyArrowPatch(
-            (0, 0), vec, arrowstyle="-|>", mutation_scale=12, lw=1.6, color="0.15"
-        )
-    )
-    ax_concept.annotate(lab, vec * 1.18, ha="center", va="center", fontsize=12)
-ax_concept.add_patch(Arc((0, 0), 0.9, 0.9, theta1=0.0, theta2=deg0, color="0.15"))
-ax_concept.plot([0, 1.3], [0, 0], color="0.6", lw=0.8, ls=":")
-ax_concept.annotate(
-    r"$\theta$",
-    (0.62 * np.cos(theta0 / 2), 0.62 * np.sin(theta0 / 2)),
-    ha="center",
-    va="center",
-    fontsize=12,
-)
-ax_concept.annotate(
-    "unit circle",
-    (0, -1.0),
-    xytext=(0, -1.5),
-    ha="center",
-    fontsize=12,
-    color="0.25",
-    arrowprops=dict(arrowstyle="-", color="0.6", lw=0.8),
-)
-ax_concept.set_xlim(-1.9, 1.9)
-ax_concept.set_ylim(-1.9, 1.9)
-ax_concept.set_aspect("equal")
-ax_concept.axis("off")
-ax_concept.set_title(r"$\mathbf{C}$ mapping", fontsize=16, pad=-20)
+    max_edge = edge_lengths.max(axis=1)
+    local_edge_scale = np.median(edge_lengths)
+    triangulation.set_mask(max_edge > 3.0 * local_edge_scale)
 
-# --- field: one glyph per (subsampled) point over the body --------------------
-ax_field.scatter(coords_d[:, 0], coords_d[:, 1], s=3, color="0.85", zorder=0)
-a = glyph_r * lambda_d[sub] ** AR_EXAGGERATE
-b = glyph_r * lambda_d[sub] ** -AR_EXAGGERATE
-glyphs = [
-    Ellipse(
-        (coords_d[i, 0], coords_d[i, 1]),
-        width=2 * ai,
-        height=2 * bi,
-        angle=np.rad2deg(theta_d[i]),
-    )
-    for i, ai, bi in zip(sub, a, b)
-]
-pc = PatchCollection(glyphs, cmap=CMAP, zorder=1, edgecolor="white", linewidth=0.4)
-pc.set_array(lambda_d[sub])
-ax_field.add_collection(pc)
-ax_field.autoscale_view()
-ax_field.set_aspect("equal")
-ax_field.set_xlabel("$x$")
-ax_field.set_ylabel("$y$")
-ax_field.set_title(
-    r"angle $=\theta$, aspect $=\lambda{:}\lambda^{-1}$",
-    fontsize=16,
-)
-ax_field.text(
-    0.98,
-    0.02,
-    source,
-    transform=ax_field.transAxes,
-    ha="right",
-    va="bottom",
-    fontsize=8,
-    color="0.4",
-)
-fig.colorbar(pc, ax=ax_field, fraction=0.046, pad=0.02, label=r"$\lambda$")
+    visible_triangles = triangles[~triangulation.mask]
+    triangle_sigma = sigma_vm[visible_triangles].mean(axis=1)
+    stress_norm = plt.Normalize(vmin=sigma_vm.min(), vmax=sigma_vm.max())
+    stress_cmap = plt.get_cmap(CMAP)
 
-fig.tight_layout()
-fig.savefig(FIGURES_DIR / "elasticity_spectral_glyphs.png", bbox_inches="tight")
-plt.show()
-print(f"Saved {FIGURES_DIR / 'elasticity_spectral_glyphs.png'}  [{source}]")
+    top_vertices = np.stack(
+        (
+            coords_3d[visible_triangles, 0],
+            coords_3d[visible_triangles, 1],
+            half_thickness[visible_triangles],
+        ),
+        axis=-1,
+    )
+    bottom_vertices = top_vertices.copy()
+    bottom_vertices[..., 2] *= -1.0
+
+    fig = plt.figure(figsize=(14, 6))
+    ax_3d = fig.add_subplot(121, projection="3d")
+    top_surface = Poly3DCollection(
+        top_vertices,
+        facecolors=stress_cmap(stress_norm(triangle_sigma)),
+        edgecolors=(1.0, 1.0, 1.0, 0.12),
+        linewidths=0.08,
+    )
+    bottom_surface = Poly3DCollection(
+        bottom_vertices,
+        facecolors=stress_cmap(stress_norm(triangle_sigma)),
+        edgecolors="none",
+        alpha=0.35,
+    )
+    ax_3d.add_collection3d(top_surface)
+    ax_3d.add_collection3d(bottom_surface)
+    ax_3d.set_xlim(coords_3d[:, 0].min(), coords_3d[:, 0].max())
+    ax_3d.set_ylim(coords_3d[:, 1].min(), coords_3d[:, 1].max())
+    ax_3d.set_zlim(-half_thickness.max() * 1.15, half_thickness.max() * 1.15)
+    ax_3d.set_xlabel("$x$")
+    ax_3d.set_ylabel("$y$")
+    ax_3d.set_zlabel("display thickness")
+    ax_3d.set_title(
+        "Stress-colored membrane\n"
+        + rf"thickness variation exaggerated "
+        + rf"$\times {THICKNESS_VARIATION_EXAGGERATION:.0f}$"
+    )
+    ax_3d.view_init(elev=25, azim=-58)
+    ax_3d.set_box_aspect((1.0, 1.0, 0.35))
+    fig.colorbar(
+        plt.cm.ScalarMappable(norm=stress_norm, cmap=stress_cmap),
+        ax=ax_3d,
+        fraction=0.035,
+        pad=0.08,
+        label=r"predicted $\sigma_{\mathrm{VM}}$",
+    )
+
+    ax_change = fig.add_subplot(122)
+    change_scale = max(
+        abs(relative_thickness_change.min()),
+        abs(relative_thickness_change.max()),
+    )
+    thickness_plot = ax_change.tripcolor(
+        triangulation,
+        100.0 * relative_thickness_change,
+        shading="gouraud",
+        cmap="coolwarm",
+        vmin=-100.0 * change_scale,
+        vmax=100.0 * change_scale,
+    )
+    ax_change.set_aspect("equal")
+    ax_change.set_xlabel("$x$")
+    ax_change.set_ylabel("$y$")
+    ax_change.set_title(r"Relative thickness change $100(\lambda_3-1)$")
+    fig.colorbar(
+        thickness_plot,
+        ax=ax_change,
+        fraction=0.046,
+        pad=0.04,
+        label="thickness change (%)",
+    )
+
+    annotation = (
+        rf"$\lambda_1\in[{lambda_1.min():.6f},{lambda_1.max():.6f}]$"
+        + "\n"
+        + rf"$\lambda_2\in[{lambda_2.min():.6f},{lambda_2.max():.6f}]$"
+        + "\n"
+        + rf"$\lambda_3\in[{lambda_3.min():.6f},{lambda_3.max():.6f}]$"
+        + "\n"
+        + r"principal stretch magnitudes; rotation/directions unknown"
+    )
+    ax_3d.text2D(
+        0.02,
+        0.98,
+        annotation,
+        transform=ax_3d.transAxes,
+        va="top",
+        fontsize=9,
+        bbox={"facecolor": "white", "alpha": 0.82, "edgecolor": "0.8"},
+    )
+
+    fig.tight_layout()
+    output_path = FIGURES_DIR / "elasticity_latent_membrane_3d.png"
+    fig.savefig(output_path, bbox_inches="tight", dpi=220)
+    plt.show()
+    print(f"Saved {output_path}")
 
 # %% Diagram figures - input point cloud and output sigma_VM
 IMPL_DIR = FIGURES_DIR
@@ -326,9 +340,10 @@ fig.savefig(IMPL_DIR / "elasticity_diagram_output.png", bbox_inches="tight", dpi
 plt.show()
 print(f"Saved {IMPL_DIR / 'elasticity_diagram_output.png'}")
 
-# %% [SCAFFOLD] Prediction vs ground truth + kinematics (det C ~ 1)
+# %% [SCAFFOLD] Prediction vs ground truth + latent kinematics
 # TODO: scatter predicted sigma vs target sigma and abs error on the point cloud;
-# scatter theta, lambda, det_c from out["aux_tensors"] to confirm det_c ~ 1
+# scatter m, d, lambda_1/2/3, and det(F) from out["aux_tensors"] to confirm
+# 3D incompressibility and the plane-stress condition.
 # (exact incompressibility by construction). Save:
 #   elasticity_prediction.png, elasticity_kinematics.png
 

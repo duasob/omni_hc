@@ -1,7 +1,7 @@
 benchmark:
   name: "elasticity_2d"
   dataset: "Elasticity"
-  invariant: "incompressible_deviatoric_von_mises"
+  invariant: "incompressible_plane_stress_von_mises"
   geometry: "unstructured_point_cloud"
 
 paths:
