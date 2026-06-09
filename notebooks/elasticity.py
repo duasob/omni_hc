@@ -215,7 +215,7 @@ else:
     bottom_vertices = top_vertices.copy()
     bottom_vertices[..., 2] *= -1.0
 
-    fig = plt.figure(figsize=(14, 6))
+    fig = plt.figure(figsize=(16, 6))
     ax_3d = fig.add_subplot(121, projection="3d")
     top_surface = Poly3DCollection(
         top_vertices,
@@ -301,6 +301,207 @@ else:
     fig.savefig(output_path, bbox_inches="tight", dpi=220)
     plt.show()
     print(f"Saved {output_path}")
+
+# %% Thin 3D solid - reference versus lambda_3 thickness transformation
+# This closes the triangulated membrane with side walls, including the central
+# void boundary. The in-plane coordinates are unchanged because the current
+# latent representation does not identify principal directions or displacement.
+if "out" not in globals():
+    print("[thin solid visualization] run the inference cell first.")
+else:
+    SOLID_SAMPLE = 0
+    SOLID_REFERENCE_THICKNESS = 0.08
+    SOLID_THICKNESS_EXAGGERATION = 1500.0
+
+    solid_aux = out["aux_tensors"]
+    solid_xy = coords_b[SOLID_SAMPLE].cpu().numpy()
+    solid_lambda_3 = solid_aux["lambda_3"][SOLID_SAMPLE, :, 0].cpu().numpy()
+    solid_change = solid_lambda_3 - 1.0
+
+    solid_tri = mtri.Triangulation(solid_xy[:, 0], solid_xy[:, 1])
+    solid_triangles = solid_tri.triangles
+    solid_triangle_xy = solid_xy[solid_triangles]
+    solid_edges = np.stack(
+        (
+            np.linalg.norm(
+                solid_triangle_xy[:, 0] - solid_triangle_xy[:, 1], axis=1
+            ),
+            np.linalg.norm(
+                solid_triangle_xy[:, 1] - solid_triangle_xy[:, 2], axis=1
+            ),
+            np.linalg.norm(
+                solid_triangle_xy[:, 2] - solid_triangle_xy[:, 0], axis=1
+            ),
+        ),
+        axis=1,
+    )
+    solid_tri.set_mask(
+        solid_edges.max(axis=1) > 3.0 * np.median(solid_edges)
+    )
+    solid_visible_triangles = solid_triangles[~solid_tri.mask]
+
+    # Edges used by one visible triangle form either the external boundary or
+    # the boundary of the void. Both need side faces to make a closed solid.
+    edge_counts = {}
+    for triangle in solid_visible_triangles:
+        for start, end in (
+            (triangle[0], triangle[1]),
+            (triangle[1], triangle[2]),
+            (triangle[2], triangle[0]),
+        ):
+            edge = tuple(sorted((int(start), int(end))))
+            edge_counts[edge] = edge_counts.get(edge, 0) + 1
+    boundary_edges = np.asarray(
+        [edge for edge, count in edge_counts.items() if count == 1],
+        dtype=int,
+    )
+
+    reference_half = np.full(solid_xy.shape[0], 0.5 * SOLID_REFERENCE_THICKNESS)
+    transformed_scale = 1.0 + SOLID_THICKNESS_EXAGGERATION * solid_change
+    transformed_scale = np.maximum(transformed_scale, 0.05)
+    transformed_half = 0.5 * SOLID_REFERENCE_THICKNESS * transformed_scale
+
+    change_limit = max(abs(solid_change.min()), abs(solid_change.max()))
+    change_norm = plt.Normalize(vmin=-change_limit, vmax=change_limit)
+    change_cmap = plt.get_cmap("coolwarm")
+
+    def solid_vertices(half_thickness):
+        top_vertices = np.stack(
+            (
+                solid_xy[solid_visible_triangles, 0],
+                solid_xy[solid_visible_triangles, 1],
+                half_thickness[solid_visible_triangles],
+            ),
+            axis=-1,
+        )
+        bottom_vertices = top_vertices.copy()
+        bottom_vertices[..., 2] *= -1.0
+
+        side_vertices = []
+        for start, end in boundary_edges:
+            side_vertices.append(
+                [
+                    (solid_xy[start, 0], solid_xy[start, 1], half_thickness[start]),
+                    (solid_xy[end, 0], solid_xy[end, 1], half_thickness[end]),
+                    (solid_xy[end, 0], solid_xy[end, 1], -half_thickness[end]),
+                    (solid_xy[start, 0], solid_xy[start, 1], -half_thickness[start]),
+                ]
+            )
+        return top_vertices, bottom_vertices, side_vertices
+
+    ref_top, ref_bottom, ref_sides = solid_vertices(reference_half)
+    def_top, def_bottom, def_sides = solid_vertices(transformed_half)
+    triangle_change = solid_change[solid_visible_triangles].mean(axis=1)
+    boundary_change = np.asarray(
+        [
+            0.5 * (solid_change[start] + solid_change[end])
+            for start, end in boundary_edges
+        ]
+    )
+
+    fig = plt.figure(figsize=(11, 8))
+    axis = fig.add_subplot(111, projection="3d")
+
+    # Transparent grey surfaces show the reference thickness.
+    for vertices in (ref_top, ref_bottom):
+        axis.add_collection3d(
+            Poly3DCollection(
+                vertices,
+                facecolors=(0.65, 0.65, 0.65, 0.08),
+                edgecolors=(0.25, 0.25, 0.25, 0.18),
+                linewidths=0.08,
+            )
+        )
+    axis.add_collection3d(
+        Poly3DCollection(
+            ref_sides,
+            facecolors=(0.65, 0.65, 0.65, 0.04),
+            edgecolors=(0.20, 0.20, 0.20, 0.42),
+            linewidths=0.25,
+        )
+    )
+
+    # Colored surfaces show z' = lambda_3 z, with the displacement exaggerated.
+    transformed_colors = change_cmap(change_norm(triangle_change))
+    axis.add_collection3d(
+        Poly3DCollection(
+            def_top,
+            facecolors=transformed_colors,
+            edgecolors=(1.0, 1.0, 1.0, 0.10),
+            linewidths=0.06,
+            alpha=0.88,
+        )
+    )
+    axis.add_collection3d(
+        Poly3DCollection(
+            def_bottom,
+            facecolors=transformed_colors,
+            edgecolors="none",
+            alpha=0.42,
+        )
+    )
+    axis.add_collection3d(
+        Poly3DCollection(
+            def_sides,
+            facecolors=change_cmap(change_norm(boundary_change)),
+            edgecolors=(0.1, 0.1, 0.1, 0.18),
+            linewidths=0.12,
+            alpha=0.78,
+        )
+    )
+
+    # Arrows explicitly show the movement from z to z' on both faces.
+    arrow_indices = np.linspace(0, solid_xy.shape[0] - 1, 18, dtype=int)
+    arrow_delta = transformed_half[arrow_indices] - reference_half[arrow_indices]
+    for sign in (1.0, -1.0):
+        axis.quiver(
+            solid_xy[arrow_indices, 0],
+            solid_xy[arrow_indices, 1],
+            sign * reference_half[arrow_indices],
+            np.zeros_like(arrow_delta),
+            np.zeros_like(arrow_delta),
+            sign * arrow_delta,
+            color="black",
+            linewidth=0.8,
+            arrow_length_ratio=0.25,
+            normalize=False,
+        )
+
+    axis.set_xlim(solid_xy[:, 0].min(), solid_xy[:, 0].max())
+    axis.set_ylim(solid_xy[:, 1].min(), solid_xy[:, 1].max())
+    z_limit = max(reference_half.max(), transformed_half.max()) * 1.2
+    axis.set_zlim(-z_limit, z_limit)
+    axis.set_xlabel("$x$")
+    axis.set_ylabel("$y$")
+    axis.set_zlabel("through-thickness coordinate $z$")
+    axis.set_title(
+        r"Thickness transformation $z'=\lambda_3(x,y)z$"
+        + "\n"
+        + rf"displacement exaggerated "
+        + rf"$\times {SOLID_THICKNESS_EXAGGERATION:.0f}$"
+    )
+    axis.view_init(elev=24, azim=-58)
+    axis.set_box_aspect((1.0, 1.0, 0.38))
+
+    colorbar_axis = fig.add_axes((0.88, 0.18, 0.022, 0.62))
+    fig.colorbar(
+        plt.cm.ScalarMappable(norm=change_norm, cmap=change_cmap),
+        cax=colorbar_axis,
+        label=r"relative thickness change $\lambda_3-1$",
+    )
+    fig.text(
+        0.48,
+        0.04,
+        "Grey: reference solid. Color: transformed solid. "
+        "Arrows: top/bottom surface movement.",
+        ha="center",
+        fontsize=10,
+    )
+    fig.subplots_adjust(top=0.88, bottom=0.10, right=0.84)
+    solid_output_path = FIGURES_DIR / "elasticity_thin_solid_3d.png"
+    fig.savefig(solid_output_path, bbox_inches="tight", dpi=220)
+    plt.show()
+    print(f"Saved {solid_output_path}")
 
 # %% Diagram figures - input point cloud and output sigma_VM
 IMPL_DIR = FIGURES_DIR

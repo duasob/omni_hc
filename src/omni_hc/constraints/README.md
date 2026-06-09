@@ -110,11 +110,11 @@ Contains the incompressible plane-stress elasticity constraint:
 
 - `ElasticityPlaneStressVMConstraint`
 
-The default elasticity path keeps the backbone output scalar and treats it as a
-latent field:
+The default elasticity path uses a vector-valued backbone output as a latent
+field:
 
 ```text
-backbone(coords) -> z
+backbone(coords) -> z in R^32
 constraint head([z, x, y]) -> m_raw, d_raw
 ```
 
@@ -136,7 +136,7 @@ Both latent log stretches are bounded smoothly:
 
 ```text
 m = max_mean_log_stretch * tanh(m_raw)
-d = max_deviatoric_log_stretch * tanh(d_raw)
+d = -max_deviatoric_log_stretch * tanh(d_raw)^2
 ```
 
 The internal head exists so the fragile kinematic parameterization has its own

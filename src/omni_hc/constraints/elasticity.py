@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+import inspect
+from typing import Any
+
 import torch
 import torch.nn as nn
 
-from .base import ConstraintDiagnostic, ConstraintModule
+from .base import (
+    _BUILD_META_KEYS,
+    ConstrainedModel,
+    ConstraintDiagnostic,
+    ConstraintModule,
+)
 from .utils.boundary_ops import encode_target
+from .utils.hooks import ForwardHookLatentExtractor
 
 
 def _make_mlp(
@@ -75,9 +84,10 @@ class ElasticityPlaneStressVMConstraint(ConstraintModule):
     """
     Plane-stress von Mises reparameterization for an incompressible membrane.
 
-    With backbone_out_dim=1, a pointwise head maps [z, x, y] to raw mean and
-    deviatoric in-plane log stretches (m, d). With backbone_out_dim=2, the
-    backbone output is interpreted directly as the raw (m, d) parameters.
+    With backbone_out_dim != 2, a pointwise head maps the vector latent and
+    physical coordinates [z, x, y] to raw mean and deviatoric in-plane log
+    stretches (m, d). With backbone_out_dim=2, the backbone output is
+    interpreted directly as the raw (m, d) parameters.
 
         lambda_1 = exp(m + d)
         lambda_2 = exp(m - d)
@@ -92,7 +102,7 @@ class ElasticityPlaneStressVMConstraint(ConstraintModule):
     def __init__(
         self,
         *,
-        backbone_out_dim: int = 1,
+        backbone_out_dim: int = 32,
         target_out_dim: int = 1,
         c1: float = 1.863e5,
         c2: float = 9.79e3,
@@ -102,7 +112,7 @@ class ElasticityPlaneStressVMConstraint(ConstraintModule):
         head_layers: int = 2,
         head_init_scale: float = 1e-3,
         mean_log_stretch_bias: float = 0.0,
-        deviatoric_log_stretch_bias: float = 0.15,
+        deviatoric_log_stretch_bias: float = 0.4,
     ) -> None:
         super().__init__()
         self.backbone_out_dim = int(backbone_out_dim)
@@ -118,11 +128,8 @@ class ElasticityPlaneStressVMConstraint(ConstraintModule):
         self.deviatoric_log_stretch_bias = float(deviatoric_log_stretch_bias)
         self.target_normalizer = None
 
-        if self.backbone_out_dim not in {1, 2}:
-            raise ValueError(
-                "ElasticityPlaneStressVMConstraint expects "
-                f"backbone_out_dim=1 or 2, got {self.backbone_out_dim}."
-            )
+        if self.backbone_out_dim <= 0:
+            raise ValueError("backbone_out_dim must be positive.")
         if self.target_out_dim != 1:
             raise ValueError(
                 "ElasticityPlaneStressVMConstraint returns one scalar stress "
@@ -134,9 +141,9 @@ class ElasticityPlaneStressVMConstraint(ConstraintModule):
             raise ValueError("max_deviatoric_log_stretch must be positive.")
 
         self.param_head = None
-        if self.backbone_out_dim == 1:
+        if self.backbone_out_dim != 2:
             self.param_head = _make_mlp(
-                in_dim=3,
+                in_dim=self.backbone_out_dim + 2,
                 hidden_dim=self.head_hidden_dim,
                 out_dim=2,
                 n_layers=self.head_layers,
@@ -174,12 +181,12 @@ class ElasticityPlaneStressVMConstraint(ConstraintModule):
             )
 
     def _validate_coords(self, pred: torch.Tensor, coords: torch.Tensor | None) -> None:
-        if self.backbone_out_dim != 1:
+        if self.backbone_out_dim == 2:
             return
         if coords is None:
             raise ValueError(
-                "ElasticityPlaneStressVMConstraint with backbone_out_dim=1 "
-                "requires coords so the parameter head can consume [z, x, y]."
+                "ElasticityPlaneStressVMConstraint with a learned parameter "
+                "head requires coords so it can consume [z, x, y]."
             )
         if (
             coords.ndim != 3
@@ -213,8 +220,10 @@ class ElasticityPlaneStressVMConstraint(ConstraintModule):
             }
 
         mean_log_stretch = self.max_mean_log_stretch * torch.tanh(mean_raw)
+        # Canonically order the in-plane stretches as lambda_1 <= lambda_2.
+        # Squaring keeps the map smooth and bounded while retaining d = 0.
         deviatoric_log_stretch = (
-            self.max_deviatoric_log_stretch * torch.tanh(deviatoric_raw)
+            -self.max_deviatoric_log_stretch * torch.tanh(deviatoric_raw).square()
         )
         return mean_log_stretch, deviatoric_log_stretch, {
             "mean_log_stretch_raw": mean_raw,

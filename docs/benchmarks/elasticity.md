@@ -43,3 +43,12 @@ python scripts/diagnostics/elasticity/elasticity_dataset_summary.py \
   --samples 0 10 100 \
   --summary-samples 1000
 ```
+
+For a file-by-file analysis of all four dataset representations, see the
+[elasticity dataset inventory](elasticity_data_inventory.md). Reproduce its
+figures and CSV summary with:
+
+```bash
+conda run -n omni-hc python \
+  scripts/diagnostics/elasticity/elasticity_data_inventory.py
+```

@@ -74,14 +74,16 @@ def test_darcy_flux_config_builds_pressure_with_dirichlet_boundary():
 
 
 def test_elasticity_plane_stress_vm_config_builds_scalar_constraint():
-    pred = torch.randn(2, 13, 1)
+    pred = torch.randn(2, 13, 32)
     coords = torch.rand(2, 13, 2)
     cfg = load_yaml_file("configs/constraints/elasticity_plane_stress_vm_constraint.yaml")
 
-    model = _build_constraint(DummyBackbone(pred), _args(out_dim=1), cfg)
+    model = _build_constraint(DummyBackbone(pred), _args(out_dim=32), cfg)
     out = model(coords, return_aux=True)
 
     assert isinstance(model, ConstrainedModel)
+    assert model.constraint.backbone_out_dim == 32
+    assert model.constraint.param_head[0].in_features == 34
     assert out.pred.shape == (2, 13, 1)
     assert "constraint/full_det_f_abs_error_max" in out.diagnostics
     assert "constraint/plane_stress_abs_error_max" in out.diagnostics
@@ -149,13 +151,33 @@ def test_constraint_backbone_out_dim_overrides_backbone_output_only():
         },
         "constraint": {
             "name": "elasticity_plane_stress_vm_constraint",
-            "backbone_out_dim": 2,
+            "backbone_out_dim": 32,
         },
     }
 
     args = build_model_args(cfg)
 
-    assert args.out_dim == 2
+    assert args.out_dim == 32
+    assert args.constraint_target_out_dim == 1
+
+
+def test_elasticity_constraint_config_sets_vector_backbone_latent():
+    cfg = {
+        "model": {
+            "backbone": "Transolver",
+            "args": {
+                "n_hidden": 128,
+                "out_dim": 1,
+            },
+        },
+        **load_yaml_file(
+            "configs/constraints/elasticity_plane_stress_vm_constraint.yaml"
+        ),
+    }
+
+    args = build_model_args(cfg)
+
+    assert args.out_dim == 32
     assert args.constraint_target_out_dim == 1
 
 

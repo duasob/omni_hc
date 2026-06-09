@@ -3,7 +3,7 @@ training:
 
 constraint:
   name: "elasticity_plane_stress_vm_constraint"
-  backbone_out_dim: 1
+  backbone_out_dim: 32
   target_out_dim: 1
   c1: 1.863e5
   c2: 9.79e3
@@ -13,4 +13,4 @@ constraint:
   head_layers: 2
   head_init_scale: 1.0e-3
   mean_log_stretch_bias: 0.0
-  deviatoric_log_stretch_bias: 0.15
+  deviatoric_log_stretch_bias: 0.4

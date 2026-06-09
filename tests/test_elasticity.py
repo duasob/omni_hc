@@ -90,7 +90,7 @@ def test_plane_stress_vm_matches_closed_form():
     out = constraint(pred=pred, return_aux=True)
 
     m = torch.tanh(pred[..., 0])
-    d = torch.tanh(pred[..., 1])
+    d = -torch.tanh(pred[..., 1]).square()
     lambda_1 = torch.exp(m + d)
     lambda_2 = torch.exp(m - d)
     lambda_3 = torch.exp(-2.0 * m)
@@ -105,20 +105,18 @@ def test_plane_stress_vm_matches_closed_form():
     assert torch.allclose(out.aux["pressure"][..., 0], pressure)
 
 
-def test_plane_stress_vm_is_invariant_to_deviatoric_stretch_sign():
+def test_plane_stress_vm_canonically_orders_in_plane_stretches():
     constraint = ElasticityPlaneStressVMConstraint(
         backbone_out_dim=2,
         max_mean_log_stretch=1.0,
         max_deviatoric_log_stretch=1.0,
     )
-    pred = torch.tensor([[[0.2, 0.7]]])
-    swapped = pred.clone()
-    swapped[..., 1] *= -1.0
+    pred = torch.randn(2, 7, 2)
 
-    out = constraint(pred=pred)
-    swapped_out = constraint(pred=swapped)
+    out = constraint(pred=pred, return_aux=True)
 
-    assert torch.allclose(out, swapped_out, atol=1e-4, rtol=1e-5)
+    assert torch.all(out.aux["deviatoric_log_stretch"] <= 0.0)
+    assert torch.all(out.aux["lambda_1"] <= out.aux["lambda_2"])
 
 
 def test_plane_stress_vm_depends_on_both_material_parameters():
@@ -149,16 +147,16 @@ def test_plane_stress_vm_depends_on_both_material_parameters():
     assert not torch.allclose(base(pred=pred), changed_c2(pred=pred))
 
 
-def test_plane_stress_vm_head_uses_scalar_backbone_and_coords():
+def test_plane_stress_vm_head_uses_vector_backbone_latent_and_coords():
     constraint = ElasticityPlaneStressVMConstraint(
-        backbone_out_dim=1,
+        backbone_out_dim=32,
         head_hidden_dim=8,
         head_layers=1,
         head_init_scale=1e-3,
         max_mean_log_stretch=2e-3,
         max_deviatoric_log_stretch=3e-3,
     )
-    pred = torch.randn(2, 7, 1)
+    pred = torch.randn(2, 7, 32)
     coords = torch.rand(2, 7, 2)
 
     out = constraint(pred=pred, coords=coords, return_aux=True)
@@ -166,14 +164,15 @@ def test_plane_stress_vm_head_uses_scalar_backbone_and_coords():
     assert out.pred.shape == (2, 7, 1)
     assert out.aux["mean_log_stretch_raw"].shape == (2, 7, 1)
     assert out.aux["deviatoric_log_stretch_raw"].shape == (2, 7, 1)
-    assert out.aux["param_head_input_z"].shape == (2, 7, 1)
+    assert out.aux["param_head_input_z"].shape == (2, 7, 32)
     assert torch.all(out.aux["mean_log_stretch"].abs() <= 2e-3)
-    assert torch.all(out.aux["deviatoric_log_stretch"].abs() <= 3e-3)
+    assert torch.all(out.aux["deviatoric_log_stretch"] <= 0.0)
+    assert torch.all(out.aux["deviatoric_log_stretch"] >= -3e-3)
 
 
 def test_plane_stress_vm_default_initialization_has_finite_gradients():
-    constraint = ElasticityPlaneStressVMConstraint(backbone_out_dim=1)
-    pred = torch.randn(2, 7, 1, requires_grad=True)
+    constraint = ElasticityPlaneStressVMConstraint(backbone_out_dim=32)
+    pred = torch.randn(2, 7, 32, requires_grad=True)
     coords = torch.rand(2, 7, 2)
 
     loss = constraint(pred=pred, coords=coords).mean()

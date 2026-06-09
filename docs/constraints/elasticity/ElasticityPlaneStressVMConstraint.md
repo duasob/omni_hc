@@ -5,11 +5,13 @@ stress using an incompressible Mooney-Rivlin plane-stress membrane model.
 
 ## Latent Kinematics
 
-The decoder predicts bounded mean and deviatoric in-plane log stretches:
+By default, the backbone returns a 32-component latent vector at each point.
+A constraint-owned MLP maps `[z, x, y]` to bounded mean and deviatoric
+in-plane log stretches:
 
 \[
 m=m_{\max}\tanh(m_{\mathrm{raw}}),\qquad
-d=d_{\max}\tanh(d_{\mathrm{raw}}).
+d=-d_{\max}\tanh^2(d_{\mathrm{raw}}).
 \]
 
 The principal stretches are
@@ -23,6 +25,9 @@ The principal stretches are
 Therefore \(\lambda_1\lambda_2\lambda_3=1\) exactly. The third stretch is the
 through-thickness response required by 3D incompressibility; it is not fixed to
 one as it would be under plane strain.
+
+The non-positive \(d\) convention also fixes the otherwise arbitrary labeling
+of the two in-plane principal stretches: \(\lambda_1\leq\lambda_2\).
 
 ## Plane-Stress Recovery
 
@@ -50,10 +55,10 @@ which is the 3D von Mises expression after setting \(\sigma_3=0\).
 
 ## Training Stability
 
-The scalar-backbone path uses a small pointwise decoder over `[z, x, y]`.
+The vector-latent path uses a small pointwise decoder over `[z, x, y]`.
 The implementation retains:
 
-- smooth `tanh` bounds on both latent log stretches;
+- smooth bounded maps for both latent log stretches;
 - small final-layer weights in the decoder;
 - a small nonzero initial bias for \(d\), avoiding initialization exactly at
   the von Mises cusp;
