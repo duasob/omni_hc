@@ -40,6 +40,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", choices=("all", "train", "test"), default="train")
     parser.add_argument("--ntrain", type=int, default=1000)
     parser.add_argument("--ntest", type=int, default=200)
+    parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument(
+        "--normalize",
+        action="store_true",
+        help="Also report UnitTransformer-style encoded sigma statistics from the train split.",
+    )
     parser.add_argument("--samples", type=int, nargs="+", default=[0, 10, 100])
     parser.add_argument("--summary-samples", type=int, default=1000)
     parser.add_argument(
@@ -56,6 +62,46 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--show", action="store_true")
     parser.add_argument("--no-plot", action="store_true")
     return parser.parse_args()
+
+
+def print_loader_report(
+    coords: np.ndarray,
+    sigma: np.ndarray,
+    *,
+    ntrain: int,
+    ntest: int,
+    batch_size: int,
+    normalize: bool,
+) -> None:
+    """NSL-style loader sanity report (merged from elasticity_loader_check)."""
+    train_xy, train_sigma = select_split(coords, sigma, split="train", ntrain=ntrain, ntest=ntest)
+    test_xy, test_sigma = select_split(coords, sigma, split="test", ntrain=ntrain, ntest=ntest)
+
+    print("\nLoader report (NSL train/test tensors)")
+    print(f"  coords:    {coords.shape}  # NSL order: (samples, points, 2)")
+    print(f"  sigma:     {sigma.shape}  # NSL order: (samples, points)")
+    print(f"  train_xy:  {train_xy.shape}, train_sigma: {train_sigma.shape}")
+    print(f"  test_xy:   {test_xy.shape}, test_sigma:  {test_sigma.shape}")
+    print(f"  shapelist: [{train_sigma.shape[1]}]")
+    batch = min(int(batch_size), int(train_sigma.shape[0]))
+    print(f"  batch x/fx: {train_xy[:batch].shape}, batch y: {train_sigma[:batch].shape}")
+
+    coord_min = coords.reshape(-1, 2).min(axis=0)
+    coord_max = coords.reshape(-1, 2).max(axis=0)
+    print(
+        "  coordinate bounds: "
+        f"x=[{coord_min[0]: .6e}, {coord_max[0]: .6e}], "
+        f"y=[{coord_min[1]: .6e}, {coord_max[1]: .6e}]"
+    )
+
+    if normalize:
+        mean = train_sigma.mean(axis=(0, 1), keepdims=True)
+        std = train_sigma.std(axis=(0, 1), keepdims=True) + 1e-8
+        encoded = (train_sigma - mean) / std
+        encoded = np.asarray(encoded, dtype=np.float64)
+        print(
+            f"  sigma train encoded: mean={encoded.mean(): .6e}, std={encoded.std(): .6e}"
+        )
 
 
 def summarize_dataset(
@@ -211,10 +257,24 @@ def main() -> None:
     if args.no_plot and args.show:
         raise ValueError("--show cannot be used together with --no-plot")
 
-    coords, sigma, sigma_path, xy_path = load_elasticity_arrays(args.data_dir)
+    coords_full, sigma_full, sigma_path, xy_path = load_elasticity_arrays(args.data_dir)
+    print(
+        "Loaded Elasticity data: "
+        f"sigma_path={sigma_path}, xy_path={xy_path}, "
+        f"coords={coords_full.shape}, sigma={sigma_full.shape}"
+    )
+    print_loader_report(
+        coords_full,
+        sigma_full,
+        ntrain=args.ntrain,
+        ntest=args.ntest,
+        batch_size=args.batch_size,
+        normalize=args.normalize,
+    )
+
     coords, sigma = select_split(
-        coords,
-        sigma,
+        coords_full,
+        sigma_full,
         split=args.split,
         ntrain=args.ntrain,
         ntest=args.ntest,
@@ -223,11 +283,7 @@ def main() -> None:
     n = sample_count(args.summary_samples, int(sigma.shape[0]))
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(
-        "Loaded Elasticity data: "
-        f"sigma_path={sigma_path}, xy_path={xy_path}, "
-        f"coords={coords.shape}, sigma={sigma.shape}, split={args.split}"
-    )
+    print(f"\nSummarising split={args.split}: coords={coords.shape}, sigma={sigma.shape}")
     rows, metrics = summarize_dataset(coords, sigma, sample_count_=n)
     print_summary(rows)
     csv_path = args.out_dir / "elasticity_dataset_summary.csv"

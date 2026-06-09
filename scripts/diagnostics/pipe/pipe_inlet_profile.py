@@ -61,19 +61,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_pipe_arrays(data_dir: Path):
-    required = ("Pipe_Y.npy", "Pipe_Q.npy")
-    missing = [name for name in required if not (data_dir / name).exists()]
-    if missing:
-        raise FileNotFoundError(
-            f"Missing required pipe files in {data_dir}: {', '.join(missing)}"
-        )
-
-    y = np.load(data_dir / "Pipe_Y.npy", mmap_mode="r")
-    q = np.load(data_dir / "Pipe_Q.npy", mmap_mode="r")
-    if q.ndim != 4 or q.shape[1] < 1 or q.shape[0] != y.shape[0] or q.shape[2:] != y.shape[1:]:
-        raise ValueError(f"Expected Pipe_Y=(N,H,W), Pipe_Q=(N,C,H,W); got {y.shape}, {q.shape}")
-    return y, q
+from _common import load_pipe_arrays
 
 
 def normalized_inlet_coordinate(y_inlet: np.ndarray) -> np.ndarray:
@@ -322,7 +310,7 @@ def main() -> None:
     if args.no_plot and args.show:
         raise ValueError("--show cannot be used together with --no-plot")
 
-    y_all, q_all = load_pipe_arrays(args.data_dir)
+    _x_all, y_all, q_all = load_pipe_arrays(args.data_dir)
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     n_summary = min(max(int(args.summary_samples), 0), int(q_all.shape[0]))

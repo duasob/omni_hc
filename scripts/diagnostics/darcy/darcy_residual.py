@@ -37,9 +37,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--force-value", type=float, default=1.0)
     parser.add_argument(
         "--method",
-        choices=("finite_difference", "spectral"),
+        choices=("finite_difference", "spectral", "harmonic_mean"),
         default="finite_difference",
-        help="Differentiate with NumPy finite differences or padded spectral derivatives.",
+        help=(
+            "NumPy finite differences, padded spectral derivatives, or a "
+            "finite-volume scheme with harmonic-mean face permeabilities "
+            "(the discretisation that respects permeability jumps)."
+        ),
+    )
+    parser.add_argument(
+        "--permeability-eps",
+        type=float,
+        default=1e-6,
+        help="Stabilising epsilon for harmonic-mean face permeabilities (--method harmonic_mean).",
     )
     parser.add_argument(
         "--padding",
@@ -75,6 +85,7 @@ def summarize_residuals(
     method: str,
     padding: int,
     padding_mode: str,
+    permeability_eps: float,
 ) -> tuple[list[dict[str, object]], dict[str, np.ndarray]]:
     metrics = {
         "sample": np.arange(sample_count_, dtype=np.int64),
@@ -94,6 +105,7 @@ def summarize_residuals(
             method=method,
             padding=padding,
             padding_mode=padding_mode,
+            permeability_eps=permeability_eps,
         )
         stats = residual_stats(residual_eval)
         row = {"sample": sample_idx, **stats}
@@ -257,6 +269,7 @@ def main() -> None:
         method=args.method,
         padding=args.padding,
         padding_mode=args.padding_mode,
+        permeability_eps=args.permeability_eps,
     )
     print_summary(
         rows,
@@ -283,6 +296,7 @@ def main() -> None:
             method=args.method,
             padding=args.padding,
             padding_mode=args.padding_mode,
+            permeability_eps=args.permeability_eps,
         )
         out_path = plot_sample(
             sample_idx,

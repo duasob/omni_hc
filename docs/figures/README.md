@@ -13,10 +13,10 @@ Diagnostic scripts live under `scripts/diagnostics`.
 Use this script to generate `g` and `l` maps for the boundary ansatz modules:
 
 ```bash
-python scripts/diagnostics/boundary_ansatz_maps.py
+python scripts/diagnostics/pipe/boundary_ansatz_maps.py
 ```
 
-By default it writes figures to `artifacts/boundary/boundary_ansatz_maps/` for:
+By default it writes figures to `artifacts/pipe/boundary_ansatz_maps/` for:
 
 - `DirichletBoundaryAnsatz`
 - `StructuredWallDirichletAnsatz`

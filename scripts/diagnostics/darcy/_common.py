@@ -215,6 +215,48 @@ def darcy_residual_spectral(
     return residual, residual_eval, flux_x, flux_y
 
 
+def darcy_residual_harmonic_mean(
+    coeff: np.ndarray,
+    sol: np.ndarray,
+    *,
+    force_value: float = 1.0,
+    interior_crop: int = 1,
+    permeability_eps: float = 1e-6,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Finite-volume residual using harmonic-mean face permeabilities.
+
+    This is the discretisation that respects discontinuous permeability jumps,
+    where naive finite differences across a jump are inaccurate. Returns a
+    full-grid residual (NaN one-cell border), the interior residual used for
+    statistics, and face fluxes interpolated to cell centres for plotting.
+    """
+    dy, dx = grid_spacing(sol.shape)
+    a_face_x = (2.0 * coeff[:, :-1] * coeff[:, 1:]) / (
+        coeff[:, :-1] + coeff[:, 1:] + permeability_eps
+    )
+    a_face_y = (2.0 * coeff[:-1, :] * coeff[1:, :]) / (
+        coeff[:-1, :] + coeff[1:, :] + permeability_eps
+    )
+    flux_x_face = -a_face_x * (sol[:, 1:] - sol[:, :-1]) / dx
+    flux_y_face = -a_face_y * (sol[1:, :] - sol[:-1, :]) / dy
+
+    dflux_x_dx = (flux_x_face[1:-1, 1:] - flux_x_face[1:-1, :-1]) / dx
+    dflux_y_dy = (flux_y_face[1:, 1:-1] - flux_y_face[:-1, 1:-1]) / dy
+    residual_interior = (dflux_x_dx + dflux_y_dy) - float(force_value)
+
+    residual = np.full(sol.shape, np.nan, dtype=np.float64)
+    residual[1:-1, 1:-1] = residual_interior
+
+    flux_x = np.full(sol.shape, np.nan, dtype=np.float64)
+    flux_y = np.full(sol.shape, np.nan, dtype=np.float64)
+    flux_x[:, 1:-1] = 0.5 * (flux_x_face[:, :-1] + flux_x_face[:, 1:])
+    flux_y[1:-1, :] = 0.5 * (flux_y_face[:-1, :] + flux_y_face[1:, :])
+
+    # residual_interior already excludes the outer ring, so consume one fewer crop.
+    residual_eval = _crop_residual_eval(residual_interior, max(int(interior_crop) - 1, 0))
+    return residual, residual_eval, flux_x, flux_y
+
+
 def darcy_residual(
     coeff: np.ndarray,
     sol: np.ndarray,
@@ -224,6 +266,7 @@ def darcy_residual(
     method: str = "finite_difference",
     padding: int = 8,
     padding_mode: str = "reflect",
+    permeability_eps: float = 1e-6,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if coeff.shape != sol.shape or coeff.ndim != 2:
         raise ValueError(
@@ -247,8 +290,17 @@ def darcy_residual(
             padding=padding,
             padding_mode=padding_mode,
         )
+    if method == "harmonic_mean":
+        return darcy_residual_harmonic_mean(
+            coeff,
+            sol,
+            force_value=force_value,
+            interior_crop=interior_crop,
+            permeability_eps=permeability_eps,
+        )
     raise ValueError(
-        f"Unknown residual method {method!r}; expected 'finite_difference' or 'spectral'"
+        f"Unknown residual method {method!r}; "
+        "expected 'finite_difference', 'spectral', or 'harmonic_mean'"
     )
 
 

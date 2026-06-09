@@ -13,6 +13,10 @@ try:
 except ImportError:
     plt = None
 
+import sys
+# Archived study: relocated from scripts/diagnostics/plasticity/; re-expose its _common helpers.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "diagnostics" / "plasticity"))
+
 from _common import load_plasticity_arrays, require_matplotlib, select_split, write_csv
 
 

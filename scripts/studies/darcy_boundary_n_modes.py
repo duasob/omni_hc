@@ -14,6 +14,10 @@ try:
 except ImportError:
     plt = None
 
+import sys
+# Archived study: relocated from scripts/diagnostics/darcy/; re-expose its _common helpers.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "diagnostics" / "darcy"))
+
 from _common import load_darcy_arrays, require_matplotlib, write_csv
 from darcy_boundary_models import build_dataset, evaluate, train_one
 

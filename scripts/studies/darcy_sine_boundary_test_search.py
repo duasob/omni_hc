@@ -18,6 +18,10 @@ import torch
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/omni_hc_matplotlib")
 
+import sys
+# Archived study: relocated from scripts/diagnostics/darcy/; re-expose its _common helpers.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "diagnostics" / "darcy"))
+
 from _common import load_darcy_arrays, write_csv
 from omni_hc.constraints import SineBoundaryConstraint
 

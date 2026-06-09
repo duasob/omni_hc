@@ -65,28 +65,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_pipe_arrays(data_dir: Path):
-    required = ("Pipe_X.npy", "Pipe_Y.npy", "Pipe_Q.npy")
-    missing = [name for name in required if not (data_dir / name).exists()]
-    if missing:
-        raise FileNotFoundError(
-            f"Missing required pipe files in {data_dir}: {', '.join(missing)}"
-        )
-
-    x = np.load(data_dir / "Pipe_X.npy", mmap_mode="r")
-    y = np.load(data_dir / "Pipe_Y.npy", mmap_mode="r")
-    q = np.load(data_dir / "Pipe_Q.npy", mmap_mode="r")
-
-    if x.shape != y.shape:
-        raise ValueError(f"Pipe_X and Pipe_Y shapes differ: {x.shape} vs {y.shape}")
-    if q.ndim != 4 or q.shape[0] != x.shape[0] or q.shape[2:] != x.shape[1:]:
-        raise ValueError(
-            "Expected Pipe_Q shape (N, C, H, W) matching Pipe_X/Pipe_Y; "
-            f"got Pipe_X={x.shape}, Pipe_Q={q.shape}"
-        )
-    if q.shape[1] < len(CHANNELS):
-        raise ValueError(f"Expected at least {len(CHANNELS)} Q channels, got {q.shape[1]}")
-    return x, y, q
+from _common import load_pipe_arrays
 
 
 def edge_q(q_channel: np.ndarray, edge: str) -> np.ndarray:
