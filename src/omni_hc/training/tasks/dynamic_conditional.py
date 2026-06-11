@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import random
 from copy import deepcopy
 from pathlib import Path
-import random
 
 import torch
 import torch.nn.functional as F
@@ -30,6 +30,7 @@ from omni_hc.training.logging_utils import (
     init_wandb_if_enabled,
     log_metrics,
 )
+from omni_hc.training.reproducibility import seed_everything, training_seed
 
 
 def _decode_if_needed(normalizer, tensor: torch.Tensor) -> torch.Tensor:
@@ -415,6 +416,9 @@ def train_dynamic_conditional_task(
     prepare_batch,
     log_fn=None,
 ):
+    seed = training_seed(cfg)
+    seed_everything(seed)
+
     print("building train/validation loaders", flush=True)
     train_loader, val_loader = build_train_val_loaders(cfg)
     meta = get_meta(train_loader)
@@ -447,12 +451,6 @@ def train_dynamic_conditional_task(
     )
 
     training_cfg = deepcopy(cfg.get("training", {}))
-    seed = int(training_cfg.get("seed", 42))
-    random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-
     training_cfg["steps_per_epoch"] = len(train_loader)
     optimizer = build_optimizer(model, training_cfg)
     scheduler, scheduler_step_per_batch = build_scheduler(optimizer, training_cfg)

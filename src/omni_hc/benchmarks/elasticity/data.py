@@ -6,6 +6,13 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset, random_split
 
+from omni_hc.training.reproducibility import (
+    DATA_SHUFFLE_SEED_OFFSET,
+    DATA_SPLIT_SEED_OFFSET,
+    seeded_generator,
+    training_seed,
+)
+
 
 SIGMA_FILE = "Random_UnitCell_sigma_10.npy"
 XY_FILE = "Random_UnitCell_XY_10.npy"
@@ -182,6 +189,7 @@ def build_train_val_loaders(cfg: dict):
 
     dataset = ElasticityDataset(x_train, y_train)
     training_cfg = cfg.get("training", {})
+    seed = training_seed(cfg)
     batch_size = int(training_cfg.get("batch_size", 4))
     val_size = int(training_cfg.get("val_size", 16))
     if val_size < 0:
@@ -192,6 +200,7 @@ def build_train_val_loaders(cfg: dict):
             batch_size=batch_size,
             shuffle=True,
             num_workers=0,
+            generator=seeded_generator(seed, offset=DATA_SHUFFLE_SEED_OFFSET),
         )
         train_loader.elasticity_meta = meta
         train_loader.x_normalizer = x_normalizer
@@ -200,13 +209,17 @@ def build_train_val_loaders(cfg: dict):
 
     val_size = min(max(val_size, 1), len(dataset) - 1)
     train_size = len(dataset) - val_size
-    generator = torch.Generator().manual_seed(int(training_cfg.get("seed", 42)))
+    generator = seeded_generator(seed, offset=DATA_SPLIT_SEED_OFFSET)
     train_subset, val_subset = random_split(
         dataset, [train_size, val_size], generator=generator
     )
 
     train_loader = DataLoader(
-        train_subset, batch_size=batch_size, shuffle=True, num_workers=0
+        train_subset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=0,
+        generator=seeded_generator(seed, offset=DATA_SHUFFLE_SEED_OFFSET),
     )
     val_loader = DataLoader(
         val_subset, batch_size=batch_size, shuffle=False, num_workers=0

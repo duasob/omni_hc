@@ -105,8 +105,7 @@ fig.savefig(FIGURES_DIR / "elasticity_dataset_summary.png", bbox_inches="tight")
 plt.show()
 print(f"Saved {FIGURES_DIR / 'elasticity_dataset_summary.png'}")
 
-# %% [SCAFFOLD] Inference - load a constrained checkpoint and run a forward pass
-# TODO: point RUN_DIR at a finished run once experiments are done.
+# %% Inference - load the trained latent plane-stress model
 # Mirrors the steady-task forward used in training; elasticity is single-step
 # (not autoregressive), so we use forward_with_optional_aux directly.
 import torch
@@ -124,7 +123,7 @@ from omni_hc.training.common import (
 DEVICE = torch.device("cpu")
 RUN_DIR = (
     REPO_ROOT
-    / "outputs/elasticity/elasticity_plane_stress_vm_constraint/transolver/smoke/seed_42"
+    / "outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/e100_t900/seed_42"
 )
 
 if (RUN_DIR / "resolved_config.yaml").exists():
@@ -323,21 +322,13 @@ else:
     solid_triangle_xy = solid_xy[solid_triangles]
     solid_edges = np.stack(
         (
-            np.linalg.norm(
-                solid_triangle_xy[:, 0] - solid_triangle_xy[:, 1], axis=1
-            ),
-            np.linalg.norm(
-                solid_triangle_xy[:, 1] - solid_triangle_xy[:, 2], axis=1
-            ),
-            np.linalg.norm(
-                solid_triangle_xy[:, 2] - solid_triangle_xy[:, 0], axis=1
-            ),
+            np.linalg.norm(solid_triangle_xy[:, 0] - solid_triangle_xy[:, 1], axis=1),
+            np.linalg.norm(solid_triangle_xy[:, 1] - solid_triangle_xy[:, 2], axis=1),
+            np.linalg.norm(solid_triangle_xy[:, 2] - solid_triangle_xy[:, 0], axis=1),
         ),
         axis=1,
     )
-    solid_tri.set_mask(
-        solid_edges.max(axis=1) > 3.0 * np.median(solid_edges)
-    )
+    solid_tri.set_mask(solid_edges.max(axis=1) > 3.0 * np.median(solid_edges))
     solid_visible_triangles = solid_triangles[~solid_tri.mask]
 
     # Edges used by one visible triangle form either the external boundary or
@@ -503,12 +494,641 @@ else:
     plt.show()
     print(f"Saved {solid_output_path}")
 
+# %% Conceptual reparameterization - upright reference and deformed solids
+# This is an explanatory illustration, not a model prediction. We prescribe a
+# uniform principal-stretch state aligned with the specimen axes so that the
+# roles of lambda_1 (width), lambda_2 (height), and lambda_3 (thickness) are
+# visually clear. Incompressibility determines lambda_3 exactly.
+import matplotlib.tri as mtri
+from matplotlib.patches import FancyArrowPatch
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+CONCEPT_SAMPLE = 0
+CONCEPT_LAMBDA_1 = 0.90
+CONCEPT_LAMBDA_2 = 1.40
+CONCEPT_LAMBDA_3 = 1.0 / (CONCEPT_LAMBDA_1 * CONCEPT_LAMBDA_2)
+CONCEPT_REFERENCE_THICKNESS = 0.16
+
+concept_xy = coords[CONCEPT_SAMPLE].copy()
+concept_x_min, concept_x_max = concept_xy[:, 0].min(), concept_xy[:, 0].max()
+concept_y_min, concept_y_max = concept_xy[:, 1].min(), concept_xy[:, 1].max()
+concept_x_mid = 0.5 * (concept_x_min + concept_x_max)
+
+# Affine deformation for the illustration: horizontal contraction, vertical
+# extension from the fixed lower boundary, and incompressible thickness change.
+concept_xy_deformed = concept_xy.copy()
+concept_xy_deformed[:, 0] = concept_x_mid + CONCEPT_LAMBDA_1 * (
+    concept_xy[:, 0] - concept_x_mid
+)
+concept_xy_deformed[:, 1] = concept_y_min + CONCEPT_LAMBDA_2 * (
+    concept_xy[:, 1] - concept_y_min
+)
+
+concept_tri = mtri.Triangulation(concept_xy[:, 0], concept_xy[:, 1])
+concept_triangles = concept_tri.triangles
+concept_triangle_xy = concept_xy[concept_triangles]
+concept_edge_lengths = np.stack(
+    (
+        np.linalg.norm(concept_triangle_xy[:, 0] - concept_triangle_xy[:, 1], axis=1),
+        np.linalg.norm(concept_triangle_xy[:, 1] - concept_triangle_xy[:, 2], axis=1),
+        np.linalg.norm(concept_triangle_xy[:, 2] - concept_triangle_xy[:, 0], axis=1),
+    ),
+    axis=1,
+)
+concept_tri.set_mask(
+    concept_edge_lengths.max(axis=1) > 3.0 * np.median(concept_edge_lengths)
+)
+concept_visible_triangles = concept_triangles[~concept_tri.mask]
+
+concept_edge_counts = {}
+for triangle in concept_visible_triangles:
+    for start, end in (
+        (triangle[0], triangle[1]),
+        (triangle[1], triangle[2]),
+        (triangle[2], triangle[0]),
+    ):
+        edge = tuple(sorted((int(start), int(end))))
+        concept_edge_counts[edge] = concept_edge_counts.get(edge, 0) + 1
+concept_boundary_edges = np.asarray(
+    [edge for edge, count in concept_edge_counts.items() if count == 1],
+    dtype=int,
+)
+
+
+def conceptual_solid(xy, half_thickness):
+    """Return front/back faces and walls with vertical specimen coordinate."""
+    front = np.stack(
+        (
+            xy[concept_visible_triangles, 0],
+            np.full_like(xy[concept_visible_triangles, 0], -half_thickness),
+            xy[concept_visible_triangles, 1],
+        ),
+        axis=-1,
+    )
+    back = front.copy()
+    back[..., 1] = half_thickness
+
+    walls = []
+    for start, end in concept_boundary_edges:
+        walls.append(
+            [
+                (xy[start, 0], -half_thickness, xy[start, 1]),
+                (xy[end, 0], -half_thickness, xy[end, 1]),
+                (xy[end, 0], half_thickness, xy[end, 1]),
+                (xy[start, 0], half_thickness, xy[start, 1]),
+            ]
+        )
+    return front, back, walls
+
+
+concept_ref_half = 0.5 * CONCEPT_REFERENCE_THICKNESS
+concept_def_half = concept_ref_half * CONCEPT_LAMBDA_3
+concept_ref_front, concept_ref_back, concept_ref_walls = conceptual_solid(
+    concept_xy, concept_ref_half
+)
+concept_def_front, concept_def_back, concept_def_walls = conceptual_solid(
+    concept_xy_deformed, concept_def_half
+)
+
+fig = plt.figure(figsize=(13, 6))
+concept_axes = [
+    fig.add_subplot(121, projection="3d"),
+    fig.add_subplot(122, projection="3d"),
+]
+
+
+def draw_concept_solid(
+    axis,
+    *,
+    xy,
+    half_thickness,
+    front,
+    back,
+    walls,
+    face_color,
+    side_color,
+    title,
+    show_boundary_conditions,
+):
+    axis.add_collection3d(
+        Poly3DCollection(
+            back,
+            facecolors=face_color,
+            edgecolors="none",
+            alpha=0.28,
+        )
+    )
+    axis.add_collection3d(
+        Poly3DCollection(
+            front,
+            facecolors=face_color,
+            edgecolors=(1.0, 1.0, 1.0, 0.18),
+            linewidths=0.08,
+            alpha=0.92,
+        )
+    )
+    axis.add_collection3d(
+        Poly3DCollection(
+            walls,
+            facecolors=side_color,
+            edgecolors=(0.15, 0.15, 0.15, 0.28),
+            linewidths=0.18,
+            alpha=0.82,
+        )
+    )
+
+    x_min, x_max = xy[:, 0].min(), xy[:, 0].max()
+    z_min, z_max = xy[:, 1].min(), xy[:, 1].max()
+    x_span = x_max - x_min
+    z_span = z_max - z_min
+    front_depth = -half_thickness
+
+    # Fixed support at the lower edge.
+    axis.plot(
+        [x_min, x_max],
+        [front_depth, front_depth],
+        [z_min, z_min],
+        color="0.15",
+        lw=2.0,
+        zorder=10,
+    )
+    for support_x in np.linspace(x_min, x_max, 13):
+        axis.plot(
+            [support_x, support_x - 0.035 * x_span],
+            [front_depth, front_depth],
+            [z_min, z_min - 0.045 * z_span],
+            color="0.15",
+            lw=1.0,
+            zorder=10,
+        )
+
+    if show_boundary_conditions:
+        # Upward applied traction on the top edge.
+        traction_x = np.linspace(x_min + 0.08 * x_span, x_max - 0.08 * x_span, 6)
+        axis.quiver(
+            traction_x,
+            np.full_like(traction_x, front_depth),
+            np.full_like(traction_x, z_max + 0.01 * z_span),
+            np.zeros_like(traction_x),
+            np.zeros_like(traction_x),
+            np.full_like(traction_x, 0.15 * z_span),
+            color="tab:red",
+            linewidth=1.5,
+            arrow_length_ratio=0.25,
+        )
+
+    common_x_min = min(concept_xy[:, 0].min(), concept_xy_deformed[:, 0].min())
+    common_x_max = max(concept_xy[:, 0].max(), concept_xy_deformed[:, 0].max())
+    common_z_max = concept_xy_deformed[:, 1].max()
+    axis.set_xlim(
+        common_x_min - 0.12 * x_span,
+        common_x_max + 0.12 * x_span,
+    )
+    axis.set_ylim(-0.17, 0.17)
+    axis.set_zlim(
+        concept_y_min - 0.08 * z_span,
+        common_z_max + 0.22 * z_span,
+    )
+    axis.set_box_aspect((1.0, 0.42, 1.35))
+    axis.view_init(elev=10, azim=-62)
+    axis.set_title(title, fontsize=14, pad=10)
+    axis.set_axis_off()
+
+
+draw_concept_solid(
+    concept_axes[0],
+    xy=concept_xy,
+    half_thickness=concept_ref_half,
+    front=concept_ref_front,
+    back=concept_ref_back,
+    walls=concept_ref_walls,
+    face_color=(0.62, 0.65, 0.69, 1.0),
+    side_color=(0.42, 0.45, 0.50, 1.0),
+    title="Reference membrane",
+    show_boundary_conditions=True,
+)
+draw_concept_solid(
+    concept_axes[1],
+    xy=concept_xy_deformed,
+    half_thickness=concept_def_half,
+    front=concept_def_front,
+    back=concept_def_back,
+    walls=concept_def_walls,
+    face_color=(0.20, 0.52, 0.82, 1.0),
+    side_color=(0.09, 0.30, 0.56, 1.0),
+    title="Illustrative latent deformation",
+    show_boundary_conditions=True,
+)
+
+# Mark the out-of-plane thickness direction on the deformed side face.
+concept_def_x_max = concept_xy_deformed[:, 0].max()
+concept_def_z_mid = 0.5 * (
+    concept_xy_deformed[:, 1].min() + concept_xy_deformed[:, 1].max()
+)
+concept_axes[1].quiver(
+    concept_def_x_max,
+    -concept_def_half,
+    concept_def_z_mid,
+    0.0,
+    2.0 * concept_def_half,
+    0.0,
+    color="tab:purple",
+    linewidth=2.0,
+    arrow_length_ratio=0.25,
+)
+concept_axes[1].text(
+    concept_def_x_max + 0.015,
+    0.0,
+    concept_def_z_mid,
+    r"$\lambda_3$",
+    color="tab:purple",
+    fontsize=12,
+)
+
+# Flow arrow between the reference and reparameterized states.
+flow_arrow = FancyArrowPatch(
+    (0.475, 0.51),
+    (0.535, 0.51),
+    transform=fig.transFigure,
+    arrowstyle="-|>",
+    mutation_scale=22,
+    linewidth=1.8,
+    color="0.2",
+)
+fig.add_artist(flow_arrow)
+
+fig.text(0.245, 0.10, "fixed", ha="center", fontsize=12)
+fig.text(0.755, 0.10, "fixed", ha="center", fontsize=12)
+fig.text(
+    0.5,
+    0.885,
+    r"applied tension traction $t$",
+    ha="center",
+    color="tab:red",
+    fontsize=12,
+)
+
+stretch_text = (
+    rf"$\lambda_1={CONCEPT_LAMBDA_1:.2f}$  width"
+    + "\n"
+    + rf"$\lambda_2={CONCEPT_LAMBDA_2:.2f}$  height"
+    + "\n"
+    + rf"$\lambda_3={CONCEPT_LAMBDA_3:.3f}$  thickness"
+    + "\n"
+    + r"$\lambda_1\lambda_2\lambda_3=1$"
+)
+fig.text(
+    0.505,
+    0.30,
+    stretch_text,
+    ha="center",
+    va="center",
+    fontsize=10.5,
+    bbox={
+        "boxstyle": "round,pad=0.45",
+        "facecolor": "white",
+        "edgecolor": "0.75",
+        "alpha": 0.92,
+    },
+)
+fig.suptitle(
+    "Plane-stress reparameterisation: an interpretable local deformation",
+    fontsize=16,
+    y=0.995,
+)
+fig.text(
+    0.5,
+    0.035,
+    "Illustrative stretches aligned with the specimen axes; values are not model predictions.",
+    ha="center",
+    fontsize=10,
+    color="0.3",
+)
+fig.subplots_adjust(left=0.02, right=0.98, bottom=0.08, top=0.90, wspace=0.02)
+concept_output_path = FIGURES_DIR / "elasticity_reparameterization_intuition.png"
+fig.savefig(concept_output_path, bbox_inches="tight", dpi=220)
+plt.show()
+print(f"Saved {concept_output_path}")
+
+# %% Real latent reparameterization - upright transformed solid
+# The model predicts local principal-stretch magnitudes but not their directions
+# or a globally compatible displacement field. We therefore retain the supplied
+# in-plane point-cloud geometry and visualize the identifiable through-thickness
+# transformation implied by the predicted lambda_3 field.
+import matplotlib.tri as mtri
+from matplotlib.colors import TwoSlopeNorm
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from PIL import Image, ImageChops
+
+if "out" not in globals():
+    print("[real latent visualization] run the inference cell first.")
+else:
+    REAL_SAMPLE = 0
+    # Plotting controls. These are display units because the dataset does not
+    # provide a physical reference thickness h_0.
+    REAL_REFERENCE_THICKNESS = 0.16  # total thickness when lambda_3 = 1
+    REAL_DEPTH_HALF_RANGE = 0.30  # fixed camera window in the thickness direction
+    REAL_THICKNESS_EXAGGERATION = 1_000.0  # exaggerates lambda_3 - 1 only
+    REAL_COLOR_SCALE_POWER = 4  # display 10^4 (lambda_3 - 1) on the colorbar
+
+    real_aux = out["aux_tensors"]
+    real_xy = coords_b[REAL_SAMPLE].cpu().numpy()
+    real_lambda_1 = real_aux["lambda_1"][REAL_SAMPLE, :, 0].cpu().numpy()
+    real_lambda_2 = real_aux["lambda_2"][REAL_SAMPLE, :, 0].cpu().numpy()
+    real_lambda_3 = real_aux["lambda_3"][REAL_SAMPLE, :, 0].cpu().numpy()
+    real_det_f = real_aux["full_det_f"][REAL_SAMPLE, :, 0].cpu().numpy()
+    real_thickness_change = real_lambda_3 - 1.0
+
+    # The plotted thickness is
+    #   h_plot = h_ref [1 + E (lambda_3 - 1)].
+    # REAL_REFERENCE_THICKNESS controls its baseline size, while E controls how
+    # strongly the small predicted variations alter that size.
+    real_lambda_3_visual = 1.0 + REAL_THICKNESS_EXAGGERATION * real_thickness_change
+    real_lambda_3_visual = np.maximum(real_lambda_3_visual, 0.08)
+    real_half_thickness = 0.5 * REAL_REFERENCE_THICKNESS * real_lambda_3_visual
+
+    real_tri = mtri.Triangulation(real_xy[:, 0], real_xy[:, 1])
+    real_triangles = real_tri.triangles
+    real_triangle_xy = real_xy[real_triangles]
+    real_edge_lengths = np.stack(
+        (
+            np.linalg.norm(real_triangle_xy[:, 0] - real_triangle_xy[:, 1], axis=1),
+            np.linalg.norm(real_triangle_xy[:, 1] - real_triangle_xy[:, 2], axis=1),
+            np.linalg.norm(real_triangle_xy[:, 2] - real_triangle_xy[:, 0], axis=1),
+        ),
+        axis=1,
+    )
+    real_tri.set_mask(
+        real_edge_lengths.max(axis=1) > 3.0 * np.median(real_edge_lengths)
+    )
+    real_visible_triangles = real_triangles[~real_tri.mask]
+
+    real_edge_counts = {}
+    for triangle in real_visible_triangles:
+        for start, end in (
+            (triangle[0], triangle[1]),
+            (triangle[1], triangle[2]),
+            (triangle[2], triangle[0]),
+        ):
+            edge = tuple(sorted((int(start), int(end))))
+            real_edge_counts[edge] = real_edge_counts.get(edge, 0) + 1
+    real_boundary_edges = np.asarray(
+        [edge for edge, count in real_edge_counts.items() if count == 1],
+        dtype=int,
+    )
+
+    # Plot coordinates are (specimen x, through-thickness z, specimen y), so
+    # the fixed-to-loaded direction is vertical in the rendered figure.
+    real_front = np.stack(
+        (
+            real_xy[real_visible_triangles, 0],
+            -real_half_thickness[real_visible_triangles],
+            real_xy[real_visible_triangles, 1],
+        ),
+        axis=-1,
+    )
+    real_back = real_front.copy()
+    real_back[..., 1] = real_half_thickness[real_visible_triangles]
+
+    real_walls = []
+    real_wall_values = []
+    for start, end in real_boundary_edges:
+        real_walls.append(
+            [
+                (
+                    real_xy[start, 0],
+                    -real_half_thickness[start],
+                    real_xy[start, 1],
+                ),
+                (
+                    real_xy[end, 0],
+                    -real_half_thickness[end],
+                    real_xy[end, 1],
+                ),
+                (
+                    real_xy[end, 0],
+                    real_half_thickness[end],
+                    real_xy[end, 1],
+                ),
+                (
+                    real_xy[start, 0],
+                    real_half_thickness[start],
+                    real_xy[start, 1],
+                ),
+            ]
+        )
+        real_wall_values.append(
+            0.5 * (real_thickness_change[start] + real_thickness_change[end])
+        )
+
+    real_color_multiplier = 10.0**REAL_COLOR_SCALE_POWER
+    real_color_values = real_color_multiplier * real_thickness_change
+    real_face_values = real_color_values[real_visible_triangles].mean(axis=1)
+    real_wall_values = real_color_multiplier * np.asarray(real_wall_values)
+    real_abs_limit = max(
+        abs(float(real_color_values.min())),
+        abs(float(real_color_values.max())),
+    )
+    real_norm = TwoSlopeNorm(
+        vmin=-real_abs_limit,
+        vcenter=0.0,
+        vmax=real_abs_limit,
+    )
+    real_cmap = plt.get_cmap("coolwarm")
+
+    fig = plt.figure(figsize=(6.2, 7.0))
+    real_ax = fig.add_axes((-0.10, -0.08, 0.98, 1.14), projection="3d")
+    real_ax.add_collection3d(
+        Poly3DCollection(
+            real_back,
+            facecolors=real_cmap(real_norm(real_face_values)),
+            edgecolors="none",
+            alpha=0.25,
+        )
+    )
+    real_ax.add_collection3d(
+        Poly3DCollection(
+            real_front,
+            facecolors=real_cmap(real_norm(real_face_values)),
+            edgecolors=(1.0, 1.0, 1.0, 0.16),
+            linewidths=0.08,
+            alpha=0.96,
+        )
+    )
+    real_ax.add_collection3d(
+        Poly3DCollection(
+            real_walls,
+            facecolors=real_cmap(real_norm(real_wall_values)),
+            edgecolors=(0.12, 0.12, 0.12, 0.28),
+            linewidths=0.18,
+            alpha=0.88,
+        )
+    )
+
+    real_x_min, real_x_max = real_xy[:, 0].min(), real_xy[:, 0].max()
+    real_y_min, real_y_max = real_xy[:, 1].min(), real_xy[:, 1].max()
+    real_x_span = real_x_max - real_x_min
+    real_y_span = real_y_max - real_y_min
+    real_front_depth = -float(real_half_thickness.max())
+
+    # Fixed lower edge.
+    real_ax.plot(
+        [real_x_min, real_x_max],
+        [real_front_depth, real_front_depth],
+        [real_y_min, real_y_min],
+        color="0.12",
+        lw=2.2,
+        zorder=10,
+    )
+    for support_x in np.linspace(real_x_min, real_x_max, 13):
+        real_ax.plot(
+            [support_x, support_x - 0.035 * real_x_span],
+            [real_front_depth, real_front_depth],
+            [real_y_min, real_y_min - 0.045 * real_y_span],
+            color="0.12",
+            lw=1.0,
+            zorder=10,
+        )
+
+    # Applied tension traction on the upper edge.
+    real_traction_x = np.linspace(
+        real_x_min + 0.08 * real_x_span,
+        real_x_max - 0.08 * real_x_span,
+        7,
+    )
+    real_ax.quiver(
+        real_traction_x,
+        np.full_like(real_traction_x, real_front_depth),
+        np.full_like(real_traction_x, real_y_max + 0.01 * real_y_span),
+        np.zeros_like(real_traction_x),
+        np.zeros_like(real_traction_x),
+        np.full_like(real_traction_x, 0.14 * real_y_span),
+        color="k",
+        linewidth=1.5,
+        arrow_length_ratio=0.25,
+    )
+
+    real_ax.set_xlim(
+        real_x_min - 0.12 * real_x_span,
+        real_x_max + 0.12 * real_x_span,
+    )
+    # Keep this view window fixed. If it followed real_half_thickness.max(),
+    # Matplotlib would rescale the axis and visually cancel thickness changes.
+    real_ax.set_ylim(-REAL_DEPTH_HALF_RANGE, REAL_DEPTH_HALF_RANGE)
+    real_ax.set_zlim(
+        real_y_min - 0.08 * real_y_span,
+        real_y_max + 0.22 * real_y_span,
+    )
+    real_ax.set_box_aspect((1.0, 0.42, 1.35))
+    real_ax.view_init(elev=10, azim=-62)
+    real_ax.set_axis_off()
+    # real_ax.set_title(
+    #     "Predicted latent thickness transformation\n"
+    #     rf"visible thickness variation exaggerated "
+    #     rf"$\times{REAL_THICKNESS_EXAGGERATION:.0f}$",
+    #     fontsize=15,
+    #     pad=12,
+    # )
+
+    real_scalar_mappable = plt.cm.ScalarMappable(norm=real_norm, cmap=real_cmap)
+    real_scalar_mappable.set_array(real_color_values)
+    real_colorbar_ax = fig.add_axes((0.82, 0.14, 0.035, 0.72))
+    real_colorbar = fig.colorbar(
+        real_scalar_mappable,
+        cax=real_colorbar_ax,
+    )
+    real_colorbar.set_label(
+        rf"$10^{{{REAL_COLOR_SCALE_POWER}}}(\lambda_3-1)$",
+        fontsize=11,
+    )
+
+    # real_stretch_text = (
+    #     rf"$\lambda_1 \in [{real_lambda_1.min():.6f},"
+    #     rf" {real_lambda_1.max():.6f}]$"
+    #     + "\n"
+    #     + rf"$\lambda_2 \in [{real_lambda_2.min():.6f},"
+    #     rf" {real_lambda_2.max():.6f}]$"
+    #     + "\n"
+    #     + rf"$\lambda_3 \in [{real_lambda_3.min():.6f},"
+    #     rf" {real_lambda_3.max():.6f}]$"
+    #     + "\n"
+    #     + rf"$\max|\det F-1|={np.max(np.abs(real_det_f - 1.0)):.1e}$"
+    # )
+    # fig.text(
+    #     0.04,
+    #     0.22,
+    #     real_stretch_text,
+    #     fontsize=10.5,
+    #     bbox={
+    #         "boxstyle": "round,pad=0.45",
+    #         "facecolor": "white",
+    #         "edgecolor": "0.75",
+    #         "alpha": 0.94,
+    #     },
+    # )
+    # fig.text(
+    #     0.57,
+    #     0.815,
+    #     r"$t$",
+    #     ha="center",
+    #     color="k",
+    #     fontsize=11.5,
+    # )
+    # fig.text(0.55, 0.15, "fixed", ha="center", fontsize=11.5)
+    # fig.text(
+    #     0.5,
+    #     0.015,
+    #     "In-plane geometry is retained because principal directions and "
+    #     "a compatible displacement field are not observed.",
+    #     ha="center",
+    #     fontsize=9.5,
+    #     color="0.3",
+    # )
+    real_output_path = FIGURES_DIR / "elasticity_reparameterization_real_output.png"
+    fig.savefig(real_output_path, bbox_inches="tight", pad_inches=0.02, dpi=220)
+
+    # A hidden 3D axes rectangle can survive bbox_inches="tight". Crop the
+    # remaining near-white border to the actual rendered content.
+    with Image.open(real_output_path) as real_image:
+        real_rgb = real_image.convert("RGB")
+        real_background = Image.new("RGB", real_rgb.size, "white")
+        real_difference = ImageChops.difference(real_rgb, real_background).convert("L")
+        real_content_bbox = real_difference.point(
+            lambda value: 255 if value > 8 else 0
+        ).getbbox()
+        if real_content_bbox is not None:
+            real_crop_padding = 12
+            left, top, right, bottom = real_content_bbox
+            real_content_bbox = (
+                max(0, left - real_crop_padding),
+                max(0, top - real_crop_padding),
+                min(real_rgb.width, right + real_crop_padding),
+                min(real_rgb.height, bottom + real_crop_padding),
+            )
+            real_rgb.crop(real_content_bbox).save(real_output_path)
+
+    plt.show()
+    print(f"Saved {real_output_path}")
+
 # %% Diagram figures - input point cloud and output sigma_VM
+# Use the same sample as the 3D latent visualization (coords_b[REAL_SAMPLE]) so
+# the pipeline diagram and the 3D figure in the report show the same geometry.
+# The test loader uses the last ntest dataset samples, so coords_b[0] is NOT
+# coords[0]; tie both figures to the test batch. Colour the output by the
+# model's predicted sigma_VM to match the $\hat{\sigma}_{VM}$ label.
 IMPL_DIR = FIGURES_DIR
 
-DIAG_SAMPLE = 0
-_coords = coords[DIAG_SAMPLE]  # (P, 2)
-_sigma = sigma[DIAG_SAMPLE]  # (P,)
+DIAG_SAMPLE = 0  # index into the test batch; matches REAL/VIS/SOLID_SAMPLE
+if "coords_b" in globals():
+    _coords = coords_b[DIAG_SAMPLE].cpu().numpy()  # (P, 2)
+    if "out" in globals():
+        _sigma = out["aux_tensors"]["sigma_physical"][DIAG_SAMPLE, :, 0].cpu().numpy()
+    else:
+        _sigma = target_b[DIAG_SAMPLE, :, 0].cpu().numpy()
+else:
+    print("[diagram] no model run; falling back to raw dataset sample 0.")
+    _coords = coords[DIAG_SAMPLE]  # (P, 2)
+    _sigma = sigma[DIAG_SAMPLE]  # (P,)
 
 _figsize = (4, 4)
 _s = 20  # point size
@@ -540,6 +1160,158 @@ ax.axis("off")
 fig.savefig(IMPL_DIR / "elasticity_diagram_output.png", bbox_inches="tight", dpi=200)
 plt.show()
 print(f"Saved {IMPL_DIR / 'elasticity_diagram_output.png'}")
+
+# %% Setup schematic - input (BCs) -> Neural operator -> stress output
+# A single figure mirroring the canonical elasticity setup: a fixed bottom edge,
+# a tension traction on the top edge, the geometry point cloud as input, and the
+# predicted von Mises stress field as output.
+from matplotlib.patches import FancyArrowPatch, FancyBboxPatch, Rectangle
+
+SCHEM_SAMPLE = 0
+pts = coords[SCHEM_SAMPLE]  # (P, 2)
+field = sigma[SCHEM_SAMPLE]  # (P,)
+
+x_min, x_max = pts[:, 0].min(), pts[:, 0].max()
+y_min, y_max = pts[:, 1].min(), pts[:, 1].max()
+span = x_max - x_min
+
+fig = plt.figure(figsize=(12, 4.5))
+gs = fig.add_gridspec(1, 3, width_ratios=[1.0, 0.75, 1.0], wspace=0.05)
+ax_in = fig.add_subplot(gs[0])
+ax_mid = fig.add_subplot(gs[1])
+ax_out = fig.add_subplot(gs[2])
+
+# A framing box drawn around each point cloud at the geometry bounds.
+pad = 0.04 * span
+
+
+def frame(ax):
+    ax.add_patch(
+        Rectangle(
+            (x_min - pad, y_min - pad),
+            (x_max - x_min) + 2 * pad,
+            (y_max - y_min) + 2 * pad,
+            fill=False,
+            edgecolor="0.2",
+            linewidth=1.2,
+        )
+    )
+
+
+# --- Input panel: geometry + boundary conditions ---
+ax_in.scatter(pts[:, 0], pts[:, 1], s=14, color="0.25", linewidths=0)
+frame(ax_in)
+
+# Tension traction: upward arrows rising from the top of the input box.
+arrow_x = np.linspace(x_min + 0.06 * span, x_max - 0.06 * span, 6)
+arrow_base = y_max + pad
+arrow_len = 0.16 * span
+for ax_x in arrow_x:
+    ax_in.annotate(
+        "",
+        xy=(ax_x, arrow_base + arrow_len),
+        xytext=(ax_x, arrow_base),
+        arrowprops={
+            "arrowstyle": "-|>",
+            "color": "k",
+            "lw": 1.6,
+            "mutation_scale": 12,
+        },
+        annotation_clip=False,
+        zorder=5,
+    )
+ax_in.text(
+    0.5 * (x_min + x_max),
+    arrow_base + arrow_len + 0.03 * span,
+    r"Tension traction $t$",
+    ha="center",
+    va="bottom",
+    color="k",
+    fontsize=12,
+    clip_on=False,
+)
+
+# Fixed support: a baseline with hatch ticks under the bottom edge.
+base_y = y_min - pad
+ax_in.plot([x_min, x_max], [base_y, base_y], color="0.1", lw=1.4)
+tick = 0.045 * span
+for hx in np.linspace(x_min, x_max, 14):
+    ax_in.plot([hx, hx - tick], [base_y, base_y - tick], color="0.1", lw=1.0)
+ax_in.text(
+    0.5 * (x_min + x_max),
+    base_y - tick - 0.04 * span,
+    "fixed",
+    ha="center",
+    va="top",
+    fontsize=12,
+)
+
+ax_in.set_aspect("equal")
+ax_in.set_xlim(x_min - pad - 0.02 * span, x_max + pad + 0.02 * span)
+ax_in.set_ylim(
+    base_y - tick - 0.10 * span,
+    arrow_base + arrow_len + 0.12 * span,
+)
+ax_in.axis("off")
+
+# --- Middle panel: neural operator box with flow arrows ---
+ax_mid.set_xlim(0, 1)
+ax_mid.set_ylim(0, 1)
+ax_mid.axis("off")
+box = FancyBboxPatch(
+    (0.18, 0.42),
+    0.64,
+    0.16,
+    boxstyle="round,pad=0.02",
+    linewidth=1.2,
+    edgecolor="0.4",
+    facecolor="white",
+)
+ax_mid.add_patch(box)
+ax_mid.text(0.5, 0.50, "Model", ha="center", va="center", fontsize=12)
+ax_mid.add_patch(
+    FancyArrowPatch(
+        (0.0, 0.50),
+        (0.17, 0.50),
+        arrowstyle="-|>",
+        mutation_scale=16,
+        color="0.2",
+        lw=1.4,
+    )
+)
+ax_mid.add_patch(
+    FancyArrowPatch(
+        (0.83, 0.50),
+        (1.0, 0.50),
+        arrowstyle="-|>",
+        mutation_scale=16,
+        color="0.2",
+        lw=1.4,
+    )
+)
+
+# --- Output panel: predicted von Mises stress ---
+sc = ax_out.scatter(
+    pts[:, 0],
+    pts[:, 1],
+    c=field,
+    cmap=CMAP,
+    s=14,
+    linewidths=0,
+    vmin=field.min(),
+    vmax=field.max(),
+)
+frame(ax_out)
+ax_out.set_aspect("equal")
+ax_out.axis("off")
+ax_out.set_title("Stress", fontsize=12)
+fig.colorbar(sc, ax=ax_out, fraction=0.046, pad=0.04, label=r"$\sigma_{VM}$")
+
+fig.savefig(
+    FIGURES_DIR / "elasticity_setup_schematic.png", bbox_inches="tight", dpi=200
+)
+plt.show()
+print(f"Saved {FIGURES_DIR / 'elasticity_setup_schematic.png'}")
 
 # %% [SCAFFOLD] Prediction vs ground truth + latent kinematics
 # TODO: scatter predicted sigma vs target sigma and abs error on the point cloud;

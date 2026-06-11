@@ -158,6 +158,7 @@ class SineBoundaryConstraint(ConstraintModule):
         max_samples: int | None = None,
         val_frac: float = 0.1,
         val_seed: int = 0,
+        seed: int = 0,
         save_path=None,
         log_path=None,
     ) -> dict[str, Any]:
@@ -276,10 +277,15 @@ class SineBoundaryConstraint(ConstraintModule):
         best_rl2 = float("inf")
         best_epoch = -1
         best_state = None
+        train_generator = torch.Generator(device="cpu").manual_seed(int(seed))
 
         for epoch in range(epochs):
             self.coeff_head.train()
-            perm = torch.randperm(n_train, device=device)
+            perm = torch.randperm(
+                n_train,
+                generator=train_generator,
+                device="cpu",
+            ).to(device)
             mse_sum = 0.0
             rl2_sum = 0.0
             n_batches = 0
@@ -484,6 +490,10 @@ class SineBoundaryConstraint(ConstraintModule):
                 device = torch.device("cpu")
 
             pretrain_kwargs = {k: v for k, v in pretrain_cfg.items()}
+            pretrain_kwargs.setdefault(
+                "seed",
+                int((cfg.get("training") or {}).get("seed", 42)),
+            )
             constraint.pretrain_coeff_head(fx_arr, sol_arr, device=device, **pretrain_kwargs)
 
         wrapped = ConstrainedModel(backbone=backbone, constraint=constraint)

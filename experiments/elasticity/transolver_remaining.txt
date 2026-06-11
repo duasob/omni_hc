@@ -1,0 +1,57 @@
+# Remaining elasticity Transolver work, derived from the current state of
+# outputs/elasticity/ (audited 2026-06-10). This file covers ONLY runs that are
+# not yet complete: training that was interrupted before its target epochs
+# ("resume") and budgets that were never started ("start"). Completed+tested
+# runs (the full unconstrained sweep and the canonical latent sweep) are omitted.
+#
+# Paths follow the on-disk ablation layout you are already using:
+#   .../transolver/backbone_out_dim_32/<budget>/seed_42   (base vm config)
+#   .../transolver/backbone_out_dim_1/<budget>/seed_42    (out_dim=1 ablation)
+# train.py would otherwise write to the default path, so each train line pins
+# paths.output_dir via --override to land back in the same ablation directory.
+#
+# Resume mechanism: train.py loads --checkpoint latest.pt into
+# training.resume_checkpoint and continues to the budget's target epoch count.
+#
+# Run via the HPC runner:
+#   RUNS_FILE=experiments/elasticity/transolver_remaining.txt bash scripts/hpc/runner.sh
+# Or locally:
+#   bash scripts/run_batch.sh experiments/elasticity/transolver_remaining.txt
+
+# =============================================================================
+# RESUME: training started but stopped before the 500-epoch target.
+# =============================================================================
+
+# --- vm_constraint, backbone_out_dim=32 (base config), final: 91/500 epochs ---
+# train: --benchmark elasticity --backbone Transolver --constraint elasticity_plane_stress_vm_constraint --budget final --checkpoint outputs/elasticity/elasticity_plane_stress_vm_constraint/transolver/backbone_out_dim_32/final/seed_42/latest.pt --override paths.output_dir=outputs/elasticity/elasticity_plane_stress_vm_constraint/transolver/backbone_out_dim_32/final/seed_42
+# test: --config outputs/elasticity/elasticity_plane_stress_vm_constraint/transolver/backbone_out_dim_32/final/seed_42/resolved_config.yaml --checkpoint outputs/elasticity/elasticity_plane_stress_vm_constraint/transolver/backbone_out_dim_32/final/seed_42/best.pt
+
+# --- vm_constraint, backbone_out_dim=1 ablation, final: 148/500 epochs ---
+# out_dim=1 also pairs with deviatoric_log_stretch_bias=0.15 (see resolved_config).
+train: --benchmark elasticity --backbone Transolver --constraint elasticity_plane_stress_vm_constraint --budget final --checkpoint outputs/elasticity/elasticity_plane_stress_vm_constraint/transolver/backbone_out_dim_1/final/seed_42/latest.pt --override constraint.backbone_out_dim=1 --override constraint.deviatoric_log_stretch_bias=0.15 --override paths.output_dir=outputs/elasticity/elasticity_plane_stress_vm_constraint/transolver/backbone_out_dim_1/final/seed_42
+test: --config outputs/elasticity/elasticity_plane_stress_vm_constraint/transolver/backbone_out_dim_1/final/seed_42/resolved_config.yaml --checkpoint outputs/elasticity/elasticity_plane_stress_vm_constraint/transolver/backbone_out_dim_1/final/seed_42/best.pt
+
+# =============================================================================
+# OPTIONAL: latent-decoder backbone_out_dim_32 ablation subdir.
+# This parallel sweep duplicates the COMPLETED canonical latent runs at
+#   outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/<budget>/seed_42
+# (all 5 budgets trained+tested). The subdir copies below are incomplete:
+#   e5_t50, e10_t100, e50_t500: trained but never tested
+#   e100_t900: 55/100 epochs (resume)
+#   final: missing entirely (start)
+# Uncomment only if you want this ablation tree completed independently of the
+# canonical latent results; otherwise these are redundant and can be deleted.
+# -----------------------------------------------------------------------------
+
+# # resume e100_t900: 55/100 epochs
+# train: --benchmark elasticity --backbone Transolver --constraint elasticity_plane_stress_vm_latent --budget e100_t900 --checkpoint outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/backbone_out_dim_32/e100_t900/seed_42/latest.pt --override paths.output_dir=outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/backbone_out_dim_32/e100_t900/seed_42
+# test: --config outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/backbone_out_dim_32/e100_t900/seed_42/resolved_config.yaml --checkpoint outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/backbone_out_dim_32/e100_t900/seed_42/best.pt
+
+# # start final: missing
+# train: --benchmark elasticity --backbone Transolver --constraint elasticity_plane_stress_vm_latent --budget final --override paths.output_dir=outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/backbone_out_dim_32/final/seed_42
+# test: --config outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/backbone_out_dim_32/final/seed_42/resolved_config.yaml --checkpoint outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/backbone_out_dim_32/final/seed_42/best.pt
+
+# # test-only: trained-complete but never tested
+# test: --config outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/backbone_out_dim_32/e5_t50/seed_42/resolved_config.yaml --checkpoint outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/backbone_out_dim_32/e5_t50/seed_42/best.pt
+# test: --config outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/backbone_out_dim_32/e10_t100/seed_42/resolved_config.yaml --checkpoint outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/backbone_out_dim_32/e10_t100/seed_42/best.pt
+# test: --config outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/backbone_out_dim_32/e50_t500/seed_42/resolved_config.yaml --checkpoint outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/backbone_out_dim_32/e50_t500/seed_42/best.pt

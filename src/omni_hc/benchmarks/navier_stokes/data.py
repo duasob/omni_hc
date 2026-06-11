@@ -4,6 +4,13 @@ import scipy.io as scio
 import torch
 from torch.utils.data import DataLoader, Dataset, random_split
 
+from omni_hc.training.reproducibility import (
+    DATA_SHUFFLE_SEED_OFFSET,
+    DATA_SPLIT_SEED_OFFSET,
+    seeded_generator,
+    training_seed,
+)
+
 
 class DictTensorDataset(Dataset):
     def __init__(self, x: torch.Tensor, y: torch.Tensor) -> None:
@@ -125,6 +132,7 @@ def load_ns_autoregressive_dataset(cfg: dict, *, split: str):
 def build_train_val_loaders(cfg: dict):
     dataset, meta = load_ns_autoregressive_dataset(cfg, split="train")
     training_cfg = cfg.get("training", {})
+    seed = training_seed(cfg)
     batch_size = int(training_cfg.get("batch_size", 4))
     val_size = int(training_cfg.get("val_size", 100))
     if val_size < 0:
@@ -135,16 +143,23 @@ def build_train_val_loaders(cfg: dict):
             batch_size=batch_size,
             shuffle=True,
             num_workers=0,
+            generator=seeded_generator(seed, offset=DATA_SHUFFLE_SEED_OFFSET),
         )
         train_loader.ns_meta = meta
         return train_loader, None
 
     val_size = min(max(val_size, 1), len(dataset) - 1)
     train_size = len(dataset) - val_size
-    generator = torch.Generator().manual_seed(int(training_cfg.get("seed", 42)))
+    generator = seeded_generator(seed, offset=DATA_SPLIT_SEED_OFFSET)
     train_subset, val_subset = random_split(dataset, [train_size, val_size], generator=generator)
 
-    train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True, num_workers=0)
+    train_loader = DataLoader(
+        train_subset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=0,
+        generator=seeded_generator(seed, offset=DATA_SHUFFLE_SEED_OFFSET),
+    )
     val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False, num_workers=0)
     train_loader.ns_meta = meta
     val_loader.ns_meta = meta

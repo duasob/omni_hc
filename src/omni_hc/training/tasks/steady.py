@@ -30,6 +30,7 @@ from omni_hc.training.logging_utils import (
     init_wandb_if_enabled,
     log_metrics,
 )
+from omni_hc.training.reproducibility import seed_everything, training_seed
 
 
 def _decode_if_needed(normalizer, tensor: torch.Tensor) -> torch.Tensor:
@@ -192,6 +193,9 @@ def train_steady_task(
     prepare_batch,
     log_fn=None,
 ):
+    seed = training_seed(cfg)
+    seed_everything(seed)
+
     # TODO: remove this printing
     print("building train/validation loaders", flush=True)
     train_loader, val_loader = build_train_val_loaders(cfg)
@@ -254,11 +258,6 @@ def train_steady_task(
     training_cfg = deepcopy(cfg.get("training", {}))
     debug_nan_checks = bool(training_cfg.get("debug_nan_checks", False))
     raise_on_nonfinite = bool(training_cfg.get("raise_on_nonfinite", True))
-    seed = int(training_cfg.get("seed", 42))
-    random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
     training_cfg["steps_per_epoch"] = len(train_loader)
     optimizer = build_optimizer(model, training_cfg)
     scheduler, scheduler_step_per_batch = build_scheduler(optimizer, training_cfg)

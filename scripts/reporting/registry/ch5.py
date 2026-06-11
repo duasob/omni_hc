@@ -26,14 +26,14 @@ DARCY_SINE_HC = RunRef("outputs/darcy/sine_boundary/transolver_latest_coeff_head
 DARCY_FLUX_HC = RunRef("outputs/darcy/darcy_flux_constraint/transolver/final/seed_42")
 DARCY_BL = RunRef("outputs/darcy/none/transolver/final/seed_42")
 
-PIPE_ANSATZ_HC = RunRef("outputs/pipe/experiments/fno_small_ux_boundary")
+PIPE_ANSATZ_HC = RunRef("outputs/pipe/pipe_ux_boundary_ansatz/transolver/final/seed_42")
 PIPE_STREAM_HC = RunRef(
     "outputs/pipe/pipe_stream_function_boundary_ansatz/transolver/final/seed_42"
 )
 PIPE_BL = RunRef("outputs/pipe/none/transolver/final/seed_42")
 
 ELAS_HC = RunRef(
-    "outputs/elasticity/elasticity_deviatoric_stress_constraint/transolver/final/seed_42"
+    "outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/final/seed_42"
 )
 ELAS_BL = RunRef("outputs/elasticity/none/transolver/final/seed_42")
 
@@ -256,7 +256,9 @@ cv_constrained = ReportArtifact(
         ),
         Row(
             run=ELAS_HC,
-            metric_key="constraint/det_c_abs_error_max",
+            # Incompressibility is enforced via det F = 1 (equivalently det C = 1);
+            # the run reports the 3D deformation-gradient determinant error.
+            metric_key="constraint/full_det_f_abs_error_max",
             macro=r"\cvHcElasticity",
         ),
         Row(

@@ -7,7 +7,7 @@ constraint:
   # physics-aware representations instead of the projected scalar output. Only
   # Transolver exposes these hook paths, so this config is backbone-specific.
   # backbone_out_dim=1 because the final projection is unused here.
-  backbone_out_dim: 1
+  backbone_out_dim: 32
   target_out_dim: 1
   latent_module:
     - "blocks.-2" # penultimate block output

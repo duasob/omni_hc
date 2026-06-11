@@ -30,6 +30,7 @@ from omni_hc.training.logging_utils import (
     log_metrics,
 )
 from omni_hc.benchmarks.base import MediaLogContext
+from omni_hc.training.reproducibility import seed_everything, training_seed
 
 
 def _build_nsl_l2_loss():
@@ -154,6 +155,8 @@ def train_autoregressive_task(
     prepare_batch,
     log_fn=None,
 ):
+    seed_everything(training_seed(cfg))
+
     train_loader, val_loader = build_train_val_loaders(cfg)
     meta = get_meta(train_loader)
     model, model_args, resolved_nsl_root = create_model(
@@ -166,7 +169,7 @@ def train_autoregressive_task(
     output_dir = resolve_output_dir(cfg)
     write_resolved_config(cfg, output_dir=output_dir, resolved_nsl_root=resolved_nsl_root)
 
-    sample_dtype = next(iter(train_loader))["x"].dtype
+    sample_dtype = train_loader.dataset[0]["x"].dtype
     task_state = init_task_state(meta, sample_dtype=sample_dtype, device=device)
 
     training_cfg = deepcopy(cfg.get("training", {}))

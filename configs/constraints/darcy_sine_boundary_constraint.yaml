@@ -32,5 +32,6 @@ constraint:
   #   max_samples: 1024       # optional cap on training samples
   #   val_frac: 0.1            # 0 disables validation / best-model tracking
   #   val_seed: 0
+  #   seed: 42                 # defaults to training.seed when omitted
   #   save_path: outputs/darcy/coeff_head.pt        # optional; reuse via Option A
   #   log_path:  outputs/darcy/coeff_head_log.yaml  # optional; defaults next to save_path
