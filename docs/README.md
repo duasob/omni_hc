@@ -18,9 +18,9 @@ Benchmark and constraint pages link to concrete experiment configs under
 from the page you are reading:
 
 ```bash
-python scripts/train.py --config path/to/config.yaml --device cpu
-python scripts/test.py --config path/to/config.yaml --device cpu
-python scripts/tune.py --config path/to/config.yaml --device cpu
+python scripts/train.py --config path/to/config.yaml
+python scripts/test.py --config path/to/config.yaml
+python scripts/tune.py --config path/to/config.yaml
 ```
 
 If `Neural-Solver-Library` is not installed at

@@ -163,8 +163,7 @@ diagnostic protocol trains on the first 1000 Darcy train samples and ranks
 trials on the 200-sample Darcy test split:
 
 ```bash
-conda run -n omni-hc python scripts/diagnostics/darcy/darcy_sine_boundary_search.py \
-  --device cpu \
+conda run -n omni-hc python scripts/studies/darcy_sine_boundary_search.py \
   --search-method tpe \
   --max-trials 100 \
   --epochs 800 \
