@@ -1543,15 +1543,3 @@ fig.savefig(
 )
 plt.show()
 print(f"Saved {FIGURES_DIR / 'elasticity_setup_schematic.png'}")
-
-# %% [SCAFFOLD] Prediction vs ground truth + latent kinematics
-# TODO: scatter predicted sigma vs target sigma and abs error on the point cloud;
-# scatter m, d, lambda_1/2/3, and det(F) from out["aux_tensors"] to confirm
-# 3D incompressibility and the plane-stress condition.
-# (exact incompressibility by construction). Save:
-#   elasticity_prediction.png, elasticity_kinematics.png
-
-# %% [SCAFFOLD] Results / param + FLOPs accounting
-# TODO: collect baseline vs constrained rel-L2 across backbones into a table;
-# the constraint head is small + pointwise, so report its param/FLOPs overhead
-# (analogous to the NS cost table).

@@ -26,6 +26,7 @@ def compute(
     meta: dict[str, Any],
 ) -> dict[str, ConstraintDiagnostic]:
     del pred, batch, meta
-    # TODO: surface the constraint module's residuals here once the test
-    # pipeline passes auxiliary tensors to metric functions.
+    # The eval pipeline does not pass the constraint module's auxiliary
+    # tensors to metric functions, so no elasticity-specific diagnostics
+    # are reported here.
     return {}

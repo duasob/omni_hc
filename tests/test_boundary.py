@@ -386,8 +386,8 @@ def test_pipe_ux_boundary_ansatz_emits_combined_diagnostics():
     assert isinstance(out, ConstraintOutput)
     assert "constraint/inlet_abs_max" in out.diagnostics
     assert "constraint/wall_abs_max" in out.diagnostics
-    assert "constraint/boundary_distance_min" in out.diagnostics
-    assert "constraint/boundary_distance_max" in out.diagnostics
+    assert "constraint/inlet_base_abs_max" in out.diagnostics
+    assert "constraint/wall_base_abs_max" in out.diagnostics
     assert torch.allclose(out.diagnostics["constraint/inlet_abs_max"].value, torch.tensor(0.0))
     assert out.diagnostics["constraint/wall_abs_max"].value == 0.0
 

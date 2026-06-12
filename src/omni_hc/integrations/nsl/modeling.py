@@ -25,7 +25,10 @@ from omni_hc.core import load_yaml_file
 from omni_hc.integrations.nsl.defaults import get_nsl_default_args
 from omni_hc.integrations.nsl.paths import resolve_nsl_root
 
-MODEL_REQUIRED_ARGS = {  # TODO: This is a bit arbitrary. Should not have this here. There are other relevant models
+# Args validated eagerly before model construction, per backbone. Backbones
+# not listed here are still buildable; they just rely on NSL defaults and
+# fail later if a required arg is missing.
+MODEL_REQUIRED_ARGS = {
     "Galerkin_Transformer": [
         "n_hidden",
         "n_heads",

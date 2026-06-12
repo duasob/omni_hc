@@ -196,8 +196,6 @@ def train_steady_task(
     seed = training_seed(cfg)
     seed_everything(seed)
 
-    # TODO: remove this printing
-    print("building train/validation loaders", flush=True)
     train_loader, val_loader = build_train_val_loaders(cfg)
     meta = get_meta(train_loader)
     x_normalizer = getattr(train_loader, "x_normalizer", None)

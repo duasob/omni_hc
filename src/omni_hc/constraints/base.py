@@ -7,7 +7,6 @@ from typing import Any, Protocol
 import torch
 import torch.nn as nn
 
-# TODO: revise this
 # Keys in constraint YAML blocks that are not constructor parameters.
 # Used by the default ConstraintModule.build classmethod.
 _BUILD_META_KEYS: frozenset[str] = frozenset({"name", "freeze_base"})

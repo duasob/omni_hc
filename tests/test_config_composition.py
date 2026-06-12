@@ -15,7 +15,7 @@ def test_compose_train_config_from_named_components():
     assert cfg["benchmark"]["name"] == "darcy_2d"
     assert cfg["model"]["backbone"] == "FNO"
     assert cfg["constraint"]["name"] == "darcy_flux_constraint"
-    assert cfg["training"]["num_epochs"] == 1
+    assert cfg["training"]["num_epochs"] == 2
     assert cfg["wandb_logging"]["run_name"] == "darcy_fno_darcy_flux_constraint_debug_seed_42"
     assert cfg["paths"]["output_dir"].endswith(
         "outputs/darcy/darcy_flux_constraint/fno/debug/seed_42"
@@ -72,7 +72,7 @@ def test_plasticity_envelope_alias_resolves_to_config_parameters():
     assert cfg["constraint"]["backbone_out_dim"] == 4
     assert cfg["constraint"]["target_out_dim"] == 4
     assert cfg["constraint"]["envelope_source"] == "fx"
-    assert cfg["constraint"]["y_bottom"] == -0.099999905
+    assert cfg["constraint"]["y_bottom"] == -0.1
     assert "configs/constraints/plasticity_envelope_constraint.yaml" in cfg[
         "experiment"
     ]["source_configs"]
