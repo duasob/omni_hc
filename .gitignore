@@ -20,6 +20,8 @@ outputs
 wandb/
 checkpoints/
 logs/
+*.log
+*.o[0-9]*
 
 .claude/
 .obsidian/
