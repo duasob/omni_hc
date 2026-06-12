@@ -198,9 +198,7 @@ lines = [
 for label, vals, rel in table_rows:
     mean, p95, mx = vals.mean(), np.percentile(vals, 95), vals.max()
     rel_col = f"{mean / interior_rms:.2%}".replace("%", r"\%") if rel else "--"
-    lines.append(
-        f"{label} & {_sci(mean)} & {_sci(p95)} & {_sci(mx)} & {rel_col} \\\\"
-    )
+    lines.append(f"{label} & {_sci(mean)} & {_sci(p95)} & {_sci(mx)} & {rel_col} \\\\")
 lines += [
     r"\midrule",
     f"\\multicolumn{{5}}{{l}}{{Interior RMS $|u| = {_sci(interior_rms)}$}} \\\\",
@@ -259,12 +257,18 @@ sol_res = raw_res["sol"][:DARCY_REPORT_NTEST, ::STRIDE, ::STRIDE]
 
 darcy_res = _darcy_report_residual_fields(coeff_res, sol_res)
 darcy_abs_res = np.abs(darcy_res)
-darcy_res_mean_abs_by_sample = darcy_abs_res.reshape(darcy_abs_res.shape[0], -1).mean(axis=1)
+darcy_res_mean_abs_by_sample = darcy_abs_res.reshape(darcy_abs_res.shape[0], -1).mean(
+    axis=1
+)
 darcy_res_p95_abs_by_sample = np.percentile(
     darcy_abs_res.reshape(darcy_abs_res.shape[0], -1), 95, axis=1
 )
-darcy_res_max_abs_by_sample = darcy_abs_res.reshape(darcy_abs_res.shape[0], -1).max(axis=1)
-darcy_res_l2_by_sample = np.sqrt((darcy_res.reshape(darcy_res.shape[0], -1) ** 2).mean(axis=1))
+darcy_res_max_abs_by_sample = darcy_abs_res.reshape(darcy_abs_res.shape[0], -1).max(
+    axis=1
+)
+darcy_res_l2_by_sample = np.sqrt(
+    (darcy_res.reshape(darcy_res.shape[0], -1) ** 2).mean(axis=1)
+)
 
 report_mean_abs = float(darcy_abs_res.mean())
 print("--- GT darcy_res_abs_mean diagnostic (report-matched) ---")
@@ -321,11 +325,15 @@ signed_mean_spatial = darcy_res.mean(axis=0)
 
 fig, axes = plt.subplots(1, 3, figsize=(12.5, 3.7), constrained_layout=True)
 
-im0 = axes[0].imshow(mean_abs_spatial, origin="lower", extent=(0, 1, 0, 1), cmap="inferno")
+im0 = axes[0].imshow(
+    mean_abs_spatial, origin="lower", extent=(0, 1, 0, 1), cmap="inferno"
+)
 axes[0].set_title("Mean $|\\nabla\\cdot(-a\\nabla u)-1|$")
 fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
 
-im1 = axes[1].imshow(p95_abs_spatial, origin="lower", extent=(0, 1, 0, 1), cmap="inferno")
+im1 = axes[1].imshow(
+    p95_abs_spatial, origin="lower", extent=(0, 1, 0, 1), cmap="inferno"
+)
 axes[1].set_title("p95 $|\\mathrm{res}|$")
 fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
 
@@ -353,9 +361,11 @@ print(f"Saved to {out_path}")
 # Specific examples: requested samples plus the worst sample by mean |res|.
 worst_sample_idx = int(np.argmax(darcy_res_mean_abs_by_sample))
 sample_panel_idxs = list(dict.fromkeys([*DARCY_RES_SAMPLE_IDXS, worst_sample_idx]))
-sample_vmax = float(
-    np.percentile(darcy_abs_res[sample_panel_idxs], 99)
-) or float(darcy_abs_res[sample_panel_idxs].max()) or 1.0
+sample_vmax = (
+    float(np.percentile(darcy_abs_res[sample_panel_idxs], 99))
+    or float(darcy_abs_res[sample_panel_idxs].max())
+    or 1.0
+)
 
 fig, axes = plt.subplots(
     3,
@@ -388,8 +398,7 @@ for col, sample_idx in enumerate(sample_panel_idxs):
         vmax=sample_vmax,
     )
     axes[2, col].set_title(
-        "$|\\mathrm{res}|$ "
-        f"mean={darcy_res_mean_abs_by_sample[sample_idx]:.2e}"
+        f"$|\\mathrm{{res}}|$ mean={darcy_res_mean_abs_by_sample[sample_idx]:.2e}"
     )
     fig.colorbar(im, ax=axes[2, col], fraction=0.046, pad=0.04)
 
@@ -483,8 +492,12 @@ def _load_darcy_model_predictions(run_dir, sample_idxs, *, device):
 
     h, w = meta["shapelist"]
     coeff_decoded = loader.x_normalizer.to(device).decode(fx_b).reshape(-1, h, w, 1)
-    pred_decoded = loader.y_normalizer.to(device).decode(out["pred"]).reshape(-1, h, w, 1)
-    target_decoded = loader.y_normalizer.to(device).decode(target_b).reshape(-1, h, w, 1)
+    pred_decoded = (
+        loader.y_normalizer.to(device).decode(out["pred"]).reshape(-1, h, w, 1)
+    )
+    target_decoded = (
+        loader.y_normalizer.to(device).decode(target_b).reshape(-1, h, w, 1)
+    )
     return {
         "coeff": coeff_decoded[..., 0].cpu().numpy(),
         "pred": pred_decoded[..., 0].cpu().numpy(),
@@ -500,7 +513,9 @@ DARCY_MODEL_RUNS = {
 }
 
 model_fields = {
-    label: _load_darcy_model_predictions(run_dir, sample_panel_idxs, device=DARCY_MODEL_DEVICE)
+    label: _load_darcy_model_predictions(
+        run_dir, sample_panel_idxs, device=DARCY_MODEL_DEVICE
+    )
     for label, run_dir in DARCY_MODEL_RUNS.items()
 }
 model_residuals = {
@@ -534,7 +549,12 @@ comparison_vmax = (
 )
 
 panel_rows = [
-    ("GT $u$", sol_res[sample_panel_idxs], gt_panel_abs_res, darcy_res_mean_abs_by_sample[sample_panel_idxs]),
+    (
+        "GT $u$",
+        sol_res[sample_panel_idxs],
+        gt_panel_abs_res,
+        darcy_res_mean_abs_by_sample[sample_panel_idxs],
+    ),
     *[
         (
             f"{label} $\\hat{{u}}$",
@@ -558,7 +578,9 @@ if len(sample_panel_idxs) == 1:
 for col, sample_idx in enumerate(sample_panel_idxs):
     axes[0, col].set_title(f"sample {sample_idx}")
 
-for row_idx, (label, pressure_fields, abs_res_fields, mean_abs_values) in enumerate(panel_rows):
+for row_idx, (label, pressure_fields, abs_res_fields, mean_abs_values) in enumerate(
+    panel_rows
+):
     pressure_row = 2 * row_idx
     residual_row = pressure_row + 1
     for col, _sample_idx in enumerate(sample_panel_idxs):
@@ -580,7 +602,9 @@ for row_idx, (label, pressure_fields, abs_res_fields, mean_abs_values) in enumer
             vmax=comparison_vmax,
         )
         axes[residual_row, col].set_ylabel("$|\\mathrm{res}|$")
-        axes[residual_row, col].set_title(f"mean={mean_abs_values[col]:.2e}", fontsize=9)
+        axes[residual_row, col].set_title(
+            f"mean={mean_abs_values[col]:.2e}", fontsize=9
+        )
         fig.colorbar(im, ax=axes[residual_row, col], fraction=0.046, pad=0.04)
 
 for ax in axes.flat:
@@ -588,6 +612,160 @@ for ax in axes.flat:
     ax.set_ylabel(ax.get_ylabel() or "y")
 
 out_path = FIGURES_DIR / "darcy_gt_model_residual_sample_panels.png"
+fig.savefig(out_path, bbox_inches="tight")
+plt.show()
+print(f"Saved to {out_path}")
+
+# %% Constraint comparison — input / GT / prediction / error per constraint
+# A single qualitative panel comparing the unconstrained baseline against the two
+# flux-constrained variants. Rows are models; columns are the input permeability
+# a, the ground-truth pressure u, the prediction u_hat, and the absolute error
+# |u_hat - u|. The two flux runs differ only in how the stream-function curl is
+# taken: spectral (helmholtz_sine, padded) vs finite differences. Predictions are
+# cached under artifacts/darcy/pred_cache, invalidated when the checkpoint is
+# newer than the cache, so re-running the figure is cheap.
+DARCY_PRED_CACHE_DIR = REPO_ROOT / "artifacts/darcy/pred_cache"
+
+CONSTRAINT_COMPARISON_RUNS = [
+    ("Baseline", REPO_ROOT / "outputs/darcy/none/transolver/final/seed_42"),
+    (
+        "Flux (spectral curl)",
+        REPO_ROOT
+        / "outputs/darcy/darcy_flux_constraint_spectral/transolver/final/seed_42",
+    ),
+    (
+        "Flux (FD)",
+        REPO_ROOT / "outputs/darcy/darcy_flux_constraint/transolver/final/seed_42",
+    ),
+]
+CONSTRAINT_COMPARISON_SAMPLE = 0  # index into the canonical test split
+
+
+def _darcy_pred_cache_path(run_dir, sample_idxs):
+    # Slug from the trailing <family>/<backbone>/<budget>/<seed> path parts.
+    slug = "_".join(Path(run_dir).parts[-4:])
+    idx_tag = "-".join(str(int(i)) for i in sample_idxs)
+    return DARCY_PRED_CACHE_DIR / f"{slug}__samples_{idx_tag}.npz"
+
+
+def load_darcy_predictions_cached(run_dir, sample_idxs, *, device, use_cache=True):
+    """`_load_darcy_model_predictions` with an on-disk cache in artifacts/darcy.
+
+    Rolling a Transolver checkpoint out on CPU is the slow step; the decoded
+    coeff/pred/target fields are small, so they are cached and invalidated
+    whenever the checkpoint is newer than the cached file.
+    """
+    run_dir = Path(run_dir)
+    cache_path = _darcy_pred_cache_path(run_dir, sample_idxs)
+    checkpoint = run_dir / "best.pt"
+    if (
+        use_cache
+        and cache_path.exists()
+        and (
+            not checkpoint.exists()
+            or checkpoint.stat().st_mtime <= cache_path.stat().st_mtime
+        )
+    ):
+        cached = np.load(cache_path)
+        print(f"[darcy pred cache] HIT  {cache_path.name}")
+        return {key: cached[key] for key in ("coeff", "pred", "target")}
+
+    print(f"[darcy pred cache] MISS {cache_path.name} (rolling out checkpoint...)")
+    fields = _load_darcy_model_predictions(run_dir, sample_idxs, device=device)
+    if use_cache:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(cache_path, **fields)
+    return fields
+
+
+comparison_sample_idxs = [CONSTRAINT_COMPARISON_SAMPLE]
+comparison_fields = {
+    label: load_darcy_predictions_cached(
+        run_dir, comparison_sample_idxs, device=DARCY_MODEL_DEVICE
+    )
+    for label, run_dir in CONSTRAINT_COMPARISON_RUNS
+}
+
+# Input a and GT u are identical across models; take them from the first run.
+_first_fields = next(iter(comparison_fields.values()))
+comp_a = _first_fields["coeff"][0]
+comp_gt = _first_fields["target"][0]
+comp_preds = {label: f["pred"][0] for label, f in comparison_fields.items()}
+comp_errors = {
+    label: np.abs(f["pred"][0] - f["target"][0])
+    for label, f in comparison_fields.items()
+}
+
+# Shared colour scales: pressure across GT + all predictions, error across models.
+press_vmin = float(min(comp_gt.min(), *(p.min() for p in comp_preds.values())))
+press_vmax = float(max(comp_gt.max(), *(p.max() for p in comp_preds.values())))
+err_vmax = float(max(e.max() for e in comp_errors.values())) or 1.0
+
+n_models = len(CONSTRAINT_COMPARISON_RUNS)
+# Compact 2 x (n_models + 1) layout: a left reference column holding the
+# ground-truth u (top) and input a (bottom), then one column per model with its
+# prediction (top) and absolute error (bottom). Rows are prediction / error;
+# columns are GT/input then the models.
+n_cols = n_models + 1
+fig, axes = plt.subplots(
+    2, n_cols, figsize=(n_cols * 3.0, 6.0), constrained_layout=True
+)
+
+# Left reference column: GT pressure u (top) and input permeability a (bottom).
+im_gt = axes[0, 0].imshow(
+    comp_gt,
+    origin="lower",
+    extent=(0, 1, 0, 1),
+    cmap=CMAP_OUTPUT,
+    vmin=press_vmin,
+    vmax=press_vmax,
+)
+axes[0, 0].set_title("GT $u$", fontsize=16)
+axes[0, 0].set_ylabel(r"Prediction $\hat{u}$", fontsize=16)
+
+im_a = axes[1, 0].imshow(comp_a, origin="lower", extent=(0, 1, 0, 1), cmap=CMAP_INPUT)
+fig.colorbar(im_a, ax=axes[1, 0], fraction=0.046, pad=0.04)
+axes[1, 0].set_title("Input $a$", fontsize=16)
+axes[1, 0].set_ylabel(r"Error $|\hat{u}-u|$", fontsize=16)
+
+# Model columns: prediction u_hat (top) and absolute error |u_hat - u| (bottom).
+for offset, (label, _run_dir) in enumerate(CONSTRAINT_COMPARISON_RUNS):
+    col = offset + 1
+    im_pred = axes[0, col].imshow(
+        comp_preds[label],
+        origin="lower",
+        extent=(0, 1, 0, 1),
+        cmap=CMAP_OUTPUT,
+        vmin=press_vmin,
+        vmax=press_vmax,
+    )
+
+    im_err = axes[1, col].imshow(
+        comp_errors[label],
+        origin="lower",
+        extent=(0, 1, 0, 1),
+        cmap="inferno",
+        vmin=0.0,
+        vmax=err_vmax,
+    )
+
+    rel_l2 = float(
+        np.linalg.norm(comp_preds[label] - comp_gt)
+        / max(np.linalg.norm(comp_gt), 1e-12)
+    )
+    axes[1, col].set_title(rf"rel $L_2$={rel_l2:.3f}", fontsize=16)
+    axes[0, col].set_title(label, fontsize=16)
+
+for ax in axes.flat:
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+# Shared colourbars: pressure across GT + predictions (top row), error across
+# models (bottom row). Input a keeps its own scale.
+fig.colorbar(im_gt, ax=list(axes[0, :]), shrink=0.85, pad=0.02)
+fig.colorbar(im_err, ax=list(axes[1, 1:]), shrink=0.85, pad=0.02)
+
+out_path = FIGURES_DIR / "darcy_constraint_comparison.png"
 fig.savefig(out_path, bbox_inches="tight")
 plt.show()
 print(f"Saved to {out_path}")
@@ -746,17 +924,17 @@ for i, (label, extractor) in enumerate(edge_defs.items()):
     axp.fill_between(
         pos, p5, p95, color=band_color, alpha=0.18, linewidth=0, label="5–95%"
     )
-    axp.fill_between(
-        pos, p25, p75, color=band_color, alpha=0.38, linewidth=0, label="25–75%"
-    )
+    # axp.fill_between(
+    #     pos, p25, p75, color=band_color, alpha=0.38, linewidth=0, label="25–75%"
+    # )
     axp.plot(pos, profiles.mean(axis=0), color=mean_color, linewidth=1.8, label="mean")
     axp.axhline(0, color="0.4", linewidth=0.8, linestyle="--")
-    axp.set_title(label, fontsize=10)
+    axp.set_title(label, fontsize=14)
     axp.set_xlabel("Position")
     axp.set_ylabel("$u$")
     axp.ticklabel_format(style="sci", axis="y", scilimits=(0, 0), useMathText=True)
     if i == 0:
-        axp.legend(fontsize=12, frameon=False)
+        axp.legend(fontsize=14, frameon=False)
 
 # --- Right: single-sample field + boundary profiles ---
 axr = fig.add_subplot(outer[0, 1])
@@ -794,7 +972,7 @@ for spine in axr.spines.values():
     spine.set_visible(False)
 axr.set_xticks([])
 axr.set_yticks([])
-axr.set_title(f"Sample {SAMPLE_2D} Boundary Profiles", fontsize=12)
+axr.set_title(f"Sample {SAMPLE_2D} Boundary Profiles", fontsize=14)
 out_path = FIGURES_DIR / "darcy_boundary_profiles_combined.png"
 fig.savefig(out_path, bbox_inches="tight")
 plt.show()

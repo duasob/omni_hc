@@ -260,6 +260,122 @@ plt.show()
 print(f"Saved {out_path}")
 
 
+# %% Ground-truth mesh gallery: final forged mesh + input die across samples
+# An N x M grid of different samples (no predictions). Each cell shows the final,
+# fully forged ground-truth mesh with that sample's input die profile overlaid,
+# so the variety of die geometries and resulting deformations is visible at once.
+from matplotlib.collections import LineCollection
+
+GALLERY_ROWS = 4
+GALLERY_COLS = 4
+GALLERY_TIMESTEP = -1  # final, fully forged step
+GALLERY_MESH_STEP = 2  # draw every n-th grid line to keep small cells legible
+GALLERY_MESH_COLOR = "#1f2937"
+GALLERY_DIE_COLOR = "#b91c1c"
+
+gallery_t_count = int(output.shape[3])
+n_total = int(output.shape[0])
+gallery_indices = np.unique(
+    np.linspace(0, n_total - 1, GALLERY_ROWS * GALLERY_COLS).astype(int)
+)
+
+
+def gt_final_mesh(sample_output, die_profile, *, timestep, t_count):
+    coords_xy = sample_output[..., 0:2]
+    t = timestep if timestep >= 0 else coords_xy.shape[2] + timestep
+    mesh = coords_xy[:, :, t]  # (X, Y, 2)
+    material_x = infer_material_grid(sample_output)[:, 0, 0, 0]
+    die_x = np.linspace(
+        float(np.nanmin(material_x)),
+        float(np.nanmax(material_x)),
+        die_profile.shape[0],
+    )
+    die_y = die_position(
+        die_profile,
+        t,
+        die_speed=DIE_SPEED,
+        time_duration=TIME_DURATION,
+        t_count=t_count,
+    )
+    return mesh, die_x, die_y
+
+
+def mesh_line_segments(mesh, *, step):
+    step = max(int(step), 1)
+    segments = [mesh[i, :, :] for i in range(0, mesh.shape[0], step)]
+    segments += [mesh[:, j, :] for j in range(0, mesh.shape[1], step)]
+    segments.append(mesh[-1, :, :])  # always close the outer boundary
+    segments.append(mesh[:, -1, :])
+    return segments
+
+
+gallery_meshes = []
+gallery_dies = []
+for idx in gallery_indices:
+    mesh, die_x, die_y = gt_final_mesh(
+        output[idx], die[idx], timestep=GALLERY_TIMESTEP, t_count=gallery_t_count
+    )
+    gallery_meshes.append(mesh)
+    gallery_dies.append((die_x, die_y))
+
+gallery_merged = np.concatenate(
+    [m.reshape(-1, 2) for m in gallery_meshes]
+    + [np.stack([dx, dy], axis=-1) for dx, dy in gallery_dies],
+    axis=0,
+)
+g_x_min, g_y_min = np.nanmin(gallery_merged, axis=0)
+g_x_max, g_y_max = np.nanmax(gallery_merged, axis=0)
+g_x_span = max(float(g_x_max - g_x_min), 1e-6)
+g_y_span = max(float(g_y_max - g_y_min), 1e-6)
+g_die_fill_top = g_y_max + 0.05 * g_y_span
+
+fig, axes = plt.subplots(
+    GALLERY_ROWS,
+    GALLERY_COLS,
+    figsize=(2.1 * GALLERY_COLS, 1.7 * GALLERY_ROWS),
+    sharex=True,
+    sharey=True,
+)
+axes = np.atleast_1d(axes).reshape(-1)
+for ax in axes:
+    ax.set_axis_off()
+
+for ax, idx, mesh, (die_x, die_y) in zip(
+    axes, gallery_indices, gallery_meshes, gallery_dies
+):
+    ax.set_axis_on()
+    ax.set_facecolor("#ffffff")
+    ax.add_collection(
+        LineCollection(
+            mesh_line_segments(mesh, step=GALLERY_MESH_STEP),
+            colors=GALLERY_MESH_COLOR,
+            linewidths=0.4,
+            alpha=0.9,
+        )
+    )
+    ax.fill_between(
+        die_x, die_y, g_die_fill_top, color="#111111", alpha=0.12, linewidth=0
+    )
+    ax.plot(die_x, die_y, color=GALLERY_DIE_COLOR, linewidth=1.2)
+    ax.set_title(f"sample {idx}", fontsize=8)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlim(g_x_min - 0.05 * g_x_span, g_x_max + 0.05 * g_x_span)
+    ax.set_ylim(g_y_min - 0.05 * g_y_span, g_die_fill_top)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_color("#111111")
+        spine.set_linewidth(0.6)
+
+fig.subplots_adjust(hspace=0.18, wspace=0.06)
+
+out_path = FIGURES_DIR / "plasticity_gt_mesh_gallery.png"
+fig.savefig(out_path, bbox_inches="tight")
+plt.show()
+print(f"Saved {out_path}")
+
+
 # %% Full and zoomed time evolution
 TIME_EVOLUTION_N = 4
 TIME_EVOLUTION_TIMESTEPS = snapshot_timesteps(

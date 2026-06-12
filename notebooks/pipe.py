@@ -101,7 +101,7 @@ ax_mesh.set_xlabel("$x$")
 ax_mesh.set_ylabel("$y$")
 ax_mesh.set_title("Pipe mesh and boundary edges")
 ax_mesh.legend(
-    fontsize=8,
+    fontsize=12,
     frameon=False,
     loc="upper center",
     bbox_to_anchor=(0.5, -0.25),

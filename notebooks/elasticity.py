@@ -77,6 +77,59 @@ fig.savefig(FIGURES_DIR / "elasticity_dataset_sample.png", bbox_inches="tight")
 plt.show()
 print(f"Saved {FIGURES_DIR / 'elasticity_dataset_sample.png'}")
 
+# %% Input-geometry gallery - point clouds coloured by von Mises stress
+# An N x M grid of different samples (ground truth, no predictions), showing the
+# variety of plate-with-hole geometries and their von Mises stress fields. A
+# shared colour scale lets stress magnitudes be compared across samples.
+GEO_ROWS = 4
+GEO_COLS = 4
+GEO_POINT_SIZE = 4
+
+n_geo = coords.shape[0]
+geo_indices = np.unique(np.linspace(0, n_geo - 1, GEO_ROWS * GEO_COLS).astype(int))
+
+geo_vmin = float(min(sigma[idx].min() for idx in geo_indices))
+geo_vmax = float(max(sigma[idx].max() for idx in geo_indices))
+
+fig, axes = plt.subplots(
+    GEO_ROWS,
+    GEO_COLS,
+    figsize=(2.0 * GEO_COLS, 2.0 * GEO_ROWS),
+    sharex=True,
+    sharey=True,
+)
+axes = np.atleast_1d(axes).reshape(-1)
+for ax in axes:
+    ax.set_axis_off()
+
+geo_scatter = None
+for ax, idx in zip(axes, geo_indices):
+    geo_scatter = ax.scatter(
+        coords[idx, :, 0],
+        coords[idx, :, 1],
+        c=sigma[idx],
+        cmap=CMAP,
+        s=GEO_POINT_SIZE,
+        linewidths=0,
+        vmin=geo_vmin,
+        vmax=geo_vmax,
+    )
+    ax.set_aspect("equal")
+    ax.set_title(f"sample {idx}", fontsize=8)
+
+fig.subplots_adjust(hspace=0.12, wspace=0.06)
+fig.colorbar(
+    geo_scatter,
+    ax=axes,
+    fraction=0.025,
+    pad=0.02,
+    label=r"$\sigma_{VM}$",
+)
+out_path = FIGURES_DIR / "elasticity_geometry_gallery.png"
+fig.savefig(out_path, bbox_inches="tight")
+plt.show()
+print(f"Saved {out_path}")
+
 # %% Dataset summary statistics - stress distribution
 per_sample_mean = sigma.mean(axis=1)
 per_sample_max = sigma.max(axis=1)
@@ -148,6 +201,184 @@ if (RUN_DIR / "resolved_config.yaml").exists():
     print("aux keys:", sorted(out.get("aux_tensors", {}).keys()))
 else:
     print(f"[scaffold] no run at {RUN_DIR}; skip inference until a run exists.")
+
+# %% Constraint comparison — input / GT / prediction / error per model
+# Qualitative panel over one test sample comparing the unconstrained baseline
+# against the plane-stress von-Mises constraint in its two decoder variants:
+# the scalar-output head (no latent) and the engineered latent decoder (which
+# reads the constraint head from Transolver's internal representations). Columns
+# are the input geometry, GT von-Mises stress, prediction, and absolute error;
+# rows are the models. Run paths match scripts/reporting/registry/
+# elasticity_report.py (the scalar row uses the backbone_out_dim_1 ablation).
+# Predictions are cached under artifacts/elasticity/pred_cache and invalidated
+# when a checkpoint is newer than its cache, so re-running the figure is cheap.
+ELAS_PRED_CACHE_DIR = REPO_ROOT / "artifacts/elasticity/pred_cache"
+
+CONSTRAINT_COMPARISON_RUNS = [
+    ("Baseline", REPO_ROOT / "outputs/elasticity/none/transolver/final/seed_42"),
+    (
+        "Constrained (no latent)",
+        REPO_ROOT
+        / "outputs/elasticity/elasticity_plane_stress_vm_constraint/transolver/backbone_out_dim_1/final/seed_42",
+    ),
+    (
+        "Constrained (latent)",
+        REPO_ROOT
+        / "outputs/elasticity/elasticity_plane_stress_vm_latent/transolver/final/seed_42",
+    ),
+]
+CONSTRAINT_COMPARISON_SAMPLE = 0  # index into the canonical test split
+CONSTRAINT_COMPARISON_POINT_SIZE = 8
+ELAS_COMPARISON_DEVICE = torch.device("cpu")
+
+
+def _load_elasticity_predictions(run_dir, sample_idxs, *, device):
+    """Roll a trained elasticity checkpoint out on a few test samples.
+
+    Returns ``{"coords", "pred", "target"}`` with per-sample point clouds. The
+    predicted von-Mises stress is taken from the constraint's ``sigma_physical``
+    aux tensor when present, and otherwise from the decoded scalar output (the
+    unconstrained baseline), so all three variants are returned in physical units.
+    """
+    cfg = yaml.safe_load((run_dir / "resolved_config.yaml").read_text())
+    cfg["paths"]["root_dir"] = str(DATA_DIR)
+    loader = build_test_loader(cfg)
+    meta = loader.elasticity_meta
+    model, _, _ = create_model(
+        cfg, device=device, runtime_overrides=_runtime_overrides(meta)
+    )
+    y_normalizer = loader.y_normalizer.to(device)
+    constraint = getattr(model, "constraint", None)
+    if constraint is not None and hasattr(constraint, "set_target_normalizer"):
+        constraint.set_target_normalizer(y_normalizer)
+    ckpt = load_checkpoint_state(run_dir / "best.pt", device=device)
+    load_model_state_dict(model, ckpt["model_state_dict"])
+    model.eval()
+
+    keys = [key for key in ("coords", "x", "y") if key in loader.dataset[0]]
+    batch = {
+        key: torch.stack([loader.dataset[int(i)][key] for i in sample_idxs], dim=0)
+        for key in keys
+    }
+    coords_b, fx_b, target_b = _prepare_batch(batch, device=device)
+    with torch.no_grad():
+        out = forward_with_optional_aux(model, coords_b, fx_b)
+    aux = out.get("aux_tensors", {})
+    if "sigma_physical" in aux:
+        pred = aux["sigma_physical"][..., 0]
+    else:
+        pred = y_normalizer.decode(out["pred"])[..., 0]
+    target = y_normalizer.decode(target_b)[..., 0]
+    return {
+        "coords": coords_b.cpu().numpy(),
+        "pred": pred.cpu().numpy(),
+        "target": target.cpu().numpy(),
+    }
+
+
+def _elas_pred_cache_path(run_dir, sample_idxs):
+    # Slug from the trailing path parts (family .. seed), keeping the
+    # backbone_out_dim_* ablation directory so variants do not collide.
+    slug = "_".join(Path(run_dir).parts[-5:])
+    idx_tag = "-".join(str(int(i)) for i in sample_idxs)
+    return ELAS_PRED_CACHE_DIR / f"{slug}__samples_{idx_tag}.npz"
+
+
+def load_elasticity_predictions_cached(run_dir, sample_idxs, *, device, use_cache=True):
+    run_dir = Path(run_dir)
+    cache_path = _elas_pred_cache_path(run_dir, sample_idxs)
+    checkpoint = run_dir / "best.pt"
+    if (
+        use_cache
+        and cache_path.exists()
+        and (
+            not checkpoint.exists()
+            or checkpoint.stat().st_mtime <= cache_path.stat().st_mtime
+        )
+    ):
+        cached = np.load(cache_path)
+        print(f"[elasticity pred cache] HIT  {cache_path.name}")
+        return {key: cached[key] for key in ("coords", "pred", "target")}
+
+    print(f"[elasticity pred cache] MISS {cache_path.name} (rolling out checkpoint...)")
+    fields = _load_elasticity_predictions(run_dir, sample_idxs, device=device)
+    if use_cache:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(cache_path, **fields)
+    return fields
+
+
+ec_sample_idxs = [CONSTRAINT_COMPARISON_SAMPLE]
+ec_fields = {
+    label: load_elasticity_predictions_cached(
+        run_dir, ec_sample_idxs, device=ELAS_COMPARISON_DEVICE
+    )
+    for label, run_dir in CONSTRAINT_COMPARISON_RUNS
+}
+
+# Geometry and GT are shared across models; take them from the first run.
+ec_first = next(iter(ec_fields.values()))
+ec_coords = ec_first["coords"][0]  # (P, 2)
+ec_gt = ec_first["target"][0]  # (P,)
+ec_preds = {label: f["pred"][0] for label, f in ec_fields.items()}
+ec_errors = {
+    label: np.abs(f["pred"][0] - f["target"][0]) for label, f in ec_fields.items()
+}
+
+# Shared colour scales: stress across GT + all predictions, error across models.
+ec_svmin = float(min(ec_gt.min(), *(p.min() for p in ec_preds.values())))
+ec_svmax = float(max(ec_gt.max(), *(p.max() for p in ec_preds.values())))
+ec_evmax = float(max(e.max() for e in ec_errors.values())) or 1.0
+
+ec_n = len(CONSTRAINT_COMPARISON_RUNS)
+fig, axes = plt.subplots(ec_n, 3, figsize=(10.0, ec_n * 3.1), constrained_layout=True)
+if ec_n == 1:
+    axes = axes[None, :]
+
+ec_titles = [
+    r"GT $\sigma_{VM}$",
+    r"Prediction $\hat{\sigma}_{VM}$",
+    r"Error $|\hat{\sigma}-\sigma|$",
+]
+for row, (label, _run_dir) in enumerate(CONSTRAINT_COMPARISON_RUNS):
+    sc_gt = axes[row, 0].scatter(
+        ec_coords[:, 0], ec_coords[:, 1], c=ec_gt, cmap=CMAP,
+        s=CONSTRAINT_COMPARISON_POINT_SIZE, linewidths=0, vmin=ec_svmin, vmax=ec_svmax,
+    )
+    fig.colorbar(sc_gt, ax=axes[row, 0], fraction=0.046, pad=0.04)
+    sc_pred = axes[row, 1].scatter(
+        ec_coords[:, 0], ec_coords[:, 1], c=ec_preds[label], cmap=CMAP,
+        s=CONSTRAINT_COMPARISON_POINT_SIZE, linewidths=0, vmin=ec_svmin, vmax=ec_svmax,
+    )
+    fig.colorbar(sc_pred, ax=axes[row, 1], fraction=0.046, pad=0.04)
+    sc_err = axes[row, 2].scatter(
+        ec_coords[:, 0], ec_coords[:, 1], c=ec_errors[label], cmap="inferno",
+        s=CONSTRAINT_COMPARISON_POINT_SIZE, linewidths=0, vmin=0.0, vmax=ec_evmax,
+    )
+    fig.colorbar(sc_err, ax=axes[row, 2], fraction=0.046, pad=0.04)
+
+    rel_l2 = float(
+        np.linalg.norm(ec_preds[label] - ec_gt) / max(np.linalg.norm(ec_gt), 1e-12)
+    )
+    axes[row, 2].set_title(rf"rel $L_2$={rel_l2:.3f}", fontsize=9)
+    axes[row, 0].set_ylabel(label, fontsize=11)
+    for col in range(3):
+        axes[row, col].set_aspect("equal")
+        axes[row, col].set_xticks([])
+        axes[row, col].set_yticks([])
+
+# Column headers on the top row; the error column header sits above the first
+# row's rel-L2 so both stay visible.
+for col, title in enumerate(ec_titles):
+    if col == 2:
+        axes[0, col].set_title(f"{title}\n{axes[0, col].get_title()}", fontsize=11)
+    else:
+        axes[0, col].set_title(title, fontsize=11)
+
+out_path = FIGURES_DIR / "elasticity_constraint_comparison.png"
+fig.savefig(out_path, bbox_inches="tight")
+plt.show()
+print(f"Saved {out_path}")
 
 # %% 3D latent membrane - relative thickness change from lambda_3
 # The plane-stress model gives local principal stretch magnitudes, including

@@ -69,12 +69,12 @@ for col, (ti, tj) in enumerate(zip(INPUT_FRAMES, TARGET_FRAMES)):
     axes[0, col].imshow(
         u[SAMPLE_IDX, :, :, ti], cmap=CMAP, origin="lower", vmin=vmin, vmax=vmax
     )
-    axes[0, col].set_title(f"$x_{{{ti + 1}}}$", fontsize=10)
+    axes[0, col].set_title(f"$t_{{{ti + 1}}}$", fontsize=14)
     axes[0, col].axis("off")
     axes[1, col].imshow(
         u[SAMPLE_IDX, :, :, tj], cmap=CMAP, origin="lower", vmin=vmin, vmax=vmax
     )
-    axes[1, col].set_title(f"$x_{{{tj + 1}}}$", fontsize=10)
+    axes[1, col].set_title(f"$t_{{{tj + 1}}}$", fontsize=14)
     axes[1, col].axis("off")
 
 axes[0, 0].set_ylabel("Input context", fontsize=9)
@@ -150,10 +150,10 @@ print(f"Saved to {FIGURES_DIR / 'ns_mean_vorticity.png'}")
 
 # %% Training curves
 TRAINING_MODELS = {
-    "Factformer": OUTPUTS_ROOT / "factformer/final/seed_42",
+    # "Factformer": OUTPUTS_ROOT / "factformer/final/seed_42",
     "Transolver": OUTPUTS_ROOT / "transolver/final/seed_42",
-    "Galerkin-T": OUTPUTS_ROOT / "galerkin_transformer/validation/seed_42",
-    "ONO": OUTPUTS_ROOT / "ono/final/seed_42",
+    # "Galerkin-T": OUTPUTS_ROOT / "galerkin_transformer/validation/seed_42",
+    # "ONO": OUTPUTS_ROOT / "ono/final/seed_42",
 }
 
 
@@ -232,7 +232,7 @@ from omni_hc.training.common import load_checkpoint_state, load_model_state_dict
 from omni_hc.training.tasks.autoregressive import rollout_autoregressive
 
 DEVICE = torch.device("cpu")
-INFER_MODEL = "ONO"
+INFER_MODEL = "Transolver"
 RUN_DIR = MODELS[INFER_MODEL]
 
 cfg = yaml.safe_load((RUN_DIR / "resolved_config.yaml").read_text())
@@ -269,7 +269,7 @@ pred_field = pred[0].view(h, w, t_out).cpu().numpy()
 gt_field = target[0].view(h, w, t_out).cpu().numpy()
 
 # %% Rollout visualisation — pred vs GT
-SHOW_STEPS = [0, 3, 6, 9]
+SHOW_STEPS = [3, 7, 11, 15, 19]
 
 vmin_f = min(pred_field[..., SHOW_STEPS].min(), gt_field[..., SHOW_STEPS].min())
 vmax_f = max(pred_field[..., SHOW_STEPS].max(), gt_field[..., SHOW_STEPS].max())
