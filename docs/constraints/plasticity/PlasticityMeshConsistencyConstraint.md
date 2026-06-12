@@ -113,7 +113,7 @@ Shared constraint config:
 
 ```yaml
 constraint:
-  name: "plasticity_mesh_consistency"
+  name: "plasticity_mesh_consistency_constraint"
   backbone_out_dim: 3
   target_out_dim: 4
   spacing_activation: "softplus"

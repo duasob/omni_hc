@@ -44,7 +44,7 @@ physical velocity on the curvilinear pipe mesh and returns $u_x$.
 Inspect representative outputs with:
 
 ```bash
-python scripts/diagnostics/pipe_stream_function.py \
+python scripts/diagnostics/pipe/pipe_stream_function.py \
   --samples 0 10 100 \
   --summary-samples 1000
 ```
@@ -60,7 +60,7 @@ Shared constraint config:
 
 ```yaml
 constraint:
-  name: "pipe_stream_function_boundary"
+  name: "pipe_stream_function_boundary_ansatz"
   amplitude: 0.25
   inlet_axis: 0
   transverse_axis: 1
@@ -68,6 +68,7 @@ constraint:
   coordinate_channel: 1
   decay_power: 1.0
   eps: 1.0e-12
+  uy_loss_weight: 0.1
 ```
 
 Pipe experiment using this constraint:

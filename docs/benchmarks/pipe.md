@@ -89,7 +89,7 @@ and they can all be run through the shared commands documented in
 Inspect the observed boundary values with:
 
 ```bash
-python scripts/diagnostics/pipe_boundary.py \
+python scripts/diagnostics/pipe/pipe_boundary.py \
   --samples 0 10 100 \
   --summary-samples 1000
 ```
@@ -97,7 +97,7 @@ python scripts/diagnostics/pipe_boundary.py \
 Inspect the inlet profile with:
 
 ```bash
-python scripts/diagnostics/pipe_inlet_profile.py \
+python scripts/diagnostics/pipe/pipe_inlet_profile.py \
   --samples 0 10 100 \
   --summary-samples 1000
 ```
@@ -105,14 +105,14 @@ python scripts/diagnostics/pipe_inlet_profile.py \
 For a broader dataset summary:
 
 ```bash
-python scripts/diagnostics/pipe_dataset_summary.py \
+python scripts/diagnostics/pipe/pipe_dataset_summary.py \
   --summary-samples 1000
 ```
 
 For a discrete finite-volume divergence check on the curvilinear cells:
 
 ```bash
-python scripts/diagnostics/pipe_divergence.py \
+python scripts/diagnostics/pipe/pipe_divergence.py \
   --summary-samples 1000
 ```
 

@@ -45,7 +45,7 @@ unchanged to pressure, because the pressure channel is not a zero-wall target.
 Inspect the observed wall behavior with:
 
 ```bash
-python scripts/diagnostics/pipe_boundary.py \
+python scripts/diagnostics/pipe/pipe_boundary.py \
   --samples 0 10 100 \
   --summary-samples 1000
 ```
@@ -61,7 +61,7 @@ Shared constraint config:
 
 ```yaml
 constraint:
-  name: "pipe_wall_no_slip"
+  name: "structured_wall_dirichlet_ansatz"
   boundary_value: 0.0
   transverse_axis: 1
   distance_power: 1.0

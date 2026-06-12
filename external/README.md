@@ -12,4 +12,3 @@ external/Neural-Solver-Library
 
 - `backend.nsl_root` in the experiment config
 - `OMNI_HC_NSL_ROOT` environment variable
-- `--nsl-root` on CLI scripts

@@ -45,7 +45,7 @@ where $t=(y-y_{\min})/(y_{\max}-y_{\min})$ along the inlet edge.
 Validate the inlet profile with:
 
 ```bash
-python scripts/diagnostics/pipe_inlet_profile.py \
+python scripts/diagnostics/pipe/pipe_inlet_profile.py \
   --samples 0 10 100 \
   --summary-samples 1000
 ```
@@ -53,7 +53,7 @@ python scripts/diagnostics/pipe_inlet_profile.py \
 For a broader dataset summary:
 
 ```bash
-python scripts/diagnostics/pipe_dataset_summary.py \
+python scripts/diagnostics/pipe/pipe_dataset_summary.py \
   --summary-samples 1000
 ```
 
@@ -68,7 +68,7 @@ Shared constraint config:
 
 ```yaml
 constraint:
-  name: "pipe_inlet_parabolic"
+  name: "pipe_inlet_parabolic_ansatz"
   amplitude: 0.25
   inlet_axis: 0
   transverse_axis: 1

@@ -57,11 +57,15 @@ Shared constraint config:
 
 ```yaml
 constraint:
-  name: "dirichlet_ansatz"
+  name: "dirichlet_boundary_ansatz"
   boundary_value: 0.0
-  distance_power: 1.0
+  distance_power: 0.01
   distance_reduce: "product"
 ```
+
+The small positive `distance_power` preserves exact zero values on the box
+boundary while keeping the interior multiplier close to one. This is the
+current setting selected after the Darcy distance-power ablation.
 
 Darcy experiment using this constraint:
 

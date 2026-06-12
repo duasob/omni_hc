@@ -80,10 +80,11 @@ Shared utilities cover checkpointing (`common.py`), W&B logging
 ## Backbone integration (`omni_hc.integrations.nsl`)
 
 Backbones come from the vendored [Neural-Solver-Library](https://github.com/thuml/Neural-Solver-Library)
-at `external/Neural-Solver-Library` (override with `--nsl-root` or
-`OMNI_HC_NSL_ROOT`). `build_model_args` merges NSL defaults with the config's
-`model.args`, and `create_model` instantiates the backbone and wraps it in a
-`ConstrainedModel` when a constraint is configured.
+at `external/Neural-Solver-Library`. A different checkout can be selected with
+`OMNI_HC_NSL_ROOT` or `backend.nsl_root` in the run config. `build_model_args`
+merges NSL defaults with the config's `model.args`, and `create_model`
+instantiates the backbone and wraps it in a `ConstrainedModel` when a constraint
+is configured.
 
 ## Entry points
 

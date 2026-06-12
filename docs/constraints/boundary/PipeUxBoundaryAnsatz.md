@@ -34,7 +34,7 @@ Shared constraint config:
 
 ```yaml
 constraint:
-  name: "pipe_ux_boundary"
+  name: "pipe_ux_boundary_ansatz"
   amplitude: 0.25
   inlet_axis: 0
   transverse_axis: 1

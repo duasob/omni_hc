@@ -30,13 +30,8 @@ The corresponding experiment config is
 
 ## Dataset Checks
 
-Inspect the NSL-style tensor layout with:
-
-```bash
-python scripts/diagnostics/elasticity/elasticity_loader_check.py
-```
-
-For sample plots and scalar stress summaries:
+Inspect the NSL-style tensor layout, sample point clouds, and scalar stress
+summaries with:
 
 ```bash
 python scripts/diagnostics/elasticity/elasticity_dataset_summary.py \

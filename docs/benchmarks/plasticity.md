@@ -74,7 +74,7 @@ clamped side. The diagnostic reports `u_y = 0` on `lower_jN`.
 Use the channel probe to reproduce the check:
 
 ```bash
-python scripts/diagnostics/plasticity/plasticity_channel_probe.py \
+python scripts/studies/plasticity_channel_probe.py \
   --data-dir data/plasticity \
   --summary-samples 64 \
   --samples 0
@@ -138,7 +138,7 @@ python scripts/diagnostics/plasticity/plasticity_forging_gif.py \
 Inspect channel consistency with:
 
 ```bash
-python scripts/diagnostics/plasticity/plasticity_channel_probe.py \
+python scripts/studies/plasticity_channel_probe.py \
   --data-dir data/plasticity \
   --summary-samples 64 \
   --samples 0

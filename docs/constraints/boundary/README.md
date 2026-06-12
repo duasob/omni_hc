@@ -16,7 +16,8 @@ The diagnostic map script derives `g` and `l` from the actual constraint call,
 instead of reimplementing each formula:
 
 ```bash
-conda run -n omni-hc python scripts/diagnostics/boundary_ansatz_maps.py
+conda run -n omni-hc python \
+  scripts/diagnostics/pipe/boundary_ansatz_maps.py
 ```
 
 This makes the figures useful regression artifacts: if an ansatz implementation

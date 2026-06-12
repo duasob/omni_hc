@@ -24,8 +24,8 @@ python scripts/tune.py --config path/to/config.yaml
 ```
 
 If `Neural-Solver-Library` is not installed at
-`external/Neural-Solver-Library`, pass `--nsl-root /path/to/Neural-Solver-Library`
-or set `OMNI_HC_NSL_ROOT`.
+`external/Neural-Solver-Library`, set `OMNI_HC_NSL_ROOT` or configure
+`backend.nsl_root` in the run YAML.
 
 ## Report-Oriented Structure
 

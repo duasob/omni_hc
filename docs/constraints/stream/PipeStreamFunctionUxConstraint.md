@@ -181,7 +181,7 @@ Shared constraint config:
 
 ```yaml
 constraint:
-  name: "pipe_stream_function_ux"
+  name: "pipe_stream_function_ux_constraint"
   eps: 1.0e-12
 ```
 
