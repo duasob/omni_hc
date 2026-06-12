@@ -14,7 +14,7 @@ The default point-cloud setup therefore predicts one scalar `sigma` per material
 point from the 2D point coordinates.
 
 The benchmark defaults live in
-[`configs/benchmarks/elasticity/base.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/benchmarks/elasticity/base.yaml).
+[`configs/benchmarks/elasticity/base.yaml`](../../configs/benchmarks/elasticity/base.yaml).
 
 ## Hard Constraints
 
@@ -26,7 +26,7 @@ The first documented hard-constraint variant is:
   $\sigma_3=0$, and returns the plane-stress von Mises stress.
 
 The corresponding experiment config is
-[`configs/experiments/elasticity/fno_small_plane_stress_vm.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/elasticity/fno_small_plane_stress_vm.yaml).
+[`configs/experiments/elasticity/fno_small_plane_stress_vm.yaml`](../../configs/experiments/elasticity/fno_small_plane_stress_vm.yaml).
 
 ## Dataset Checks
 

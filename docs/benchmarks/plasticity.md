@@ -5,7 +5,7 @@
 This benchmark predicts plastic forging deformation on astructured 2D mesh. 
 
 The benchmark defaults live in
-[`configs/benchmarks/plasticity/base.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/benchmarks/plasticity/base.yaml).
+[`configs/benchmarks/plasticity/base.yaml`](../../configs/benchmarks/plasticity/base.yaml).
 
 ## Dataset
 
@@ -104,10 +104,10 @@ The documented hard-constraint variant is:
   returns the benchmark target channels `[x, y, u_x, u_y]`.
 
 The shared constraint config is
-[`configs/constraints/plasticity_mesh_consistency.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/constraints/plasticity_mesh_consistency.yaml).
+[`configs/constraints/plasticity_mesh_consistency_constraint.yaml`](../../configs/constraints/plasticity_mesh_consistency_constraint.yaml).
 
 The current baseline experiment config is
-[`configs/experiments/plasticity/fno.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/plasticity/fno.yaml).
+[`configs/experiments/plasticity/fno.yaml`](../../configs/experiments/plasticity/fno.yaml).
 
 Example unconstrained run:
 

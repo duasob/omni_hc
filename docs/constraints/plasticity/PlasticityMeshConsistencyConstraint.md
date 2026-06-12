@@ -109,7 +109,7 @@ The constraint guarantees:
 
 Shared constraint config:
 
-[`configs/constraints/plasticity_mesh_consistency.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/constraints/plasticity_mesh_consistency.yaml)
+[`configs/constraints/plasticity_mesh_consistency_constraint.yaml`](../../../configs/constraints/plasticity_mesh_consistency_constraint.yaml)
 
 ```yaml
 constraint:
@@ -162,7 +162,7 @@ to produce the plasticity consistency panel.
 
 Regression coverage lives in:
 
-- [`tests/test_plasticity_mesh_consistency.py`](/Users/bruno/Documents/Y4/FYP/omni_hc/tests/test_plasticity_mesh_consistency.py)
-- [`tests/test_constraint_config_wiring.py`](/Users/bruno/Documents/Y4/FYP/omni_hc/tests/test_constraint_config_wiring.py)
+- [`tests/test_plasticity_mesh_consistency.py`](../../../tests/test_plasticity_mesh_consistency.py)
+- [`tests/test_constraint_config_wiring.py`](../../../tests/test_constraint_config_wiring.py)
 
 Those tests check the reconstructed coordinates, hard lower-boundary behavior, positive spacing diagnostics, and config composition.

@@ -29,19 +29,19 @@ The implementation supports three modes:
 - `latent_head`: learn a correction from a captured latent representation.
 
 The reusable config lives in
-[`configs/constraints/mean_correction.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/constraints/mean_correction.yaml). Current Navier-Stokes experiment configs override that base config to use
+[`configs/constraints/mean_constraint.yaml`](../../../configs/constraints/mean_constraint.yaml). Current Navier-Stokes experiment configs override that base config to use
 `post_output`, which is the lightest version and does not require a latent hook.
 
 ## Configs
 Navier-Stokes experiment configs that already include the mean constraint:
-- [`configs/experiments/navier_stokes/fno_small_mean.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/navier_stokes/fno_small_mean.yaml)
-- [`configs/experiments/navier_stokes/gt_small_mean.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/navier_stokes/gt_small_mean.yaml)
+- [`configs/experiments/navier_stokes/fno_small_mean.yaml`](../../../configs/experiments/navier_stokes/fno_small_mean.yaml)
+- [`configs/experiments/navier_stokes/gt_small_mean.yaml`](../../../configs/experiments/navier_stokes/gt_small_mean.yaml)
 
 Those compose:
 - benchmark defaults from
-  [`configs/benchmarks/navier_stokes/base.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/benchmarks/navier_stokes/base.yaml)
+  [`configs/benchmarks/navier_stokes/base.yaml`](../../../configs/benchmarks/navier_stokes/base.yaml)
 - a backbone config from `configs/backbones/`
-- the shared mean-constraint config from `configs/constraints/mean_correction.yaml`
+- the shared mean-constraint config from `configs/constraints/mean_constraint.yaml`
 
 Use the shared run commands from [../../README.md](../../README.md) with either
 Navier-Stokes experiment config above.
@@ -60,4 +60,4 @@ Original results are taken from [here](https://arxiv.org/abs/2402.02366). Furthe
 ## Tests
 
 Regression coverage lives in
-[`tests/test_mean.py`](/Users/bruno/Documents/Y4/FYP/omni_hc/tests/test_mean.py).
+[`tests/test_mean.py`](../../../tests/test_mean.py).

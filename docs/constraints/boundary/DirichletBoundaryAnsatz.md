@@ -53,7 +53,7 @@ itself, only the pressure boundary values.
 
 Shared constraint config:
 
-[`configs/constraints/dirichlet_ansatz_zero.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/constraints/dirichlet_ansatz_zero.yaml)
+[`configs/constraints/dirichlet_boundary_ansatz.yaml`](../../../configs/constraints/dirichlet_boundary_ansatz.yaml)
 
 ```yaml
 constraint:
@@ -65,7 +65,7 @@ constraint:
 
 Darcy experiment using this constraint:
 
-[`configs/experiments/darcy/fno_small_dirichlet.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/darcy/fno_small_dirichlet.yaml)
+[`configs/experiments/darcy/fno_small_dirichlet.yaml`](../../../configs/experiments/darcy/fno_small_dirichlet.yaml)
 
 ## Diagnostics And Tests
 
@@ -75,7 +75,7 @@ When `return_aux=True`, the constraint reports:
 - `constraint/boundary_abs_max`
 
 Regression coverage in
-[`tests/test_boundary.py`](/Users/bruno/Documents/Y4/FYP/omni_hc/tests/test_boundary.py)
+[`tests/test_boundary.py`](../../../tests/test_boundary.py)
 checks that:
 
 - the boundary mask is detected correctly

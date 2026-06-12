@@ -132,7 +132,7 @@ itself, evidence that the learned full velocity field matches the dataset's
 $u_y$.
 
 The implementation computes the derivatives on the curvilinear pipe mesh using
-[`src/omni_hc/constraints/utils/stream_ops.py`](/Users/bruno/Documents/Y4/FYP/omni_hc/src/omni_hc/constraints/utils/stream_ops.py).
+[`src/omni_hc/constraints/utils/stream_ops.py`](../../../src/omni_hc/constraints/utils/stream_ops.py).
 
 This is not a boundary ansatz. It enforces incompressibility structurally by
 recovering velocity from $\psi$, but it does not directly force the pipe inlet
@@ -177,7 +177,7 @@ scalar $u_x$ target.
 
 Shared constraint config:
 
-[`configs/constraints/pipe_stream_function.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/constraints/pipe_stream_function.yaml)
+[`configs/constraints/pipe_stream_function_ux_constraint.yaml`](../../../configs/constraints/pipe_stream_function_ux_constraint.yaml)
 
 ```yaml
 constraint:
@@ -187,7 +187,7 @@ constraint:
 
 Pipe experiment using this constraint:
 
-[`configs/experiments/pipe/fno_small_stream.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/pipe/fno_small_stream.yaml)
+[`configs/experiments/pipe/fno_small_stream.yaml`](../../../configs/experiments/pipe/fno_small_stream.yaml)
 
 ## Diagnostics And Tests
 
@@ -202,7 +202,7 @@ When `return_aux=True`, the constraint reports:
 and auxiliary tensors including `stream_psi`, `stream_uy`, and `stream_div`.
 
 Regression coverage in
-[`tests/test_stream.py`](/Users/bruno/Documents/Y4/FYP/omni_hc/tests/test_stream.py)
+[`tests/test_stream.py`](../../../tests/test_stream.py)
 checks that:
 
 - $u_x$ is recovered correctly from a known stream function

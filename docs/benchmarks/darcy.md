@@ -24,7 +24,7 @@ u|_{\partial \Omega} = 0
 $$
 
 The default benchmark metadata lives in
-[`configs/benchmarks/darcy/base.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/benchmarks/darcy/base.yaml).
+[`configs/benchmarks/darcy/base.yaml`](../../configs/benchmarks/darcy/base.yaml).
 
 
 ## Dataset Diagnostics
@@ -50,7 +50,7 @@ The Darcy benchmark currently has two hard-constraint variants:
   `div(v) = 1` before solving back for pressure.
 
 The corresponding experiment configs live under
-[`configs/experiments/darcy/`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/darcy),
+[`configs/experiments/darcy/`](../../configs/experiments/darcy),
 and they can all be run through the shared commands documented in
 [../README.md](../README.md).
 
@@ -58,10 +58,10 @@ and they can all be run through the shared commands documented in
 
 Available Darcy experiment configs:
 
-- [`configs/experiments/darcy/fno_small.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/darcy/fno_small.yaml)
-- [`configs/experiments/darcy/fno_small_dirichlet.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/darcy/fno_small_dirichlet.yaml)
-- [`configs/experiments/darcy/fno_small_flux_fft_pad.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/darcy/fno_small_flux_fft_pad.yaml)
-- [`configs/experiments/darcy/gt_small_flux_fft_pad.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/darcy/gt_small_flux_fft_pad.yaml)
+- [`configs/experiments/darcy/fno_small.yaml`](../../configs/experiments/darcy/fno_small.yaml)
+- [`configs/experiments/darcy/fno_small_dirichlet.yaml`](../../configs/experiments/darcy/fno_small_dirichlet.yaml)
+- [`configs/experiments/darcy/fno_small_flux_fft_pad.yaml`](../../configs/experiments/darcy/fno_small_flux_fft_pad.yaml)
+- [`configs/experiments/darcy/gt_small_flux_fft_pad.yaml`](../../configs/experiments/darcy/gt_small_flux_fft_pad.yaml)
 
 Use the shared run commands from [../README.md](../README.md) with any of these
 configs.

@@ -349,9 +349,7 @@ def compose_run_config(
     benchmark_name = _experiment_value(experiment_cfg, "benchmark", benchmark)
     backbone_name = _experiment_value(experiment_cfg, "backbone", backbone)
     constraint_name = _experiment_value(experiment_cfg, "constraint", constraint)
-    budget_name = _experiment_value(experiment_cfg, "budget", budget) or (
-        "tune_debug" if mode == "tune" else "debug"
-    )
+    budget_name = _experiment_value(experiment_cfg, "budget", budget) or "debug"
     optuna_name = _experiment_value(experiment_cfg, "optuna", optuna)
 
     if benchmark_name is None:

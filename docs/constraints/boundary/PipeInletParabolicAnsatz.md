@@ -64,7 +64,7 @@ $u_y$ remains zero over the inspected dataset slice.
 
 Shared constraint config:
 
-[`configs/constraints/pipe_inlet_parabolic.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/constraints/pipe_inlet_parabolic.yaml)
+[`configs/constraints/pipe_inlet_parabolic_ansatz.yaml`](../../../configs/constraints/pipe_inlet_parabolic_ansatz.yaml)
 
 ```yaml
 constraint:
@@ -78,7 +78,7 @@ constraint:
 
 Pipe experiment using this constraint:
 
-[`configs/experiments/pipe/fno_small_inlet.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/pipe/fno_small_inlet.yaml)
+[`configs/experiments/pipe/fno_small_inlet.yaml`](../../../configs/experiments/pipe/fno_small_inlet.yaml)
 
 ## Diagnostics And Tests
 
@@ -93,4 +93,4 @@ When `return_aux=True`, the constraint emits inlet-specific diagnostics such as:
 
 The tests verify exact inlet enforcement, compatibility with normalized inputs
 and targets, optional channel targeting, and emitted diagnostics in
-[`tests/test_boundary.py`](/Users/bruno/Documents/Y4/FYP/omni_hc/tests/test_boundary.py).
+[`tests/test_boundary.py`](../../../tests/test_boundary.py).

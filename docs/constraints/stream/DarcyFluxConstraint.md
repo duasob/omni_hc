@@ -56,7 +56,7 @@ $$
 up to the discrete residual of the numerical operators being used.
 
 The current implementation uses the Cartesian spectral stream-function helper in
-[`src/omni_hc/constraints/darcy_flux.py`](/Users/bruno/Documents/Y4/FYP/omni_hc/src/omni_hc/constraints/darcy_flux.py)
+[`src/omni_hc/constraints/darcy_flux.py`](../../../src/omni_hc/constraints/darcy_flux.py)
 with `padding_mode="reflect"` and the `helmholtz_sine` recovery path.
 
 After building the valid flux, the constraint maps it back to pressure through
@@ -79,7 +79,7 @@ output that respects the benchmark's zero boundary value.
 
 Shared constraint config:
 
-[`configs/constraints/darcy_flux_fft_pad.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/constraints/darcy_flux_fft_pad.yaml)
+[`configs/constraints/darcy_flux_constraint_spectral.yaml`](../../../configs/constraints/darcy_flux_constraint_spectral.yaml)
 
 ```yaml
 constraint:
@@ -97,8 +97,8 @@ constraint:
 
 Darcy experiments using this constraint:
 
-- [`configs/experiments/darcy/fno_small_flux_fft_pad.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/darcy/fno_small_flux_fft_pad.yaml)
-- [`configs/experiments/darcy/gt_small_flux_fft_pad.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/darcy/gt_small_flux_fft_pad.yaml)
+- [`configs/experiments/darcy/fno_small_flux_fft_pad.yaml`](../../../configs/experiments/darcy/fno_small_flux_fft_pad.yaml)
+- [`configs/experiments/darcy/gt_small_flux_fft_pad.yaml`](../../../configs/experiments/darcy/gt_small_flux_fft_pad.yaml)
 
 For the current loader, `lower` and `upper` do not need to be set manually
 because the benchmark metadata already supplies `domain_bounds = (0.0, 1.0)`.
@@ -126,7 +126,7 @@ and auxiliary tensors including:
 - `constrained_flux`
 
 Regression coverage in
-[`tests/test_darcy_flux.py`](/Users/bruno/Documents/Y4/FYP/omni_hc/tests/test_darcy_flux.py)
+[`tests/test_darcy_flux.py`](../../../tests/test_darcy_flux.py)
 checks that:
 
 - the output is a scalar pressure field with the expected shape

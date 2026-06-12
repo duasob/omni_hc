@@ -14,7 +14,7 @@ components directly. The common path is to pass component names:
 python scripts/train.py \
   --benchmark darcy \
   --backbone FNO \
-  --constraint darcy_flux_fft_pad \
+  --constraint darcy_flux_constraint \
   --budget debug
 ```
 
@@ -27,8 +27,8 @@ Names resolve to config files by convention:
 --backbone FNO
   -> configs/backbones/darcy/FNO.yaml
 
---constraint darcy_flux_fft_pad
-  -> configs/constraints/darcy_flux_fft_pad.yaml
+--constraint darcy_flux_constraint
+  -> configs/constraints/darcy_flux_constraint.yaml
 
 --budget debug
   -> configs/budgets/debug.yaml
@@ -55,9 +55,9 @@ addition to the train-time components:
 python scripts/tune.py \
   --benchmark darcy \
   --backbone Galerkin_Transformer \
-  --constraint darcy_flux_fft_pad \
-  --budget tune_debug \
-  --optuna darcy_flux_fft_pad
+  --constraint darcy_flux_constraint \
+  --budget debug \
+  --optuna darcy_flux_constraint
 ```
 
 If `--optuna` is omitted, `tune.py` looks for a search-space config matching
@@ -69,55 +69,41 @@ Experiment files are optional named recipes. They can specify the same
 components as flags and then apply final overrides:
 
 ```yaml
-name: "darcy_fno_flux_fft_pad"
+name: "darcy_fno_flux"
 benchmark: "darcy"
 backbone: "FNO"
-constraint: "darcy_flux_fft_pad"
+constraint: "darcy_flux_constraint"
 budget: "debug"
-optuna: "darcy_flux_fft_pad"
+optuna: "darcy_flux_constraint"
 
 overrides:
   paths:
-    output_dir: "outputs/darcy/fno_flux_fft_pad"
+    output_dir: "outputs/darcy/fno_flux"
   wandb_logging:
-    run_name: "darcy_fno_flux_fft_pad"
+    run_name: "darcy_fno_flux"
 ```
 
 Run an experiment recipe with:
 
 ```bash
-python scripts/train.py --config configs/experiments/darcy/fno_small_flux_fft_pad.yaml
-python scripts/tune.py --config configs/experiments/darcy/fno_small_flux_fft_pad.yaml --budget tune_debug
-python scripts/test.py --config configs/experiments/darcy/fno_small_flux_fft_pad.yaml
+python scripts/train.py --config configs/experiments/darcy/fno_small_flux.yaml
+python scripts/tune.py --config configs/experiments/darcy/fno_small_flux.yaml --budget debug
+python scripts/test.py --config configs/experiments/darcy/fno_small_flux.yaml
 ```
 
 CLI flags override the experiment component names when provided.
 
-## Sweep Scripts
+## Batch Runs
 
-Batch launch is handled by shell scripts under `scripts/sweeps/`. They are
-plain loops over component names:
-
-```bash
-scripts/sweeps/darcy_transformers_train.sh
-scripts/sweeps/darcy_transformers_tune.sh
-scripts/sweeps/plasticity_backbones_train.sh
-```
-
-Override sweep settings with environment variables:
+Batches of runs are dispatched from run-list text files under `experiments/`
+with `scripts/run_batch.sh` (locally) or `scripts/hpc/runner.sh` (PBS cluster):
 
 ```bash
-BUDGET=smoke SEEDS="1 2 3" DEVICE=cuda scripts/sweeps/darcy_transformers_train.sh
+RUNS_FILE=experiments/darcy/transolver_unconstrained_data.txt scripts/run_batch.sh
 ```
 
-For Colab tuning, set `OMNI_HC_OUTPUT_ROOT` to a Drive-backed directory if you
-want durable outputs:
-
-```bash
-OMNI_HC_OUTPUT_ROOT=/content/drive/MyDrive/omni_hc \
-  BUDGET=tune_colab \
-  scripts/sweeps/darcy_transformers_tune.sh
-```
+For Colab, set `OMNI_HC_OUTPUT_ROOT` to a Drive-backed directory if you want
+durable outputs.
 
 Training and tuning use validation metrics by default. If a benchmark supports
 `training.val_size: 0`, the full training subset is used for optimization and

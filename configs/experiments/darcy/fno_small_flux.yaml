@@ -1,0 +1,12 @@
+name: "darcy_fno_flux"
+benchmark: "darcy"
+backbone: "FNO"
+constraint: "darcy_flux_constraint"
+budget: "debug"
+optuna: "darcy_flux_constraint"
+
+overrides:
+  paths:
+    output_dir: "outputs/darcy/fno_flux"
+  wandb_logging:
+    run_name: "darcy_fno_flux"

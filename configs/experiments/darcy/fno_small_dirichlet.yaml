@@ -3,7 +3,7 @@ benchmark: "darcy"
 backbone: "FNO"
 constraint: "dirichlet_boundary_ansatz"
 budget: "debug"
-optuna: "dirichlet_ansatz_zero"
+optuna: "dirichlet_boundary_ansatz"
 
 overrides:
   paths:

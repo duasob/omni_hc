@@ -24,8 +24,8 @@ Backbone configs under `configs/backbones/plasticity/` keep the NSL
 model-specific defaults. The mesh-consistency hard constraint is configured
 separately in:
 
-[`configs/constraints/plasticity_mesh_consistency.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/constraints/plasticity_mesh_consistency.yaml)
+[`configs/constraints/plasticity_mesh_consistency_constraint.yaml`](../../../configs/constraints/plasticity_mesh_consistency_constraint.yaml)
 
 The corresponding benchmark documentation is:
 
-[`docs/benchmarks/plasticity.md`](/Users/bruno/Documents/Y4/FYP/omni_hc/docs/benchmarks/plasticity.md)
+[`docs/benchmarks/plasticity.md`](../../../docs/benchmarks/plasticity.md)

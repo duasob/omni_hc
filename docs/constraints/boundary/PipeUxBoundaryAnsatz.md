@@ -30,7 +30,7 @@ dataset and keeps the ansatz stable under coordinate normalization.
 
 Shared constraint config:
 
-[`configs/constraints/pipe_ux_boundary.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/constraints/pipe_ux_boundary.yaml)
+[`configs/constraints/pipe_ux_boundary_ansatz.yaml`](../../../configs/constraints/pipe_ux_boundary_ansatz.yaml)
 
 ```yaml
 constraint:
@@ -46,7 +46,7 @@ constraint:
 
 Pipe experiment using this constraint:
 
-[`configs/experiments/pipe/fno_small_ux_boundary.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/pipe/fno_small_ux_boundary.yaml)
+[`configs/experiments/pipe/fno_small_ux_boundary.yaml`](../../../configs/experiments/pipe/fno_small_ux_boundary.yaml)
 
 ## Diagnostics And Tests
 
@@ -62,4 +62,4 @@ including:
 
 The tests verify exact inlet and wall enforcement, normalization support, and
 the explicit $g+lN$ decomposition in
-[`tests/test_boundary.py`](/Users/bruno/Documents/Y4/FYP/omni_hc/tests/test_boundary.py).
+[`tests/test_boundary.py`](../../../tests/test_boundary.py).

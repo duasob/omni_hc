@@ -18,7 +18,7 @@ physically restricted output space.
 - [Plasticity mesh consistency](plasticity/PlasticityMeshConsistencyConstraint.md):
   ordered deformation mesh reconstruction from positive learned spacings,
   returning consistent `[x, y, u_x, u_y]` channels.
-- [Mean constraints](MeanConstraint.md): global mean-preserving correction.
+- [Mean constraints](mean/MeanConstraint.md): global mean-preserving correction.
 
 ## Implementation Map
 

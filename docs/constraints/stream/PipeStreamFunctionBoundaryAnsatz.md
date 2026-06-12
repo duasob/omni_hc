@@ -1,6 +1,6 @@
 # PipeStreamFunctionBoundaryAnsatz
 
-`PipeStreamFunctionBoundaryAnsatz` combines a divergence-free stream-function ([PipeStreamFunctionUxConstraint](PipeStreamFunctionUxConstraint.md)) representation with hard pipe boundary behavior ([PipeUxBoundaryAnsatz](PipeUxBoundaryAnsatz.md)).
+`PipeStreamFunctionBoundaryAnsatz` combines a divergence-free stream-function ([PipeStreamFunctionUxConstraint](PipeStreamFunctionUxConstraint.md)) representation with hard pipe boundary behavior ([PipeUxBoundaryAnsatz](../boundary/PipeUxBoundaryAnsatz.md)).
 
 ## Mechanism
 ![pipe_stream_function_boundary_g_l](../../figures/pipe/pipe_stream_function_boundary_g_l.png)
@@ -56,7 +56,7 @@ boundary stream function $\psi_{\text{bc}}$, and the correction mask.
 
 Shared constraint config:
 
-[`configs/constraints/pipe_stream_function_boundary.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/constraints/pipe_stream_function_boundary.yaml)
+[`configs/constraints/pipe_stream_function_boundary_ansatz.yaml`](../../../configs/constraints/pipe_stream_function_boundary_ansatz.yaml)
 
 ```yaml
 constraint:
@@ -72,7 +72,7 @@ constraint:
 
 Pipe experiment using this constraint:
 
-[`configs/experiments/pipe/fno_small_stream_boundary.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/pipe/fno_small_stream_boundary.yaml)
+[`configs/experiments/pipe/fno_small_stream_boundary.yaml`](../../../configs/experiments/pipe/fno_small_stream_boundary.yaml)
 
 ## Diagnostics And Tests
 
@@ -90,6 +90,6 @@ and exposes auxiliary outputs including `stream_psi`, `stream_div`,
 `stream_psi_bc`, and `stream_mask`.
 
 Regression coverage in
-[`tests/test_stream.py`](/Users/bruno/Documents/Y4/FYP/omni_hc/tests/test_stream.py)
+[`tests/test_stream.py`](../../../tests/test_stream.py)
 checks that the correction mask is zero on the inlet and walls, and that the
 diagnostics for divergence, inlet residual, and wall residual are emitted.

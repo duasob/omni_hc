@@ -30,7 +30,7 @@ internally, but the training objective still supervises only the returned
 $u_x$ unless the benchmark is changed to predict both velocity components or add
 an auxiliary loss on $u_y$.
 
-The benchmark defaults live in [`configs/benchmarks/pipe/base.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/benchmarks/pipe/base.yaml).
+The benchmark defaults live in [`configs/benchmarks/pipe/base.yaml`](../../configs/benchmarks/pipe/base.yaml).
 
 ## Dataset Diagnostics
 
@@ -80,7 +80,7 @@ The pipe benchmark currently has five documented hard-constraint variants:
   behavior.
 
 The corresponding experiment configs live under
-[`configs/experiments/pipe/`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/pipe),
+[`configs/experiments/pipe/`](../../configs/experiments/pipe),
 and they can all be run through the shared commands documented in
 [here](../README.md).
 

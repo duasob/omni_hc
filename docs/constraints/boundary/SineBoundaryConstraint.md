@@ -128,7 +128,7 @@ constraint:
 ```
 
 Config file:
-[`configs/constraints/darcy_sine_boundary_constraint.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/constraints/darcy_sine_boundary_constraint.yaml)
+[`configs/constraints/darcy_sine_boundary_constraint.yaml`](../../../configs/constraints/darcy_sine_boundary_constraint.yaml)
 
 To wire in a backbone latent (e.g. from a Transolver block), add:
 

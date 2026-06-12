@@ -57,7 +57,7 @@ wall $u_y$ are exactly zero on both transverse edges.
 
 Shared constraint config:
 
-[`configs/constraints/pipe_wall_no_slip.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/constraints/pipe_wall_no_slip.yaml)
+[`configs/constraints/structured_wall_dirichlet_ansatz.yaml`](../../../configs/constraints/structured_wall_dirichlet_ansatz.yaml)
 
 ```yaml
 constraint:
@@ -70,7 +70,7 @@ constraint:
 
 Pipe experiment using this constraint:
 
-[`configs/experiments/pipe/fno_small_wall.yaml`](/Users/bruno/Documents/Y4/FYP/omni_hc/configs/experiments/pipe/fno_small_wall.yaml)
+[`configs/experiments/pipe/fno_small_wall.yaml`](../../../configs/experiments/pipe/fno_small_wall.yaml)
 
 ## Diagnostics And Tests
 
@@ -84,4 +84,4 @@ through diagnostics such as:
 - `constraint/interior_abs_delta_mean`
 
 Regression coverage lives in
-[`tests/test_boundary.py`](/Users/bruno/Documents/Y4/FYP/omni_hc/tests/test_boundary.py).
+[`tests/test_boundary.py`](../../../tests/test_boundary.py).
