@@ -19,7 +19,7 @@ model = ConstrainedModel(
 )
 ```
 
-This framework was developed as my Final Year Project at Imperial College London. The benchmarks and constraints are summarized below, and the documentation is organized under [docs](docs/README.md); see [docs/architecture.md](docs/architecture.md) for how the pieces fit together.
+This framework was developed as my Final Year Project at Imperial College London. The benchmarks and constraints are summarized below, and the documentation is organized under [docs](docs/README.md),
 
 | Benchmark | Physical Domain | Dataset Source | Hard Constraints Implemented |
 | :-- | :-- | :-- | :-- |
