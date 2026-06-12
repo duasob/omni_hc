@@ -1,6 +1,8 @@
 # OmniHC
 Omni-model Hard Constraints: A Modular Framework for Physics-Preserving Transformers Across Standard Benchmarks
 
+This framework was developed as my Final Year Project at Imperial College London in collaboration with IBM. The benchmarks and constraints are summarized below, the documentation is organized under [docs](docs/README.md) and the final report is available as [report.pdf](report.pdf). 
+
 This project shifts from "encouraging" physics (soft constraints) to guaranteeing them. The idea is that any standard backbone architecture can be wrapped with a hard constraint module to return physically consistent predictions. 
 
 ```python
@@ -18,8 +20,6 @@ model = ConstrainedModel(
     constraint=constraint,
 )
 ```
-
-This framework was developed as my Final Year Project at Imperial College London. The benchmarks and constraints are summarized below, the documentation is organized under [docs](docs/README.md) and the final report is available as [report.pdf](report.pdf). 
 
 | Benchmark | Physical Domain | Dataset Source | Hard Constraints Implemented |
 | :-- | :-- | :-- | :-- |
