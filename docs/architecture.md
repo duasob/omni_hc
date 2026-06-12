@@ -23,7 +23,7 @@ src/omni_hc/
 
 Supporting trees: `configs/` (component YAML files), `scripts/` (entry points,
 diagnostics, reporting), `external/Neural-Solver-Library/` (vendored backbone
-library), `tests/`, `docs/`, `notebooks/` (jupytext figure notebooks).
+library), `tests/`, `docs/`, `scripts/notebooks/` (jupytext figure notebooks).
 
 ## Config composition (`omni_hc.core`)
 
