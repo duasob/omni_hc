@@ -6,6 +6,10 @@ under `artifacts/`.
 Curated figures that are useful for docs or the final report can be copied into
 this directory and referenced from Markdown pages.
 
+The presentation deck also uses this directory as its source of truth through
+the `docs/presentation/assets -> ../figures` symlink. Keep slide references
+domain-scoped, for example `assets/ns/ns_problem_rollout.gif`.
+
 Diagnostic scripts live under `scripts/diagnostics`.
 
 ## Boundary Ansatz Maps

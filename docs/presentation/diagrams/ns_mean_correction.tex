@@ -1,0 +1,119 @@
+\documentclass[tikz,border=2pt]{standalone}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, calc, fit, shapes.geometric}
+
+\definecolor{perilText}{HTML}{1A1A1A}
+\definecolor{perilMuted}{HTML}{71717A}
+\definecolor{perilAccent}{HTML}{9B8AB8}
+\definecolor{perilSurface}{HTML}{F5F3EF}
+\definecolor{perilWash}{HTML}{F1EFF6}
+
+\begin{document}
+\begin{tikzpicture}[
+    font=\sffamily\small,
+    >=Stealth,
+    block/.style={draw, align=center, minimum height=1.4cm, rounded corners=3pt, solid, fill=white, inner sep=5pt},
+    imagebox/.style={inner sep=0pt, align=center},
+    arrow/.style={->, thick},
+    fieldbox/.style={draw, minimum width=1.8cm, minimum height=1.8cm, inner sep=0pt, fill=#1, rounded corners=2pt}
+]%
+% ==========================================
+% TOP MACRO-VIEW (y = 0 baseline)
+% ==========================================
+% \node[font=\Large\bfseries, align=center] (macro_title) at (0.5, 4.5) {Global Vorticity Constraint: Correction-Based Projection};
+
+% 1. Input
+\node[imagebox] (input_t) at (-6.5, 0) {\includegraphics[width=1.8cm,height=1.8cm]{../assets/ns_ground_truth.png}};
+\node[below=3pt of input_t, font=\bfseries] {$\omega_{t-1}$};
+
+% 2. Backbone
+\node[block, right=1.2cm of input_t, text width=4.5cm, font=\bfseries] (backbone) {Transformer\\Backbone};
+\draw[arrow] (input_t) -- (backbone);
+
+% 3. Unconstrained prediction
+\node[imagebox, right=2cm of backbone] (y_t_img) {\includegraphics[width=1.8cm,height=1.8cm]{../assets/ns_ground_truth.png}};
+\node[below=3pt of y_t_img, font=\bfseries] {$\hat{\omega}$};
+\draw[arrow] (backbone) -- (y_t_img);
+
+% 4. Zero-Mean Projection
+\node[block, right=2cm of y_t_img, text width=4cm, minimum height=1.8cm, font=\bfseries] (constraint_head) {Zero-Mean\\Projection Layer};
+\draw[arrow] (y_t_img) -- (constraint_head);
+
+% 5. Constrained output
+\node[imagebox, right=1.5cm of constraint_head] (final_output) {\includegraphics[width=1.8cm,height=1.8cm]{../assets/ns_ground_truth.png}};
+\node[below=3pt of final_output, font=\bfseries] {$\hat{\omega}^*$};
+\draw[arrow] (constraint_head) -- (final_output);
+
+% --- CORRECTION BRANCH ---
+% 6. Correction MLP
+\node[block, minimum height=1.2cm, text width=3cm, font=\bfseries] (correction_head) at ([yshift=1.5cm]backbone.north east) [anchor=south east] {Correction\\Branch (MLP)};
+
+% 7. Latent z tapped from backbone
+\draw[arrow] ([xshift=0.5cm]backbone.north west) |- (correction_head.west)
+    node[pos=0.8, above=2pt, font=\bfseries] {$z$};
+
+% 8. Raw correction field
+\node[imagebox] (c_t_img) at (y_t_img |- correction_head) {\includegraphics[width=1.8cm,height=1.8cm]{../assets/ns_correction.png}};
+\node[below=3pt of c_t_img, font=\bfseries] {$c_{\mathrm{raw}}$};
+\draw[arrow] (correction_head) -- (c_t_img);
+
+% 9. Correction into constraint head
+\draw[arrow] (c_t_img.east) -- ++(0.8, 0) |- ([yshift=0.4cm]constraint_head.west);
+
+
+% ==========================================
+% EXPANDED DETAILED VIEW
+% ==========================================
+
+% 10. Inputs to expanded view
+\node[imagebox] (exp_yt) at (-2.0, -5.0) {\includegraphics[width=1.8cm,height=1.8cm]{../assets/ns_ground_truth.png}};
+\node[below=3pt of exp_yt, font=\bfseries] (exp_yt_label) {$\hat{\omega}$};
+
+\node[imagebox] (exp_ct) at (-2.0, -9.0) {\includegraphics[width=1.8cm,height=1.8cm]{../assets/ns_correction.png}};
+\node[below=3pt of exp_ct, font=\bfseries] (exp_ct_label) {$c_{\mathrm{raw}}$};
+
+% Junction dots
+\coordinate (dot_y) at (0.5, -5.0);
+\coordinate (dot_c) at (0.5, -9.0);
+\fill (dot_y) circle (1.5pt);
+\fill (dot_c) circle (1.5pt);
+
+% 11. Mean extractors
+\node[ellipse, draw, fill=white, font=\bfseries, inner sep=2pt, minimum width=1.2cm] (mu_y) at (0.5, -6.5) {$\bar{\hat{\omega}}$};
+\node[ellipse, draw, fill=white, font=\bfseries, inner sep=2pt, minimum width=1.2cm] (mu_c) at (0.5, -7.5) {$\bar{c}_{\mathrm{raw}}$};
+
+\node[block, text width=4cm, font=\bfseries] (corr_block) at (5.5, -9.0) {$c = c_{\mathrm{raw}} - \bar{c}_{\mathrm{raw}} + \bar{\hat{\omega}}$};
+\node[circle, draw, fill=white, font=\Large\bfseries, inner sep=4pt] (exp_sub) at (8.5, -7.0) {$\Sigma$};
+
+\node[block, font=\bfseries, text width=2.5cm] (exp_final) at (11.5, -7.0) {$\hat{\omega}^*$\\(zero-mean)};
+
+% 12. Expanded bounding box
+\node[draw=black, solid, thick, rounded corners=5pt, inner sep=0.6cm,
+      fit=(exp_yt)(exp_yt_label)(exp_ct)(exp_ct_label)(exp_final)(corr_block)] (expanded_box) {};
+
+% 13. Expansion connecting lines
+\draw[dashed, thick, gray!80] (constraint_head.south west) -- (expanded_box.north west);
+\draw[dashed, thick, gray!80] (constraint_head.south east) -- (expanded_box.north east);
+
+% --- INTERNAL ROUTING ---
+\draw[thick] (exp_yt.east) -- (dot_y);
+\draw[arrow] (dot_y) -| (exp_sub.north) node[pos=0.85, right, font=\bfseries] {$+$};
+
+\draw[thick] (exp_ct.east) -- (dot_c);
+\draw[arrow] (dot_c) -- (corr_block.west);
+
+\draw[arrow] (dot_y) -- (mu_y.north) node[midway, right, font=\bfseries] {mean()};
+\draw[arrow] (dot_c) -- (mu_c.south) node[midway, right, font=\bfseries] {mean()};
+
+\draw[arrow] (mu_y.east) -| (corr_block.60);
+\draw[arrow] (mu_c.east) -| (corr_block.120);
+
+\draw[arrow] (corr_block.east) -| (exp_sub.south) node[pos=0.85, right, font=\bfseries] {$-$};
+
+\draw[arrow] (exp_sub.east) -- (exp_final.west);
+\draw[arrow] (exp_final.east) -- ++(2.5cm, 0) node[right, font=\bfseries] {$\hat{\omega}^*$};
+
+\end{tikzpicture}
+\end{document}

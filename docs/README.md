@@ -10,6 +10,7 @@ technical narrative to support both repository users and the final report.
 - [Benchmarks](benchmarks/README.md): benchmark-specific assumptions, configs, and commands.
 - [Testing](../tests/README.md): what the automated tests cover and current gaps.
 - [Figures](figures/README.md): curated figures for docs and report reuse.
+- [Presentation](presentation/README.md): Marp slide deck, theme, and export workflow.
 
 ## Running Configs
 

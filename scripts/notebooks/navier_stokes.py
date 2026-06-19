@@ -6,6 +6,8 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/omni_hc_matplotlib")
 
 from pathlib import Path
 
+import matplotlib.animation as animation
+import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
@@ -91,6 +93,189 @@ fig.colorbar(
 fig.savefig(FIGURES_DIR / "ns_dataset_sample.png", bbox_inches="tight")
 plt.show()
 print(f"Saved image to {FIGURES_DIR / 'ns_dataset_sample.pdf'}")
+
+
+# %% Presentation asset — autoregressive problem animation
+DIAGRAM_TEXT = "#1a1a1a"
+
+
+def _render_rgba_frames(
+    fig,
+    update_fn,
+    frame_count: int,
+    *,
+    dpi: int = 150,
+):
+    """Render full RGBA frames so transparent text does not accumulate."""
+    try:
+        from PIL import Image
+    except Exception as exc:
+        raise RuntimeError(
+            "Saving transparent animation frames requires Pillow."
+        ) from exc
+
+    fig.set_dpi(dpi)
+    frames = []
+    for frame_idx in range(frame_count):
+        update_fn(frame_idx)
+        fig.canvas.draw()
+        rgba = np.asarray(fig.canvas.buffer_rgba()).copy()
+        frames.append(Image.fromarray(rgba, mode="RGBA"))
+    return frames
+
+
+def _save_rgba_animation(frames, out_path: Path, *, fps: int) -> Path:
+    """Save RGBA frames as WebP or GIF. Prefer WebP for reliable transparency."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    duration_ms = max(int(1000 / max(int(fps), 1)), 1)
+    suffix = out_path.suffix.lower()
+    if suffix == ".webp":
+        frames[0].save(
+            out_path,
+            save_all=True,
+            append_images=frames[1:],
+            duration=duration_ms,
+            loop=0,
+            lossless=True,
+            quality=100,
+            method=6,
+        )
+    elif suffix == ".gif":
+        frames[0].save(
+            out_path,
+            save_all=True,
+            append_images=frames[1:],
+            duration=duration_ms,
+            loop=0,
+            disposal=2,
+        )
+    else:
+        raise ValueError(f"Unsupported animation format: {out_path.suffix}")
+    return out_path
+
+
+PRESENTATION_SAMPLE_IDX = 0
+PRESENTATION_FRAME_COUNT = min(T_FULL - 1, 19)
+PRESENTATION_FPS = 2
+
+presentation_seq = u[PRESENTATION_SAMPLE_IDX]
+pres_vmin = float(presentation_seq.min())
+pres_vmax = float(presentation_seq.max())
+
+fig = plt.figure(figsize=(10.5, 3.2), facecolor="none")
+fig.patch.set_alpha(0)
+canvas = fig.add_axes([0, 0, 1, 1])
+canvas.patch.set_alpha(0)
+canvas.set_axis_off()
+canvas.set_xlim(0, 1)
+canvas.set_ylim(0, 1)
+
+left_ax = fig.add_axes([0.075, 0.24, 0.27, 0.56], facecolor="none")
+right_ax = fig.add_axes([0.655, 0.24, 0.27, 0.56], facecolor="none")
+for field_ax in (left_ax, right_ax):
+    field_ax.patch.set_alpha(0)
+    field_ax.set_axis_off()
+
+left_img = left_ax.imshow(
+    presentation_seq[:, :, 0],
+    cmap=CMAP,
+    origin="lower",
+    vmin=pres_vmin,
+    vmax=pres_vmax,
+)
+right_img = right_ax.imshow(
+    presentation_seq[:, :, 1],
+    cmap=CMAP,
+    origin="lower",
+    vmin=pres_vmin,
+    vmax=pres_vmax,
+)
+
+model_box = patches.FancyBboxPatch(
+    (0.425, 0.415),
+    0.15,
+    0.16,
+    boxstyle="round,pad=0.02,rounding_size=0.025",
+    linewidth=1.8,
+    edgecolor=DIAGRAM_TEXT,
+    facecolor="none",
+)
+canvas.add_patch(model_box)
+canvas.text(
+    0.5,
+    0.495,
+    "model",
+    ha="center",
+    va="center",
+    color=DIAGRAM_TEXT,
+    fontsize=18,
+    fontweight="semibold",
+)
+
+arrow_style = dict(arrowstyle="->", color=DIAGRAM_TEXT, lw=2.0, mutation_scale=18)
+canvas.annotate("", xy=(0.405, 0.495), xytext=(0.3, 0.495), arrowprops=arrow_style)
+canvas.annotate("", xy=(0.695, 0.495), xytext=(0.595, 0.495), arrowprops=arrow_style)
+canvas.plot(
+    [0.795, 0.795, 0.205],
+    [0.80, 0.90, 0.90],
+    color=DIAGRAM_TEXT,
+    lw=2.0,
+    solid_capstyle="round",
+)
+canvas.annotate(
+    "",
+    xy=(0.205, 0.80),
+    xytext=(0.205, 0.90),
+    arrowprops=arrow_style,
+)
+
+left_label = canvas.text(
+    0.21,
+    0.135,
+    r"$\omega_{t_i}$",
+    ha="center",
+    va="center",
+    color=DIAGRAM_TEXT,
+    fontsize=16,
+)
+right_label = canvas.text(
+    0.79,
+    0.135,
+    r"$\hat{\omega}_{t_{i+1}}$",
+    ha="center",
+    va="center",
+    color=DIAGRAM_TEXT,
+    fontsize=16,
+)
+
+
+def _update_presentation_frame(frame_idx: int):
+    left_img.set_data(presentation_seq[:, :, frame_idx])
+    right_img.set_data(presentation_seq[:, :, frame_idx + 1])
+    left_label.set_text(rf"$\omega_{{{frame_idx}}}$")
+    right_label.set_text(rf"$\omega_{{{frame_idx + 1}}}$")
+    return left_img, right_img, left_label, right_label
+
+
+ns_problem_frames = _render_rgba_frames(
+    fig,
+    _update_presentation_frame,
+    PRESENTATION_FRAME_COUNT,
+)
+
+ns_problem_webp = _save_rgba_animation(
+    ns_problem_frames,
+    FIGURES_DIR / "ns_problem_rollout.webp",
+    fps=PRESENTATION_FPS,
+)
+ns_problem_gif = _save_rgba_animation(
+    ns_problem_frames,
+    FIGURES_DIR / "ns_problem_rollout.gif",
+    fps=PRESENTATION_FPS,
+)
+plt.show()
+print(f"Saved presentation WebP to {ns_problem_webp}")
+print(f"Saved fallback GIF to {ns_problem_gif}")
 
 
 # %% Spatial-mean vorticity statistics across timesteps

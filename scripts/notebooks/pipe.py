@@ -7,6 +7,7 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/omni_hc_matplotlib")
 from pathlib import Path
 
 import matplotlib
+from matplotlib.collections import LineCollection
 
 IS_NOTEBOOK = "ipykernel" in sys.modules
 
@@ -16,6 +17,7 @@ if not IS_NOTEBOOK:
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from scipy.ndimage import gaussian_filter
 from scipy.optimize import curve_fit
 
 from omni_hc.constraints import (
@@ -124,6 +126,434 @@ else:
     plt.close(fig)
 
 print(f"Saved to {FIGURES_DIR / 'pipe_dataset_sample.png'}")
+
+
+# %% Presentation asset — moving tracer animation inside the pipe
+PIPE_FLOW_SAMPLE_IDX = [0, 100, 1000]
+# May also be a sequence, e.g. PIPE_FLOW_SAMPLE_IDX = [0, 100, 1000].
+PIPE_FLOW_FRAME_COUNT = 20
+PIPE_FLOW_FPS = 10
+PIPE_FLOW_STREAM_COUNT = 5
+PIPE_FLOW_PARTICLES_PER_STREAM = 3
+
+
+def _render_rgba_frames(fig, update_fn, frame_count: int, *, dpi: int = 150):
+    """Render full RGBA frames so moving artists do not accumulate."""
+    try:
+        from PIL import Image
+    except Exception as exc:
+        raise RuntimeError("Saving the pipe-flow GIF requires Pillow.") from exc
+
+    fig.set_dpi(dpi)
+    frames = []
+    for frame_idx in range(frame_count):
+        update_fn(frame_idx)
+        fig.canvas.draw()
+        rgba = np.asarray(fig.canvas.buffer_rgba()).copy()
+        frames.append(Image.fromarray(rgba))
+    return frames
+
+
+def _save_rgba_animation(frames, out_path: Path, *, fps: int) -> Path:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    duration_ms = max(int(1000 / max(int(fps), 1)), 1)
+    frames[0].save(
+        out_path,
+        save_all=True,
+        append_images=frames[1:],
+        duration=duration_ms,
+        loop=0,
+        disposal=2,
+    )
+    return out_path
+
+
+def _normalised_curve_coordinate(xs, ys):
+    arc = np.r_[0.0, np.cumsum(np.hypot(np.diff(xs), np.diff(ys)))]
+    if arc[-1] <= 1e-12:
+        return np.linspace(0.0, 1.0, len(xs))
+    return arc / arc[-1]
+
+
+def _curve_point(curve, phase):
+    s, xs, ys = curve
+    phase = float(np.clip(phase, 0.0, 1.0))
+    return np.interp(phase, s, xs), np.interp(phase, s, ys)
+
+
+def _normalise_pipe_flow_sample_indices(sample_indices):
+    if np.isscalar(sample_indices):
+        return (int(sample_indices),)
+    return tuple(int(idx) for idx in sample_indices)
+
+
+def _make_pipe_flow_tracer_frames(sample_idx: int, frame_count: int):
+    xi = np.asarray(x_all[sample_idx], dtype=np.float64)
+    yi = np.asarray(y_all[sample_idx], dtype=np.float64)
+    ux = np.asarray(q_all[sample_idx, 0], dtype=np.float64)
+    uy = np.asarray(q_all[sample_idx, 1], dtype=np.float64)
+    speed = np.hypot(ux, uy)
+
+    stream_columns = np.linspace(
+        max(1, int(0.16 * (W - 1))),
+        min(W - 2, int(0.84 * (W - 1))),
+        PIPE_FLOW_STREAM_COUNT,
+        dtype=int,
+    )
+    stream_curves = [
+        (
+            _normalised_curve_coordinate(xi[:, j], yi[:, j]),
+            xi[:, j],
+            yi[:, j],
+        )
+        for j in stream_columns
+    ]
+    stream_speeds = np.array(
+        [np.mean(np.maximum(ux[:, j], 0.0)) for j in stream_columns],
+        dtype=np.float64,
+    )
+    if float(stream_speeds.max()) > 1e-12:
+        stream_speeds = 0.78 + 0.44 * stream_speeds / stream_speeds.max()
+    else:
+        stream_speeds = np.ones_like(stream_speeds)
+
+    fig, ax = plt.subplots(figsize=(9.0, 2.2), facecolor="none")
+    fig.patch.set_alpha(0)
+    ax.patch.set_alpha(0)
+    fig.text(
+        0.5,
+        0.91,
+        f"Sample {sample_idx}",
+        ha="center",
+        va="center",
+        color="0.12",
+        fontsize=16,
+        fontweight="semibold",
+    )
+
+    vmax = float(np.percentile(speed, 99))
+    ax.pcolormesh(
+        xi,
+        yi,
+        speed,
+        shading="gouraud",
+        cmap=CMAP,
+        vmin=0.0,
+        vmax=max(vmax, 1e-12),
+        alpha=0.95,
+        zorder=1,
+    )
+    ax.plot(xi[:, 0], yi[:, 0], color="0.08", lw=1.8, zorder=4)
+    ax.plot(xi[:, -1], yi[:, -1], color="0.08", lw=1.8, zorder=4)
+    ax.plot(xi[0, :], yi[0, :], color=EDGE_COLORS["inlet"], lw=1.4, zorder=4)
+    ax.plot(xi[-1, :], yi[-1, :], color=EDGE_COLORS["outlet"], lw=1.4, zorder=4)
+
+    for _, xs, ys in stream_curves:
+        ax.plot(xs, ys, color="white", lw=0.45, alpha=0.18, zorder=2)
+
+    trails = LineCollection(
+        [],
+        colors=[(1.0, 1.0, 1.0, 0.58)],
+        linewidths=1.5,
+        capstyle="round",
+        zorder=5,
+    )
+    ax.add_collection(trails)
+    particles = ax.scatter(
+        [],
+        [],
+        s=18,
+        c="white",
+        edgecolors=plt.get_cmap(CMAP)(0.95),
+        linewidths=0.55,
+        zorder=6,
+    )
+
+    # direction_arrow = ax.annotate(
+    #     "",
+    #     xy=(0.82, 0.84),
+    #     xytext=(0.68, 0.84),
+    #     xycoords="axes fraction",
+    #     arrowprops=dict(
+    #         arrowstyle="-|>",
+    #         color="0.15",
+    #         lw=1.7,
+    #         mutation_scale=14,
+    #         shrinkA=0,
+    #         shrinkB=0,
+    #     ),
+    #     zorder=7,
+    # )
+    # direction_arrow.arrow_patch.set_alpha(0.9)
+
+    x_pad = 0.02 * float(xi.max() - xi.min())
+    y_pad = 0.24 * float(yi.max() - yi.min())
+    ax.set_xlim(float(xi.min() - x_pad), float(xi.max() + x_pad))
+    ax.set_ylim(float(yi.min() - y_pad), float(yi.max() + y_pad))
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_axis_off()
+    fig.subplots_adjust(0, 0, 1, 1)
+
+    particle_offsets = np.linspace(
+        0.0,
+        1.0,
+        PIPE_FLOW_PARTICLES_PER_STREAM,
+        endpoint=False,
+    )
+
+    def update_frame(frame_idx: int):
+        progress = frame_idx / frame_count
+        points = []
+        segments = []
+        for stream_idx, (curve, speed_factor) in enumerate(
+            zip(stream_curves, stream_speeds)
+        ):
+            row_offset = 0.035 * stream_idx
+            for offset in particle_offsets:
+                phase = (offset + row_offset + 1.65 * speed_factor * progress) % 1.0
+                head = _curve_point(curve, phase)
+                tail_phase = phase - 0.045
+                tail = _curve_point(curve, tail_phase) if tail_phase >= 0.0 else head
+                points.append(head)
+                segments.append([tail, head])
+        particles.set_offsets(np.asarray(points))
+        trails.set_segments(segments)
+        return particles, trails
+
+    frames = _render_rgba_frames(
+        fig,
+        update_frame,
+        frame_count,
+        dpi=150,
+    )
+    if IS_NOTEBOOK:
+        plt.show()
+    else:
+        plt.close(fig)
+    return frames
+
+
+def _make_pipe_flow_tracer_animation(sample_indices, out_path: Path) -> Path:
+    sample_indices = _normalise_pipe_flow_sample_indices(sample_indices)
+    if not sample_indices:
+        raise ValueError("PIPE_FLOW_SAMPLE_IDX must contain at least one sample index.")
+
+    frames = []
+    for sample_idx in sample_indices:
+        frames.extend(_make_pipe_flow_tracer_frames(sample_idx, PIPE_FLOW_FRAME_COUNT))
+    return _save_rgba_animation(frames, out_path, fps=PIPE_FLOW_FPS)
+
+
+pipe_flow_gif = _make_pipe_flow_tracer_animation(
+    PIPE_FLOW_SAMPLE_IDX,
+    FIGURES_DIR / "pipe_flow_tracers.gif",
+)
+print(f"Saved pipe flow GIF to {pipe_flow_gif}")
+
+
+# %% Presentation asset — wall boundary constraint construction
+PIPE_BOUNDARY_CONSTRAINT_SAMPLE_IDX = 1000
+PIPE_BOUNDARY_CONSTRAINT_SEED = 7
+
+
+def _pipe_constraint_maps(constraint, xi, yi):
+    coords = torch.as_tensor(
+        np.stack([xi, yi], axis=-1).reshape(1, H * W, 2),
+        dtype=torch.float32,
+    )
+    maps = infer_boundary_ansatz_maps(
+        constraint,
+        pred_shape=(1, H * W, 1),
+        grid_shape=(H, W),
+        coords=coords,
+        dtype=coords.dtype,
+        device=coords.device,
+    )
+    return maps.g[..., 0].numpy(), maps.l[..., 0].numpy()
+
+
+def _draw_pipe_field(ax, xi, yi, values, *, cmap, vmin=None, vmax=None):
+    im = ax.pcolormesh(
+        xi,
+        yi,
+        values,
+        shading="gouraud",
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+    )
+    ax.plot(xi[:, 0], yi[:, 0], color="0.08", lw=1.5)
+    ax.plot(xi[:, -1], yi[:, -1], color="0.08", lw=1.5)
+    ax.plot(xi[0, :], yi[0, :], color=EDGE_COLORS["inlet"], lw=1.0)
+    ax.plot(xi[-1, :], yi[-1, :], color=EDGE_COLORS["outlet"], lw=1.0)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_axis_off()
+    return im
+
+
+def plot_pipe_boundary_constraint_construction(out_path: Path):
+    xi = np.asarray(x_all[PIPE_BOUNDARY_CONSTRAINT_SAMPLE_IDX], dtype=np.float64)
+    yi = np.asarray(y_all[PIPE_BOUNDARY_CONSTRAINT_SAMPLE_IDX], dtype=np.float64)
+
+    _, l_wall = _pipe_constraint_maps(
+        StructuredWallDirichletAnsatz(out_dim=1, grid_shape=(H, W)),
+        xi,
+        yi,
+    )
+    rng = np.random.default_rng(PIPE_BOUNDARY_CONSTRAINT_SEED)
+    model_raw = gaussian_filter(rng.normal(size=(H, W)), sigma=4.0, mode="nearest")
+    model_raw -= float(model_raw.min())
+    model_range = float(model_raw.max())
+    if model_range > 1e-12:
+        model_raw /= model_range
+    constrained = l_wall * model_raw
+
+    fig = plt.figure(figsize=(12.0, 2.5), facecolor="white")
+    fig.patch.set_alpha(1)
+    canvas = fig.add_axes([0, 0, 1, 1])
+    canvas.set_axis_off()
+    canvas.set_xlim(0, 1)
+    canvas.set_ylim(0, 1)
+
+    axes = [
+        fig.add_axes([0.08, 0.30, 0.25, 0.46]),
+        fig.add_axes([0.375, 0.30, 0.25, 0.46]),
+        fig.add_axes([0.67, 0.30, 0.25, 0.46]),
+    ]
+    _draw_pipe_field(
+        axes[0],
+        xi,
+        yi,
+        l_wall,
+        cmap=CMAP,
+        vmin=0.0,
+        vmax=max(float(l_wall.max()), 1e-12),
+    )
+    _draw_pipe_field(
+        axes[1],
+        xi,
+        yi,
+        model_raw,
+        cmap=CMAP,
+        vmin=0.0,
+        vmax=1.0,
+    )
+    _draw_pipe_field(
+        axes[2],
+        xi,
+        yi,
+        constrained,
+        cmap=CMAP,
+        vmin=0.0,
+        vmax=1.0,
+    )
+
+    canvas.text(0.205, 0.18, r"$l$", ha="center", va="center", fontsize=28)
+    canvas.text(0.50, 0.18, r"$N$", ha="center", va="center", fontsize=28)
+    canvas.text(0.795, 0.18, r"$u$", ha="center", va="center", fontsize=28)
+    canvas.text(0.352, 0.52, r"$\times$", ha="center", va="center", fontsize=34)
+    canvas.text(0.648, 0.52, r"$=$", ha="center", va="center", fontsize=34)
+
+    # TODO add colourbar
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, bbox_inches="tight", dpi=180)
+    if IS_NOTEBOOK:
+        plt.show()
+    else:
+        plt.close(fig)
+    print(f"Saved to {out_path}")
+
+
+pipe_boundary_constraint_path = (
+    FIGURES_DIR / "pipe_boundary_constraint_construction.png"
+)
+plot_pipe_boundary_constraint_construction(pipe_boundary_constraint_path)
+
+
+def plot_pipe_inlet_wall_constraint_construction(out_path: Path):
+    xi = np.asarray(x_all[PIPE_BOUNDARY_CONSTRAINT_SAMPLE_IDX], dtype=np.float64)
+    yi = np.asarray(y_all[PIPE_BOUNDARY_CONSTRAINT_SAMPLE_IDX], dtype=np.float64)
+
+    g_ux, l_ux = _pipe_constraint_maps(
+        PipeUxBoundaryAnsatz(out_dim=1, grid_shape=(H, W), amplitude=0.25),
+        xi,
+        yi,
+    )
+    rng = np.random.default_rng(PIPE_BOUNDARY_CONSTRAINT_SEED)
+    model_raw = gaussian_filter(rng.normal(size=(H, W)), sigma=4.0, mode="nearest")
+    model_raw -= float(model_raw.min())
+    model_range = float(model_raw.max())
+    if model_range > 1e-12:
+        model_raw /= model_range
+    constrained = g_ux + l_ux * model_raw
+
+    vmax = max(float(g_ux.max()), float(l_ux.max()), 1.0, float(constrained.max()))
+
+    fig = plt.figure(figsize=(14.0, 2.5), facecolor="white")
+    fig.patch.set_alpha(1)
+    canvas = fig.add_axes([0, 0, 1, 1])
+    canvas.set_axis_off()
+    canvas.set_xlim(0, 1)
+    canvas.set_ylim(0, 1)
+
+    axes = [
+        fig.add_axes([0.035, 0.30, 0.18, 0.46]),
+        fig.add_axes([0.275, 0.30, 0.18, 0.46]),
+        fig.add_axes([0.515, 0.30, 0.18, 0.46]),
+        fig.add_axes([0.755, 0.30, 0.18, 0.46]),
+    ]
+    g_mesh = _draw_pipe_field(
+        axes[0],
+        xi,
+        yi,
+        g_ux,
+        cmap="YlOrBr",
+        vmin=0.0,
+        vmax=max(float(g_ux.max()), 1e-12),
+    )
+    shared_mesh = None
+    for ax, values in zip(axes[1:], (l_ux, model_raw, constrained)):
+        shared_mesh = _draw_pipe_field(
+            ax,
+            xi,
+            yi,
+            values,
+            cmap=CMAP,
+            vmin=0.0,
+            vmax=vmax,
+        )
+
+    g_cax = fig.add_axes([0.222, 0.36, 0.010, 0.30])
+    shared_cax = fig.add_axes([0.948, 0.36, 0.010, 0.30])
+    for cbar in (
+        fig.colorbar(g_mesh, cax=g_cax),
+        fig.colorbar(shared_mesh, cax=shared_cax),
+    ):
+        cbar.outline.set_linewidth(0.5)
+        cbar.ax.tick_params(labelsize=7, length=2, width=0.5, pad=1)
+
+    canvas.text(0.125, 0.18, r"$g$", ha="center", va="center", fontsize=28)
+    canvas.text(0.365, 0.18, r"$l$", ha="center", va="center", fontsize=28)
+    canvas.text(0.605, 0.18, r"$N$", ha="center", va="center", fontsize=28)
+    canvas.text(0.845, 0.18, r"$u$", ha="center", va="center", fontsize=28)
+    canvas.text(0.245, 0.52, r"$+$", ha="center", va="center", fontsize=34)
+    canvas.text(0.485, 0.52, r"$\times$", ha="center", va="center", fontsize=34)
+    canvas.text(0.725, 0.52, r"$=$", ha="center", va="center", fontsize=34)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, bbox_inches="tight", dpi=180)
+    if IS_NOTEBOOK:
+        plt.show()
+    else:
+        plt.close(fig)
+    print(f"Saved to {out_path}")
+
+
+pipe_inlet_wall_constraint_path = (
+    FIGURES_DIR / "pipe_inlet_wall_constraint_construction.png"
+)
+plot_pipe_inlet_wall_constraint_construction(pipe_inlet_wall_constraint_path)
 
 
 # %% Mesh structure variation across samples (2×5 grid)
@@ -1391,7 +1821,7 @@ print(f"Saved to {out_path}")
 # learns mass conservation as well as the (already-imperfect) ground truth.
 from omni_hc.benchmarks.pipe import adapter as pipe_adapter
 from omni_hc.benchmarks.pipe.data import build_test_loader as build_pipe_test_loader
-from omni_hc.core import load_yaml_file
+from omni_hc.core import compose_run_config, load_yaml_file
 from omni_hc.integrations.nsl.modeling import create_model
 from omni_hc.training.common import (
     forward_with_optional_aux,
@@ -1676,6 +2106,191 @@ for qualitative_budget, qualitative_title, qualitative_out_name in QUALITATIVE_B
         sample_indices=QUALITATIVE_SAMPLE_INDICES,
     )
 
+
+# %% Fast qualitative prototype — one epoch, tiny budget, unconstrained vs constrained
+# Enable this cell/block with:
+#   OMNI_HC_RUN_FAST_PIPE_QUAL=1 python scripts/notebooks/pipe.py
+# or set RUN_FAST_PIPE_QUALITATIVE = True in a notebook before running this section.
+RUN_FAST_PIPE_QUALITATIVE = bool(
+    int(os.environ.get("OMNI_HC_RUN_FAST_PIPE_QUAL", "0"))
+)
+FAST_QUALITATIVE_BACKBONE = "FNO"
+FAST_QUALITATIVE_SAMPLE_IDX = 0
+FAST_QUALITATIVE_OUTPUT_ROOT = Path(
+    os.environ.get(
+        "OMNI_HC_FAST_PIPE_QUAL_OUTPUT_ROOT",
+        "/private/tmp/omni_hc_pipe_fast_qualitative",
+    )
+)
+FAST_QUALITATIVE_FIGURE_NAME = "pipe_fast_qualitative_epoch1.png"
+
+
+def _fast_pipe_qualitative_overrides(output_dir: Path) -> dict:
+    return {
+        "paths": {
+            "root_dir": str(DATA_DIR),
+            "output_dir": str(output_dir),
+        },
+        "data": {
+            "ntrain": 16,
+            "ntest": 16,
+            "load_uy": True,
+        },
+        "model": {
+            "args": {
+                "n_hidden": 32,
+                "n_heads": 4,
+                "n_layers": 2,
+                "modes": 8,
+            },
+        },
+        "training": {
+            "batch_size": 2,
+            "val_size": 4,
+            "num_epochs": 1,
+            "scheduler": "none",
+            "seed": 42,
+        },
+        "evaluation": {
+            "batch_size": 2,
+        },
+        "wandb_logging": {
+            "wandb": False,
+            "log_every": None,
+            "image_log_every": None,
+        },
+    }
+
+
+def _compose_fast_pipe_qualitative_config(*, label: str, constraint: str | None):
+    output_dir = FAST_QUALITATIVE_OUTPUT_ROOT / label / "seed_42"
+    return compose_run_config(
+        benchmark="pipe",
+        backbone=FAST_QUALITATIVE_BACKBONE,
+        constraint=constraint,
+        budget="debug",
+        mode="train",
+        seed=42,
+        extra_overrides=_fast_pipe_qualitative_overrides(output_dir),
+    )
+
+
+def train_fast_pipe_qualitative_runs():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    run_specs = (
+        (
+            "Unconstrained",
+            "unconstrained",
+            None,
+        ),
+        (
+            "Stream ansatz",
+            "stream_ansatz",
+            "pipe_stream_function_boundary_ansatz",
+        ),
+    )
+    trained = []
+    for model_label, run_label, constraint_name in run_specs:
+        cfg = _compose_fast_pipe_qualitative_config(
+            label=run_label,
+            constraint=constraint_name,
+        )
+        print(
+            f"Training fast pipe qualitative run: {model_label} -> "
+            f"{cfg['paths']['output_dir']}"
+        )
+        pipe_adapter.train(cfg, device=device)
+        trained.append((model_label, Path(cfg["paths"]["output_dir"])))
+    return trained
+
+
+def _relative_l2_numpy(pred: np.ndarray, target: np.ndarray) -> float:
+    return float(
+        np.linalg.norm((pred - target).reshape(-1), ord=2)
+        / max(np.linalg.norm(target.reshape(-1), ord=2), 1e-12)
+    )
+
+
+def plot_fast_pipe_qualitative_2x2(run_dirs, *, sample_idx: int, out_path: Path):
+    loaded = []
+    for model_label, run_dir in run_dirs:
+        samples = load_pipe_predictions_for_samples(run_dir, (sample_idx,))
+        if samples is None or sample_idx not in samples:
+            raise FileNotFoundError(
+                f"Missing fast qualitative prediction for {model_label} at {run_dir}"
+            )
+        loaded.append((model_label, samples[sample_idx]))
+
+    field_values = np.concatenate(
+        [np.ravel(sample["gt"]) for _label, sample in loaded]
+        + [np.ravel(sample["pred"]) for _label, sample in loaded]
+    )
+    field_vmin = float(np.nanmin(field_values))
+    field_vmax = float(np.nanmax(field_values))
+    error_scale = max(
+        float(np.nanmax(np.abs(sample["pred"] - sample["gt"])))
+        for _label, sample in loaded
+    )
+    error_scale = max(error_scale, 1e-12)
+
+    fig, axes = plt.subplots(
+        2,
+        2,
+        figsize=(9.2, 4.9),
+        constrained_layout=True,
+    )
+    field_mesh = None
+    error_mesh = None
+    for col, (model_label, sample) in enumerate(loaded):
+        error = sample["pred"] - sample["gt"]
+        rel_l2 = _relative_l2_numpy(sample["pred"], sample["gt"])
+        field_mesh = _plot_pipe_qual_field(
+            axes[0, col],
+            sample["x"],
+            sample["y"],
+            sample["pred"],
+            cmap=CMAP,
+            vmin=field_vmin,
+            vmax=field_vmax,
+        )
+        axes[0, col].set_title(f"{model_label} prediction", fontsize=11)
+        error_mesh = _plot_pipe_qual_field(
+            axes[1, col],
+            sample["x"],
+            sample["y"],
+            error,
+            cmap="coolwarm",
+            vmin=-error_scale,
+            vmax=error_scale,
+        )
+        axes[1, col].set_title(f"error, rel. $L_2$={rel_l2:.3f}", fontsize=11)
+
+    fig.colorbar(field_mesh, ax=axes[0, :].tolist(), shrink=0.82, pad=0.01)
+    error_bar = fig.colorbar(error_mesh, ax=axes[1, :].tolist(), shrink=0.82, pad=0.01)
+    error_bar.set_label("pred - GT", fontsize=9)
+    fig.suptitle(
+        "Pipe flow: one-epoch qualitative comparison "
+        f"({FAST_QUALITATIVE_BACKBONE}, 16 train samples)",
+        fontsize=13,
+    )
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, bbox_inches="tight", dpi=180)
+    if IS_NOTEBOOK:
+        plt.show()
+    else:
+        plt.close(fig)
+    print(f"Saved to {out_path}")
+    return out_path
+
+
+if RUN_FAST_PIPE_QUALITATIVE:
+    fast_run_dirs = train_fast_pipe_qualitative_runs()
+    fast_qualitative_path = plot_fast_pipe_qualitative_2x2(
+        fast_run_dirs,
+        sample_idx=FAST_QUALITATIVE_SAMPLE_IDX,
+        out_path=FIGURES_DIR / FAST_QUALITATIVE_FIGURE_NAME,
+    )
 candidates = sorted(REPO_ROOT.glob("outputs/pipe/none/transolver/*/seed_*/best.pt"))
 print(f"Found {len(candidates)} trained transolver pipe checkpoints (constraint=none):")
 for c in candidates:

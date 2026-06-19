@@ -9,6 +9,7 @@ __pycache__/
 venv/
 .env
 tmp/
+node_modules/
 
 build/
 dist/

@@ -39,7 +39,7 @@ sol = raw["sol"]  # (1024, 421, 421) — pressure solution u(x)
 print(f"coeff: {coeff.shape}  sol: {sol.shape}")
 
 # %% Dataset sample — input permeability and output pressure
-SAMPLE_IDX = 0
+SAMPLE_IDX = 100
 
 # Downsample for display (421 → 85 at stride 5)
 STRIDE = 5
@@ -49,18 +49,115 @@ u = sol[SAMPLE_IDX, ::STRIDE, ::STRIDE]
 fig, axes = plt.subplots(1, 2, figsize=(8, 3.5), constrained_layout=True)
 
 im0 = axes[0].imshow(a, cmap=CMAP_INPUT, origin="lower")
-axes[0].set_title("Input: permeability $a(\\mathbf{x})$", fontsize=11)
+axes[0].set_title("Input: permeability $a(\\mathbf{x})$", fontsize=17)
 axes[0].axis("off")
 fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
 
 im1 = axes[1].imshow(u, cmap=CMAP_OUTPUT, origin="lower")
-axes[1].set_title("Output: pressure $u(\\mathbf{x})$", fontsize=11)
+axes[1].set_title("Output: pressure $u(\\mathbf{x})$", fontsize=17)
 axes[1].axis("off")
 fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
 
 fig.savefig(FIGURES_DIR / "darcy_dataset_sample.png", bbox_inches="tight")
 plt.show()
 print(f"Saved to {FIGURES_DIR / 'darcy_dataset_sample.png'}")
+
+# %% Presentation asset — 3D Darcy problem diagram
+# Conceptual left-panel diagram: forcing f enters a heterogeneous permeability
+# field a(x, y), producing the pressure solution u(x, y).
+PRESENTATION_SAMPLE_IDX = 100
+PRESENTATION_STRIDE = 10
+
+a_3d = coeff[PRESENTATION_SAMPLE_IDX, ::PRESENTATION_STRIDE, ::PRESENTATION_STRIDE]
+u_3d = sol[PRESENTATION_SAMPLE_IDX, ::PRESENTATION_STRIDE, ::PRESENTATION_STRIDE]
+
+
+def _normalise01(field):
+    field = np.asarray(field, dtype=np.float64)
+    return (field - field.min()) / (field.max() - field.min() + 1e-12)
+
+
+a_norm = _normalise01(a_3d)
+u_norm = _normalise01(u_3d)
+
+n_y, n_x = a_norm.shape
+x = np.linspace(0, 1, n_x)
+y = np.linspace(0, 1, n_y)
+X, Y = np.meshgrid(x, y)
+
+# Two separated sheets. Relief is intentionally shallow: the height should read
+# as "field texture", not as the actual PDE geometry.
+Z_a = 0.42 + 0.08 * a_norm
+Z_u = -0.32 + 0.12 * u_norm
+
+fig = plt.figure(figsize=(6.4, 4.6), facecolor="none")
+ax = fig.add_subplot(111, projection="3d")
+ax.set_facecolor("none")
+
+ax.plot_surface(
+    X,
+    Y,
+    Z_a,
+    facecolors=plt.get_cmap(CMAP_INPUT)(a_norm),
+    rstride=1,
+    cstride=1,
+    linewidth=0,
+    antialiased=True,
+    shade=False,
+    alpha=0.98,
+)
+ax.plot_surface(
+    X,
+    Y,
+    Z_u,
+    facecolors=plt.get_cmap(CMAP_OUTPUT)(u_norm),
+    rstride=1,
+    cstride=1,
+    linewidth=0,
+    antialiased=True,
+    shade=False,
+    alpha=0.98,
+)
+
+# Draw sheet outlines to make the two planes read clearly.
+for z, color in [(0.42, "0.18"), (-0.32, "0.18")]:
+    ax.plot([0, 1], [0, 0], [z, z], color=color, linewidth=2.0)
+    ax.plot([1, 1], [0, 1], [z, z], color=color, linewidth=2.0)
+    ax.plot([1, 0], [1, 1], [z, z], color=color, linewidth=2.0)
+    ax.plot([0, 0], [1, 0], [z, z], color=color, linewidth=2.0)
+
+# Downward forcing arrows.
+arrow_x = np.array([0.20, 0.50, 0.82])
+arrow_y = np.array([0.28, 0.36, 0.42])
+arrow_z = np.full_like(arrow_x, 1.6)
+ax.quiver(
+    arrow_x,
+    arrow_y,
+    arrow_z,
+    np.zeros_like(arrow_x),
+    np.zeros_like(arrow_x),
+    -0.42 * np.ones_like(arrow_x),
+    color="0.12",
+    arrow_length_ratio=0.4,
+    linewidth=3.0,
+)
+
+ax.text(0.35, 0.80, 1.52, r"$f$", ha="center", va="center", fontsize=20)
+ax.text(1.1, 0.6, 0.4, r"$a(x,y)$", ha="left", va="center", fontsize=13)
+ax.text(1.2, 0.4, -0.25, r"$u(x,y)$", ha="left", va="center", fontsize=13)
+# ax.text(0.05, 1.05, 0.58, "permeability", ha="left", va="center", fontsize=11)
+# ax.text(0.05, 1.05, -0.16, "pressure", ha="left", va="center", fontsize=11)
+
+ax.view_init(elev=24, azim=-62)
+ax.set_xlim(-0.08, 1.22)
+ax.set_ylim(-0.10, 1.18)
+ax.set_zlim(-0.48, 1.24)
+ax.set_axis_off()
+
+out_path = FIGURES_DIR / "darcy_problem_3d.png"
+fig.savefig(out_path, dpi=220, bbox_inches="tight", pad_inches=0.03, transparent=True)
+plt.show()
+print(f"Saved to {out_path}")
 
 
 # %% Boundary condition — zero Dirichlet u = 0 on all edges
@@ -1065,6 +1162,54 @@ for bar, v in zip(bars, bar_vals):
 
 out_path = FIGURES_DIR / "darcy_distance_power_ablation.png"
 fig.savefig(out_path, bbox_inches="tight")
+plt.show()
+print(f"Saved to {out_path}")
+
+# %% Presentation asset — simplified Dirichlet ansatz plots
+xy = np.linspace(0, 1, 240)
+X, Y = np.meshgrid(xy, xy)
+base = X * (1 - X) * Y * (1 - Y)
+
+fig, ax = plt.subplots(figsize=(4.0, 3.3), constrained_layout=True)
+im = ax.imshow(base, origin="lower", extent=(0, 1, 0, 1), cmap="magma")
+ax.set_title(r"$\ell_{p=1}(x,y)=[x(1-x)y(1-y)]^p$", fontsize=17, pad=18)
+ax.set_xlabel("$x$")
+ax.set_ylabel("$y$")
+ax.set_xticks([0, 0.5, 1])
+ax.set_yticks([0, 0.5, 1])
+fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+out_path = FIGURES_DIR / "darcy_distance_p1.png"
+fig.savefig(out_path, bbox_inches="tight", transparent=True, dpi=220)
+plt.show()
+print(f"Saved to {out_path}")
+
+final_vals = {}
+for suffix, label in RUNS:
+    import csv
+
+    with open(EXP_DIR / f"val_rel_l2_{suffix}.csv") as fh:
+        rows = list(csv.reader(fh))
+    final_vals[label] = float(rows[-1][1])
+
+labels = [label for _, label in RUNS]
+bar_vals = [final_vals[label] for label in labels]
+fig, ax = plt.subplots(figsize=(5.4, 3.3), constrained_layout=True)
+bars = ax.bar(labels, bar_vals, color=PALETTE, edgecolor="white", linewidth=0.6)
+ax.set_ylabel("Final val rel-$L_2$", fontsize=12)
+ax.set_title("Effect of distance power", pad=18, fontsize=17)
+ax.tick_params(axis="x", labelrotation=25)
+ax.grid(axis="y", alpha=0.25)
+for bar, val in zip(bars, bar_vals):
+    ax.text(
+        bar.get_x() + bar.get_width() / 2,
+        val,
+        f"{val:.4f}",
+        ha="center",
+        va="bottom",
+        fontsize=12,
+    )
+out_path = FIGURES_DIR / "darcy_distance_power_bars.png"
+fig.savefig(out_path, bbox_inches="tight", transparent=True, dpi=220)
 plt.show()
 print(f"Saved to {out_path}")
 
