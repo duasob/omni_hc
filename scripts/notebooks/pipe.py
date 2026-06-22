@@ -1821,13 +1821,19 @@ print(f"Saved to {out_path}")
 # learns mass conservation as well as the (already-imperfect) ground truth.
 from omni_hc.benchmarks.pipe import adapter as pipe_adapter
 from omni_hc.benchmarks.pipe.data import build_test_loader as build_pipe_test_loader
+from omni_hc.benchmarks.pipe.data import (
+    build_train_val_loaders as build_pipe_train_val_loaders,
+)
 from omni_hc.core import compose_run_config, load_yaml_file
 from omni_hc.integrations.nsl.modeling import create_model
 from omni_hc.training.common import (
+    build_optimizer,
     forward_with_optional_aux,
     load_checkpoint_state,
     load_model_state_dict,
+    relative_l2_per_sample,
 )
+from omni_hc.training.reproducibility import seed_everything, training_seed
 
 # %% Qualitative pipe predictions - GT / prediction / error across models
 QUALITATIVE_SAMPLE_INDICES = (0, 100)
@@ -2107,22 +2113,27 @@ for qualitative_budget, qualitative_title, qualitative_out_name in QUALITATIVE_B
     )
 
 
-# %% Fast qualitative prototype — one epoch, tiny budget, unconstrained vs constrained
+# %% Fast learning trace — one epoch, unconstrained vs stream-function ansatz
 # Enable this cell/block with:
 #   OMNI_HC_RUN_FAST_PIPE_QUAL=1 python scripts/notebooks/pipe.py
 # or set RUN_FAST_PIPE_QUALITATIVE = True in a notebook before running this section.
+RUN_FAST_PIPE_QUALITATIVE = True
 RUN_FAST_PIPE_QUALITATIVE = bool(
     int(os.environ.get("OMNI_HC_RUN_FAST_PIPE_QUAL", "0"))
-)
+) or bool(globals().get("RUN_FAST_PIPE_QUALITATIVE", False))
 FAST_QUALITATIVE_BACKBONE = "FNO"
 FAST_QUALITATIVE_SAMPLE_IDX = 0
+FAST_QUALITATIVE_NTRAIN = 100
+FAST_QUALITATIVE_BATCH_SIZE = 2
 FAST_QUALITATIVE_OUTPUT_ROOT = Path(
     os.environ.get(
         "OMNI_HC_FAST_PIPE_QUAL_OUTPUT_ROOT",
         "/private/tmp/omni_hc_pipe_fast_qualitative",
     )
 )
-FAST_QUALITATIVE_FIGURE_NAME = "pipe_fast_qualitative_epoch1.png"
+FAST_QUALITATIVE_STORYBOARD_NAME = "pipe_fast_learning_trace_epoch1.png"
+FAST_QUALITATIVE_GIF_NAME = "pipe_fast_learning_trace_epoch1.gif"
+FAST_QUALITATIVE_GIF_FPS = 5
 
 
 def _fast_pipe_qualitative_overrides(output_dir: Path) -> dict:
@@ -2132,7 +2143,7 @@ def _fast_pipe_qualitative_overrides(output_dir: Path) -> dict:
             "output_dir": str(output_dir),
         },
         "data": {
-            "ntrain": 16,
+            "ntrain": FAST_QUALITATIVE_NTRAIN,
             "ntest": 16,
             "load_uy": True,
         },
@@ -2145,8 +2156,8 @@ def _fast_pipe_qualitative_overrides(output_dir: Path) -> dict:
             },
         },
         "training": {
-            "batch_size": 2,
-            "val_size": 4,
+            "batch_size": FAST_QUALITATIVE_BATCH_SIZE,
+            "val_size": 0,
             "num_epochs": 1,
             "scheduler": "none",
             "seed": 42,
@@ -2175,7 +2186,61 @@ def _compose_fast_pipe_qualitative_config(*, label: str, constraint: str | None)
     )
 
 
-def train_fast_pipe_qualitative_runs():
+def _select_fast_pipe_test_sample(loader, sample_idx: int, device: torch.device):
+    sample = loader.dataset[int(sample_idx)]
+    batch = {
+        key: value.unsqueeze(0).to(device)
+        for key, value in sample.items()
+        if key in {"coords", "x", "y", "y_uy"}
+    }
+    return batch
+
+
+def _capture_fast_pipe_prediction(
+    model,
+    *,
+    sample_batch,
+    x_normalizer,
+    y_normalizer,
+    h_grid: int,
+    w_grid: int,
+    label: str,
+    step: int,
+    train_loss: float | None = None,
+):
+    model.eval()
+    with torch.no_grad():
+        uy_target = sample_batch.get("y_uy")
+        out = forward_with_optional_aux(
+            model,
+            sample_batch["coords"],
+            sample_batch["x"],
+            uy_target=uy_target,
+        )
+        pred_decoded = _decode_tensor(y_normalizer, out["pred"])
+        target_decoded = _decode_tensor(y_normalizer, sample_batch["y"])
+        coords_decoded = _decode_tensor(x_normalizer, sample_batch["coords"])
+        rel_l2 = float(
+            relative_l2_per_sample(pred_decoded, target_decoded).mean().item()
+        )
+
+    return {
+        "label": label,
+        "step": int(step),
+        "train_loss": train_loss,
+        "rel_l2": rel_l2,
+        "x": coords_decoded[0, :, 0].reshape(h_grid, w_grid).detach().cpu().numpy(),
+        "y": coords_decoded[0, :, 1].reshape(h_grid, w_grid).detach().cpu().numpy(),
+        "target": target_decoded[0, :, 0]
+        .reshape(h_grid, w_grid)
+        .detach()
+        .cpu()
+        .numpy(),
+        "pred": pred_decoded[0, :, 0].reshape(h_grid, w_grid).detach().cpu().numpy(),
+    }
+
+
+def train_fast_pipe_learning_trace():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     run_specs = (
         (
@@ -2189,88 +2254,165 @@ def train_fast_pipe_qualitative_runs():
             "pipe_stream_function_boundary_ansatz",
         ),
     )
-    trained = []
+    traces = {}
     for model_label, run_label, constraint_name in run_specs:
         cfg = _compose_fast_pipe_qualitative_config(
             label=run_label,
             constraint=constraint_name,
         )
+        seed_everything(training_seed(cfg))
         print(
-            f"Training fast pipe qualitative run: {model_label} -> "
-            f"{cfg['paths']['output_dir']}"
+            f"Training fast pipe learning trace: {model_label} "
+            f"({FAST_QUALITATIVE_NTRAIN} samples, one epoch)"
         )
-        pipe_adapter.train(cfg, device=device)
-        trained.append((model_label, Path(cfg["paths"]["output_dir"])))
-    return trained
+        train_loader, _val_loader = build_pipe_train_val_loaders(cfg)
+        test_loader = build_pipe_test_loader(cfg)
+        meta = pipe_adapter._get_meta(train_loader)
+        h_grid, w_grid = tuple(meta["shapelist"])
 
+        x_normalizer = _move_normalizer_to_device(train_loader, "x_normalizer", device)
+        y_normalizer = _move_normalizer_to_device(train_loader, "y_normalizer", device)
+        uy_normalizer = _move_normalizer_to_device(
+            train_loader, "uy_normalizer", device
+        )
 
-def _relative_l2_numpy(pred: np.ndarray, target: np.ndarray) -> float:
-    return float(
-        np.linalg.norm((pred - target).reshape(-1), ord=2)
-        / max(np.linalg.norm(target.reshape(-1), ord=2), 1e-12)
-    )
+        model, _model_args, _resolved_nsl_root = create_model(
+            cfg,
+            device=device,
+            runtime_overrides=pipe_adapter._runtime_overrides(meta),
+        )
+        _configure_pipe_constraint_for_plot(
+            model,
+            meta=meta,
+            x_normalizer=x_normalizer,
+            y_normalizer=y_normalizer,
+            uy_normalizer=uy_normalizer,
+        )
 
-
-def plot_fast_pipe_qualitative_2x2(run_dirs, *, sample_idx: int, out_path: Path):
-    loaded = []
-    for model_label, run_dir in run_dirs:
-        samples = load_pipe_predictions_for_samples(run_dir, (sample_idx,))
-        if samples is None or sample_idx not in samples:
-            raise FileNotFoundError(
-                f"Missing fast qualitative prediction for {model_label} at {run_dir}"
+        optimizer = build_optimizer(model, cfg.get("training", {}))
+        sample_batch = _select_fast_pipe_test_sample(
+            test_loader, FAST_QUALITATIVE_SAMPLE_IDX, device
+        )
+        trace = [
+            _capture_fast_pipe_prediction(
+                model,
+                sample_batch=sample_batch,
+                x_normalizer=x_normalizer,
+                y_normalizer=y_normalizer,
+                h_grid=h_grid,
+                w_grid=w_grid,
+                label="init",
+                step=0,
             )
-        loaded.append((model_label, samples[sample_idx]))
+        ]
 
+        model.train()
+        for step, batch in enumerate(train_loader, start=1):
+            coords = batch["coords"].to(device)
+            fx = batch["x"].to(device)
+            target = batch["y"].to(device)
+            uy_target = batch.get("y_uy")
+            if uy_target is not None:
+                uy_target = uy_target.to(device)
+
+            out = forward_with_optional_aux(
+                model,
+                coords,
+                fx,
+                uy_target=uy_target,
+            )
+            pred_decoded = _decode_tensor(y_normalizer, out["pred"])
+            target_decoded = _decode_tensor(y_normalizer, target)
+            loss = torch.nn.functional.mse_loss(pred_decoded, target_decoded)
+            if out.get("extra_loss") is not None:
+                loss = loss + out["extra_loss"]
+
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            optimizer.step()
+
+            trace.append(
+                _capture_fast_pipe_prediction(
+                    model,
+                    sample_batch=sample_batch,
+                    x_normalizer=x_normalizer,
+                    y_normalizer=y_normalizer,
+                    h_grid=h_grid,
+                    w_grid=w_grid,
+                    label=f"step {step}",
+                    step=step,
+                    train_loss=float(loss.detach().item()),
+                )
+            )
+            model.train()
+
+        traces[model_label] = trace
+        print(
+            f"{model_label}: captured {len(trace)} frames; "
+            f"final rel. L2={trace[-1]['rel_l2']:.3f}"
+        )
+    return traces
+
+
+def _fast_trace_field_ranges(traces):
+    all_frames = [frame for trace in traces.values() for frame in trace]
     field_values = np.concatenate(
-        [np.ravel(sample["gt"]) for _label, sample in loaded]
-        + [np.ravel(sample["pred"]) for _label, sample in loaded]
+        [np.ravel(frame["target"]) for frame in all_frames]
+        + [np.ravel(frame["pred"]) for frame in all_frames]
     )
     field_vmin = float(np.nanmin(field_values))
     field_vmax = float(np.nanmax(field_values))
     error_scale = max(
-        float(np.nanmax(np.abs(sample["pred"] - sample["gt"])))
-        for _label, sample in loaded
+        float(np.nanmax(np.abs(frame["pred"] - frame["target"])))
+        for frame in all_frames
     )
-    error_scale = max(error_scale, 1e-12)
+    return field_vmin, field_vmax, max(error_scale, 1e-12)
 
+
+def plot_fast_pipe_learning_storyboard(traces, *, out_path: Path):
+    field_vmin, field_vmax, error_scale = _fast_trace_field_ranges(traces)
+    max_frames = max(len(trace) for trace in traces.values())
+    model_labels = list(traces)
     fig, axes = plt.subplots(
-        2,
-        2,
-        figsize=(9.2, 4.9),
+        len(model_labels),
+        max_frames,
+        figsize=(2.4 * max_frames, 2.35 * len(model_labels)),
+        squeeze=False,
         constrained_layout=True,
     )
-    field_mesh = None
-    error_mesh = None
-    for col, (model_label, sample) in enumerate(loaded):
-        error = sample["pred"] - sample["gt"]
-        rel_l2 = _relative_l2_numpy(sample["pred"], sample["gt"])
-        field_mesh = _plot_pipe_qual_field(
-            axes[0, col],
-            sample["x"],
-            sample["y"],
-            sample["pred"],
-            cmap=CMAP,
-            vmin=field_vmin,
-            vmax=field_vmax,
+    mesh = None
+    for row, model_label in enumerate(model_labels):
+        trace = traces[model_label]
+        for col in range(max_frames):
+            ax = axes[row, col]
+            if col >= len(trace):
+                ax.axis("off")
+                continue
+            frame = trace[col]
+            mesh = _plot_pipe_qual_field(
+                ax,
+                frame["x"],
+                frame["y"],
+                frame["pred"],
+                cmap=CMAP,
+                vmin=field_vmin,
+                vmax=field_vmax,
+            )
+            ax.set_title(
+                f"{frame['label']}\nrel. $L_2$={frame['rel_l2']:.2f}",
+                fontsize=9,
+            )
+        axes[row, 0].set_ylabel(
+            model_label,
+            rotation=0,
+            ha="right",
+            va="center",
+            labelpad=54,
+            fontsize=10,
         )
-        axes[0, col].set_title(f"{model_label} prediction", fontsize=11)
-        error_mesh = _plot_pipe_qual_field(
-            axes[1, col],
-            sample["x"],
-            sample["y"],
-            error,
-            cmap="coolwarm",
-            vmin=-error_scale,
-            vmax=error_scale,
-        )
-        axes[1, col].set_title(f"error, rel. $L_2$={rel_l2:.3f}", fontsize=11)
-
-    fig.colorbar(field_mesh, ax=axes[0, :].tolist(), shrink=0.82, pad=0.01)
-    error_bar = fig.colorbar(error_mesh, ax=axes[1, :].tolist(), shrink=0.82, pad=0.01)
-    error_bar.set_label("pred - GT", fontsize=9)
+    fig.colorbar(mesh, ax=axes.ravel().tolist(), shrink=0.52, pad=0.01)
     fig.suptitle(
-        "Pipe flow: one-epoch qualitative comparison "
-        f"({FAST_QUALITATIVE_BACKBONE}, 16 train samples)",
+        "One-epoch pipe learning trace on one held-out sample",
         fontsize=13,
     )
 
@@ -2284,13 +2426,206 @@ def plot_fast_pipe_qualitative_2x2(run_dirs, *, sample_idx: int, out_path: Path)
     return out_path
 
 
-if RUN_FAST_PIPE_QUALITATIVE:
-    fast_run_dirs = train_fast_pipe_qualitative_runs()
-    fast_qualitative_path = plot_fast_pipe_qualitative_2x2(
-        fast_run_dirs,
-        sample_idx=FAST_QUALITATIVE_SAMPLE_IDX,
-        out_path=FIGURES_DIR / FAST_QUALITATIVE_FIGURE_NAME,
+def _draw_fast_pipe_learning_frame(
+    traces, frame_idx, *, field_vmin, field_vmax, error_scale
+):
+    model_labels = list(traces)
+    fig = plt.figure(figsize=(12.2, 2.6), facecolor="white")
+    row_y = [0.55, 0.29]
+    pred_left = 0.19
+    err_left = 0.52
+    field_width = 0.23
+    field_height = 0.22
+    axes = np.empty((len(model_labels), 2), dtype=object)
+    field_mesh = None
+    error_mesh = None
+    for row, model_label in enumerate(model_labels):
+        trace = traces[model_label]
+        frame = trace[min(frame_idx, len(trace) - 1)]
+        error = frame["pred"] - frame["target"]
+        axes[row, 0] = fig.add_axes(
+            [pred_left, row_y[row], field_width, field_height]
+        )
+        axes[row, 1] = fig.add_axes([err_left, row_y[row], field_width, field_height])
+        for ax in axes[row]:
+            ax.set_facecolor("white")
+        field_mesh = _plot_pipe_qual_field(
+            axes[row, 0],
+            frame["x"],
+            frame["y"],
+            frame["pred"],
+            cmap=CMAP,
+            vmin=field_vmin,
+            vmax=field_vmax,
+        )
+        error_mesh = _plot_pipe_qual_field(
+            axes[row, 1],
+            frame["x"],
+            frame["y"],
+            error,
+            cmap="coolwarm",
+            vmin=-error_scale,
+            vmax=error_scale,
+        )
+        fig.text(
+            0.135,
+            row_y[row] + 0.5 * field_height,
+            f"{model_label}\n{frame['label']}\nrel. $L_2$={frame['rel_l2']:.3f}",
+            ha="right",
+            va="center",
+            color="#4f4f55",
+            fontsize=11,
+        )
+    fig.text(
+        pred_left + 0.5 * field_width,
+        0.86,
+        "Pred $u_x$",
+        ha="center",
+        va="center",
+        fontsize=11,
     )
+    fig.text(
+        err_left + 0.5 * field_width,
+        0.86,
+        "Pred - GT",
+        ha="center",
+        va="center",
+        fontsize=11,
+    )
+    field_cax = fig.add_axes([0.445, 0.31, 0.008, 0.42])
+    error_cax = fig.add_axes([0.785, 0.31, 0.008, 0.42])
+    field_bar = fig.colorbar(
+        field_mesh,
+        cax=field_cax,
+    )
+    error_bar = fig.colorbar(
+        error_mesh,
+        cax=error_cax,
+    )
+    for cbar in (field_bar, error_bar):
+        cbar.ax.tick_params(labelsize=7, length=2, pad=1)
+    ax_curve = fig.add_axes([0.835, 0.28, 0.135, 0.50])
+    ax_curve.set_facecolor("white")
+    curve_colors = {
+        model_labels[0]: plt.get_cmap(CMAP)(0.85),
+        model_labels[1]: EDGE_COLORS["inlet"],
+    }
+    for model_label in model_labels:
+        trace = traces[model_label]
+        shown_idx = min(frame_idx, len(trace) - 1)
+        steps = [f["step"] for f in trace[: shown_idx + 1]]
+        values = [f["rel_l2"] for f in trace[: shown_idx + 1]]
+        ax_curve.plot(
+            steps,
+            values,
+            marker="o",
+            markersize=2.6,
+            linewidth=1.5,
+            color=curve_colors.get(model_label),
+            label="Base" if model_label == model_labels[0] else "Stream",
+        )
+    all_steps = [f["step"] for trace in traces.values() for f in trace]
+    all_values = [f["rel_l2"] for trace in traces.values() for f in trace]
+    ax_curve.set_xlim(min(all_steps), max(all_steps))
+    value_pad = 0.06 * max(max(all_values) - min(all_values), 1e-12)
+    ax_curve.set_ylim(min(all_values) - value_pad, max(all_values) + value_pad)
+    ax_curve.set_title("Test rel. $L_2$", fontsize=9, pad=4)
+    ax_curve.set_xlabel("step", fontsize=8, labelpad=1)
+    ax_curve.tick_params(axis="both", labelsize=7, length=2, pad=1)
+    ax_curve.grid(color="0.88", linewidth=0.55)
+    ax_curve.legend(frameon=False, loc="upper right", fontsize=7, handlelength=1.2)
+    return fig
+
+
+def save_fast_pipe_learning_gif(traces, *, out_path: Path):
+    field_vmin, field_vmax, error_scale = _fast_trace_field_ranges(traces)
+    max_frames = max(len(trace) for trace in traces.values())
+    frames = []
+    for frame_idx in range(max_frames):
+        fig = _draw_fast_pipe_learning_frame(
+            traces,
+            frame_idx,
+            field_vmin=field_vmin,
+            field_vmax=field_vmax,
+            error_scale=error_scale,
+        )
+        fig.canvas.draw()
+        rgba = np.asarray(fig.canvas.buffer_rgba()).copy()
+        from PIL import Image
+
+        frames.append(Image.fromarray(rgba))
+        if IS_NOTEBOOK:
+            plt.show()
+        else:
+            plt.close(fig)
+    saved = _save_rgba_animation(frames, out_path, fps=FAST_QUALITATIVE_GIF_FPS)
+    print(f"Saved to {saved}")
+    return saved
+
+
+def plot_fast_pipe_learning_final_2x2(traces, *, out_path: Path):
+    loaded = [(model_label, trace[-1]) for model_label, trace in traces.items()]
+    field_vmin, field_vmax, error_scale = _fast_trace_field_ranges(traces)
+    fig, axes = plt.subplots(2, 2, figsize=(9.2, 4.9), constrained_layout=True)
+    field_mesh = None
+    error_mesh = None
+    for col, (model_label, frame) in enumerate(loaded):
+        error = frame["pred"] - frame["target"]
+        field_mesh = _plot_pipe_qual_field(
+            axes[0, col],
+            frame["x"],
+            frame["y"],
+            frame["pred"],
+            cmap=CMAP,
+            vmin=field_vmin,
+            vmax=field_vmax,
+        )
+        axes[0, col].set_title(f"{model_label} final prediction", fontsize=11)
+        error_mesh = _plot_pipe_qual_field(
+            axes[1, col],
+            frame["x"],
+            frame["y"],
+            error,
+            cmap="coolwarm",
+            vmin=-error_scale,
+            vmax=error_scale,
+        )
+        axes[1, col].set_title(
+            f"error, rel. $L_2$={frame['rel_l2']:.3f}",
+            fontsize=11,
+        )
+
+    fig.colorbar(field_mesh, ax=axes[0, :].tolist(), shrink=0.82, pad=0.01)
+    error_bar = fig.colorbar(error_mesh, ax=axes[1, :].tolist(), shrink=0.82, pad=0.01)
+    error_bar.set_label("pred - GT", fontsize=9)
+    fig.suptitle(
+        "Pipe flow: one-epoch qualitative comparison "
+        f"({FAST_QUALITATIVE_BACKBONE}, {FAST_QUALITATIVE_NTRAIN} train samples)",
+        fontsize=13,
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, bbox_inches="tight", dpi=180)
+    if IS_NOTEBOOK:
+        plt.show()
+    else:
+        plt.close(fig)
+    print(f"Saved to {out_path}")
+    return out_path
+
+
+if RUN_FAST_PIPE_QUALITATIVE:
+    fast_learning_traces = train_fast_pipe_learning_trace()
+    fast_storyboard_path = plot_fast_pipe_learning_storyboard(
+        fast_learning_traces,
+        out_path=FIGURES_DIR / FAST_QUALITATIVE_STORYBOARD_NAME,
+    )
+    fast_learning_gif_path = save_fast_pipe_learning_gif(
+        fast_learning_traces,
+        out_path=FIGURES_DIR / FAST_QUALITATIVE_GIF_NAME,
+    )
+
+
+# %% Mass conservation on saved unconstrained Transolver checkpoints
 candidates = sorted(REPO_ROOT.glob("outputs/pipe/none/transolver/*/seed_*/best.pt"))
 print(f"Found {len(candidates)} trained transolver pipe checkpoints (constraint=none):")
 for c in candidates:
