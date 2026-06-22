@@ -1398,148 +1398,208 @@ print(f"Saved {IMPL_DIR / 'elasticity_diagram_output.png'}")
 # predicted von Mises stress field as output.
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch, Rectangle
 
-SCHEM_SAMPLE = 0
-pts = coords[SCHEM_SAMPLE]  # (P, 2)
-field = sigma[SCHEM_SAMPLE]  # (P,)
 
-x_min, x_max = pts[:, 0].min(), pts[:, 0].max()
-y_min, y_max = pts[:, 1].min(), pts[:, 1].max()
-span = x_max - x_min
+def _plot_elasticity_setup_schematic(sample_idx, *, vmin=None, vmax=None):
+    pts = coords[int(sample_idx)]  # (P, 2)
+    field = sigma[int(sample_idx)]  # (P,)
 
-fig = plt.figure(figsize=(12, 4.5))
-gs = fig.add_gridspec(1, 3, width_ratios=[1.0, 0.75, 1.0], wspace=0.05)
-ax_in = fig.add_subplot(gs[0])
-ax_mid = fig.add_subplot(gs[1])
-ax_out = fig.add_subplot(gs[2])
+    if vmin is None:
+        vmin = float(field.min())
+    if vmax is None:
+        vmax = float(field.max())
 
-# A framing box drawn around each point cloud at the geometry bounds.
-pad = 0.04 * span
+    x_min, x_max = pts[:, 0].min(), pts[:, 0].max()
+    y_min, y_max = pts[:, 1].min(), pts[:, 1].max()
+    span = x_max - x_min
 
+    fig = plt.figure(figsize=(12, 4.5))
+    gs = fig.add_gridspec(1, 3, width_ratios=[1.0, 0.75, 1.0], wspace=0.05)
+    ax_in = fig.add_subplot(gs[0])
+    ax_mid = fig.add_subplot(gs[1])
+    ax_out = fig.add_subplot(gs[2])
 
-def frame(ax):
-    ax.add_patch(
-        Rectangle(
-            (x_min - pad, y_min - pad),
-            (x_max - x_min) + 2 * pad,
-            (y_max - y_min) + 2 * pad,
-            fill=False,
-            edgecolor="0.2",
-            linewidth=1.2,
+    # A framing box drawn around each point cloud at the geometry bounds.
+    pad = 0.04 * span
+
+    def frame(ax):
+        ax.add_patch(
+            Rectangle(
+                (x_min - pad, y_min - pad),
+                (x_max - x_min) + 2 * pad,
+                (y_max - y_min) + 2 * pad,
+                fill=False,
+                edgecolor="0.2",
+                linewidth=1.2,
+            )
+        )
+
+    # --- Input panel: geometry + boundary conditions ---
+    ax_in.scatter(pts[:, 0], pts[:, 1], s=14, color="0.25", linewidths=0)
+    frame(ax_in)
+
+    # Tension traction: upward arrows rising from the top of the input box.
+    arrow_x = np.linspace(x_min + 0.06 * span, x_max - 0.06 * span, 6)
+    arrow_base = y_max + pad
+    arrow_len = 0.16 * span
+    for ax_x in arrow_x:
+        ax_in.annotate(
+            "",
+            xy=(ax_x, arrow_base + arrow_len),
+            xytext=(ax_x, arrow_base),
+            arrowprops={
+                "arrowstyle": "-|>",
+                "color": "k",
+                "lw": 1.6,
+                "mutation_scale": 12,
+            },
+            annotation_clip=False,
+            zorder=5,
+        )
+    ax_in.text(
+        0.5 * (x_min + x_max),
+        arrow_base + arrow_len + 0.03 * span,
+        r"Tension traction $t$",
+        ha="center",
+        va="bottom",
+        color="k",
+        fontsize=12,
+        clip_on=False,
+    )
+
+    # Fixed support: a baseline with hatch ticks under the bottom edge.
+    base_y = y_min - pad
+    ax_in.plot([x_min, x_max], [base_y, base_y], color="0.1", lw=1.4)
+    tick = 0.045 * span
+    for hx in np.linspace(x_min, x_max, 14):
+        ax_in.plot([hx, hx - tick], [base_y, base_y - tick], color="0.1", lw=1.0)
+    ax_in.text(
+        0.5 * (x_min + x_max),
+        base_y - tick - 0.04 * span,
+        "fixed",
+        ha="center",
+        va="top",
+        fontsize=12,
+    )
+
+    ax_in.set_aspect("equal")
+    ax_in.set_xlim(x_min - pad - 0.02 * span, x_max + pad + 0.02 * span)
+    ax_in.set_ylim(
+        base_y - tick - 0.10 * span,
+        arrow_base + arrow_len + 0.12 * span,
+    )
+    ax_in.axis("off")
+
+    # --- Middle panel: neural operator box with flow arrows ---
+    ax_mid.set_xlim(0, 1)
+    ax_mid.set_ylim(0, 1)
+    ax_mid.axis("off")
+    box = FancyBboxPatch(
+        (0.18, 0.42),
+        0.64,
+        0.16,
+        boxstyle="round,pad=0.02",
+        linewidth=1.2,
+        edgecolor="0.4",
+        facecolor="white",
+    )
+    ax_mid.add_patch(box)
+    ax_mid.text(0.5, 0.50, "Model", ha="center", va="center", fontsize=12)
+    ax_mid.add_patch(
+        FancyArrowPatch(
+            (0.0, 0.50),
+            (0.17, 0.50),
+            arrowstyle="-|>",
+            mutation_scale=16,
+            color="0.2",
+            lw=1.4,
+        )
+    )
+    ax_mid.add_patch(
+        FancyArrowPatch(
+            (0.83, 0.50),
+            (1.0, 0.50),
+            arrowstyle="-|>",
+            mutation_scale=16,
+            color="0.2",
+            lw=1.4,
         )
     )
 
-
-# --- Input panel: geometry + boundary conditions ---
-ax_in.scatter(pts[:, 0], pts[:, 1], s=14, color="0.25", linewidths=0)
-frame(ax_in)
-
-# Tension traction: upward arrows rising from the top of the input box.
-arrow_x = np.linspace(x_min + 0.06 * span, x_max - 0.06 * span, 6)
-arrow_base = y_max + pad
-arrow_len = 0.16 * span
-for ax_x in arrow_x:
-    ax_in.annotate(
-        "",
-        xy=(ax_x, arrow_base + arrow_len),
-        xytext=(ax_x, arrow_base),
-        arrowprops={
-            "arrowstyle": "-|>",
-            "color": "k",
-            "lw": 1.6,
-            "mutation_scale": 12,
-        },
-        annotation_clip=False,
-        zorder=5,
+    # --- Output panel: predicted von Mises stress ---
+    sc = ax_out.scatter(
+        pts[:, 0],
+        pts[:, 1],
+        c=field,
+        cmap=CMAP,
+        s=14,
+        linewidths=0,
+        vmin=vmin,
+        vmax=vmax,
     )
-ax_in.text(
-    0.5 * (x_min + x_max),
-    arrow_base + arrow_len + 0.03 * span,
-    r"Tension traction $t$",
-    ha="center",
-    va="bottom",
-    color="k",
-    fontsize=12,
-    clip_on=False,
-)
+    frame(ax_out)
+    ax_out.set_aspect("equal")
+    ax_out.axis("off")
+    ax_out.set_title("Stress", fontsize=12)
+    fig.colorbar(sc, ax=ax_out, fraction=0.046, pad=0.04, label=r"$\sigma_{VM}$")
+    return fig
 
-# Fixed support: a baseline with hatch ticks under the bottom edge.
-base_y = y_min - pad
-ax_in.plot([x_min, x_max], [base_y, base_y], color="0.1", lw=1.4)
-tick = 0.045 * span
-for hx in np.linspace(x_min, x_max, 14):
-    ax_in.plot([hx, hx - tick], [base_y, base_y - tick], color="0.1", lw=1.0)
-ax_in.text(
-    0.5 * (x_min + x_max),
-    base_y - tick - 0.04 * span,
-    "fixed",
-    ha="center",
-    va="top",
-    fontsize=12,
-)
 
-ax_in.set_aspect("equal")
-ax_in.set_xlim(x_min - pad - 0.02 * span, x_max + pad + 0.02 * span)
-ax_in.set_ylim(
-    base_y - tick - 0.10 * span,
-    arrow_base + arrow_len + 0.12 * span,
-)
-ax_in.axis("off")
-
-# --- Middle panel: neural operator box with flow arrows ---
-ax_mid.set_xlim(0, 1)
-ax_mid.set_ylim(0, 1)
-ax_mid.axis("off")
-box = FancyBboxPatch(
-    (0.18, 0.42),
-    0.64,
-    0.16,
-    boxstyle="round,pad=0.02",
-    linewidth=1.2,
-    edgecolor="0.4",
-    facecolor="white",
-)
-ax_mid.add_patch(box)
-ax_mid.text(0.5, 0.50, "Model", ha="center", va="center", fontsize=12)
-ax_mid.add_patch(
-    FancyArrowPatch(
-        (0.0, 0.50),
-        (0.17, 0.50),
-        arrowstyle="-|>",
-        mutation_scale=16,
-        color="0.2",
-        lw=1.4,
-    )
-)
-ax_mid.add_patch(
-    FancyArrowPatch(
-        (0.83, 0.50),
-        (1.0, 0.50),
-        arrowstyle="-|>",
-        mutation_scale=16,
-        color="0.2",
-        lw=1.4,
-    )
-)
-
-# --- Output panel: predicted von Mises stress ---
-sc = ax_out.scatter(
-    pts[:, 0],
-    pts[:, 1],
-    c=field,
-    cmap=CMAP,
-    s=14,
-    linewidths=0,
-    vmin=field.min(),
-    vmax=field.max(),
-)
-frame(ax_out)
-ax_out.set_aspect("equal")
-ax_out.axis("off")
-ax_out.set_title("Stress", fontsize=12)
-fig.colorbar(sc, ax=ax_out, fraction=0.046, pad=0.04, label=r"$\sigma_{VM}$")
-
+SCHEM_SAMPLE = 0
+fig = _plot_elasticity_setup_schematic(SCHEM_SAMPLE)
 fig.savefig(
     FIGURES_DIR / "elasticity_setup_schematic.png", bbox_inches="tight", dpi=200
 )
 plt.show()
 print(f"Saved {FIGURES_DIR / 'elasticity_setup_schematic.png'}")
+
+# %% Setup schematic GIF - cycle through dataset samples
+# Edit this list to choose the dataset samples shown in the animated schematic.
+ELASTICITY_SETUP_GIF_SAMPLES = [0, 100, 500, 1000]
+ELASTICITY_SETUP_GIF_FPS = 1
+ELASTICITY_SETUP_GIF_DPI = 160
+
+
+def _save_elasticity_setup_schematic_gif(sample_indices, out_path: Path):
+    try:
+        from PIL import Image
+    except Exception as exc:
+        raise RuntimeError("Saving the elasticity schematic GIF requires Pillow.") from exc
+
+    sample_indices = [int(idx) for idx in sample_indices]
+    if not sample_indices:
+        raise ValueError("sample_indices must contain at least one sample index.")
+    if min(sample_indices) < 0 or max(sample_indices) >= coords.shape[0]:
+        raise ValueError(f"sample_indices must be in [0, {coords.shape[0] - 1}].")
+
+    gif_vmin = float(min(sigma[idx].min() for idx in sample_indices))
+    gif_vmax = float(max(sigma[idx].max() for idx in sample_indices))
+    frames = []
+    for sample_idx in sample_indices:
+        frame_fig = _plot_elasticity_setup_schematic(
+            sample_idx, vmin=gif_vmin, vmax=gif_vmax
+        )
+        frame_fig.suptitle(f"Sample {sample_idx}", y=0.98, fontsize=13)
+        frame_fig.set_dpi(ELASTICITY_SETUP_GIF_DPI)
+        frame_fig.canvas.draw()
+        rgba = np.asarray(frame_fig.canvas.buffer_rgba()).copy()
+        frames.append(Image.fromarray(rgba))
+        plt.close(frame_fig)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    duration_ms = max(int(1000 / max(int(ELASTICITY_SETUP_GIF_FPS), 1)), 1)
+    frames[0].save(
+        out_path,
+        save_all=True,
+        append_images=frames[1:],
+        duration=duration_ms,
+        loop=0,
+        disposal=2,
+    )
+    return out_path
+
+
+setup_gif_path = _save_elasticity_setup_schematic_gif(
+    ELASTICITY_SETUP_GIF_SAMPLES,
+    FIGURES_DIR / "elasticity_setup_schematic_samples.gif",
+)
+print(f"Saved {setup_gif_path}")
