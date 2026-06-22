@@ -319,6 +319,7 @@ print(f"Saved to {table_path}")
 import csv
 
 import torch
+import sys
 
 from omni_hc.constraints.utils.spectral import (
     finite_difference_divergence_2d,
@@ -1622,6 +1623,532 @@ plot_right_boundary_sine_diagram(
     n_modes=21,
     out_path=FIGURES_DIR / "darcy_sine_basis_right_boundary_diagram.png",
 )
+
+
+# %% Fast boundary learning trace — unconstrained vs sine boundary model
+# Shows how a single held-out Darcy boundary profile changes over one epoch.
+# In a notebook this cell runs by default. For script execution, set:
+#   OMNI_HC_RUN_FAST_DARCY_BOUNDARY_TRACE=1 python scripts/notebooks/darcy.py
+import os
+import sys
+
+import torch
+
+from omni_hc.benchmarks.darcy import adapter as darcy_adapter
+from omni_hc.benchmarks.darcy.data import build_test_loader as build_darcy_test_loader
+from omni_hc.benchmarks.darcy.data import (
+    build_train_val_loaders as build_darcy_train_val_loaders,
+)
+from omni_hc.core import compose_run_config
+from omni_hc.integrations.nsl.modeling import create_model
+from omni_hc.training.common import (
+    build_optimizer,
+    forward_with_optional_aux,
+    relative_l2_per_sample,
+)
+from omni_hc.training.reproducibility import seed_everything, training_seed
+
+RUN_FAST_DARCY_BOUNDARY_TRACE = bool(
+    int(
+        os.environ.get(
+            "OMNI_HC_RUN_FAST_DARCY_BOUNDARY_TRACE",
+            "1" if "ipykernel" in sys.modules else "0",
+        )
+    )
+) or bool(globals().get("RUN_FAST_DARCY_BOUNDARY_TRACE", False))
+DARCY_BOUNDARY_TRACE_BACKBONE = "FNO"
+DARCY_BOUNDARY_TRACE_SAMPLE_IDX = 0
+DARCY_BOUNDARY_TRACE_EDGE = "right"
+DARCY_BOUNDARY_TRACE_NTRAIN = 100
+DARCY_BOUNDARY_TRACE_BATCH_SIZE = 2
+DARCY_BOUNDARY_TRACE_FPS = 2
+DARCY_BOUNDARY_TRACE_PRETRAIN_SINE = True
+DARCY_BOUNDARY_TRACE_UNFREEZE_SINE_HEAD = True
+DARCY_BOUNDARY_TRACE_SINE_HEAD_LR_SCALE = 0.02
+DARCY_BOUNDARY_TRACE_GIF_NAME = "darcy_boundary_learning_trace_epoch1.gif"
+DARCY_BOUNDARY_TRACE_PNG_NAME = "darcy_boundary_learning_trace_epoch1.png"
+DARCY_BOUNDARY_TRACE_OUTPUT_ROOT = Path(
+    os.environ.get(
+        "OMNI_HC_DARCY_BOUNDARY_TRACE_OUTPUT_ROOT",
+        "/private/tmp/omni_hc_darcy_boundary_trace",
+    )
+)
+
+
+def _darcy_boundary_trace_overrides(output_dir: Path, *, sine: bool) -> dict:
+    overrides = {
+        "paths": {
+            "root_dir": str(DATA_DIR),
+            "output_dir": str(output_dir),
+        },
+        "data": {
+            "ntrain": DARCY_BOUNDARY_TRACE_NTRAIN,
+            "ntest": 16,
+        },
+        "model": {
+            "args": {
+                "n_hidden": 32,
+                "n_heads": 4,
+                "n_layers": 2,
+                "modes": 8,
+            },
+        },
+        "training": {
+            "batch_size": DARCY_BOUNDARY_TRACE_BATCH_SIZE,
+            "val_size": 0,
+            "num_epochs": 1,
+            "scheduler": "none",
+            "derivloss": False,
+            "seed": 42,
+        },
+        "evaluation": {
+            "batch_size": 2,
+        },
+        "wandb_logging": {
+            "wandb": False,
+            "log_every": None,
+            "image_log_every": None,
+        },
+    }
+    if sine:
+        overrides["constraint"] = {
+            "n_modes": 21,
+            "hidden_dim": 64,
+            "n_layers": 2,
+            "feature_mode": "boundary",
+        }
+        if DARCY_BOUNDARY_TRACE_PRETRAIN_SINE:
+            overrides["constraint"]["coeff_head_pretrain"] = {
+                "epochs": 15,
+                "lr": 1.0e-3,
+                "weight_decay": 1.0e-4,
+                "batch_size": 32,
+                "max_samples": DARCY_BOUNDARY_TRACE_NTRAIN,
+                "val_frac": 0.0,
+                "seed": 42,
+            }
+    return overrides
+
+
+def _compose_darcy_boundary_trace_config(*, label: str, constraint: str | None):
+    output_dir = DARCY_BOUNDARY_TRACE_OUTPUT_ROOT / label / "seed_42"
+    return compose_run_config(
+        benchmark="darcy",
+        backbone=DARCY_BOUNDARY_TRACE_BACKBONE,
+        constraint=constraint,
+        budget="debug",
+        mode="train",
+        seed=42,
+        extra_overrides=_darcy_boundary_trace_overrides(
+            output_dir,
+            sine=constraint is not None,
+        ),
+    )
+
+
+def _move_darcy_normalizer_to_device(loader, name, device):
+    normalizer = getattr(loader, name, None)
+    return normalizer.to(device) if normalizer is not None else None
+
+
+def _decode_darcy_tensor(normalizer, tensor):
+    return normalizer.decode(tensor) if normalizer is not None else tensor
+
+
+def _configure_darcy_constraint_for_trace(
+    model, *, x_normalizer, y_normalizer
+) -> None:
+    constraint = getattr(model, "constraint", None)
+    if constraint is None:
+        return
+    if y_normalizer is not None and hasattr(constraint, "set_target_normalizer"):
+        constraint.set_target_normalizer(y_normalizer)
+    if x_normalizer is not None and hasattr(constraint, "set_input_normalizer"):
+        constraint.set_input_normalizer(x_normalizer)
+
+
+def _unfreeze_sine_coeff_head_for_trace(model) -> None:
+    constraint = getattr(model, "constraint", None)
+    coeff_head = getattr(constraint, "coeff_head", None)
+    if coeff_head is None:
+        return
+    for param in coeff_head.parameters():
+        param.requires_grad = True
+    coeff_head.train()
+
+
+def _build_darcy_boundary_trace_optimizer(model, training_cfg: dict, *, sine: bool):
+    if not sine or not DARCY_BOUNDARY_TRACE_UNFREEZE_SINE_HEAD:
+        return build_optimizer(model, training_cfg)
+
+    constraint = getattr(model, "constraint", None)
+    coeff_head = getattr(constraint, "coeff_head", None)
+    if coeff_head is None:
+        return build_optimizer(model, training_cfg)
+
+    coeff_param_ids = {id(param) for param in coeff_head.parameters()}
+    base_params = [
+        param
+        for param in model.parameters()
+        if param.requires_grad and id(param) not in coeff_param_ids
+    ]
+    coeff_params = [param for param in coeff_head.parameters() if param.requires_grad]
+    lr = float(training_cfg.get("learning_rate", 1e-3))
+    weight_decay = float(training_cfg.get("weight_decay", 0.0))
+    return torch.optim.AdamW(
+        [
+            {"params": base_params, "lr": lr, "weight_decay": weight_decay},
+            {
+                "params": coeff_params,
+                "lr": lr * DARCY_BOUNDARY_TRACE_SINE_HEAD_LR_SCALE,
+                "weight_decay": weight_decay,
+            },
+        ]
+    )
+
+
+def _select_darcy_test_sample(loader, sample_idx: int, device: torch.device):
+    sample = loader.dataset[int(sample_idx)]
+    return {key: value.unsqueeze(0).to(device) for key, value in sample.items()}
+
+
+def _darcy_boundary_profile(field: np.ndarray, edge: str):
+    if edge == "bottom":
+        return field[0, :]
+    if edge == "top":
+        return field[-1, :]
+    if edge == "left":
+        return field[:, 0]
+    if edge == "right":
+        return field[:, -1]
+    raise ValueError(f"Unknown Darcy boundary edge {edge!r}")
+
+
+def _capture_darcy_boundary_prediction(
+    model,
+    *,
+    sample_batch,
+    x_normalizer,
+    y_normalizer,
+    h_grid: int,
+    w_grid: int,
+    label: str,
+    step: int,
+    edge: str,
+    train_loss: float | None = None,
+):
+    model.eval()
+    with torch.no_grad():
+        out = forward_with_optional_aux(
+            model,
+            sample_batch["coords"],
+            sample_batch["x"],
+        )
+        pred_decoded = _decode_darcy_tensor(y_normalizer, out["pred"])
+        target_decoded = _decode_darcy_tensor(y_normalizer, sample_batch["y"])
+        rel_l2 = float(
+            relative_l2_per_sample(pred_decoded, target_decoded).mean().item()
+        )
+
+    pred_field = pred_decoded[0, :, 0].reshape(h_grid, w_grid).detach().cpu().numpy()
+    target_field = (
+        target_decoded[0, :, 0].reshape(h_grid, w_grid).detach().cpu().numpy()
+    )
+    pred_edge = _darcy_boundary_profile(pred_field, edge)
+    target_edge = _darcy_boundary_profile(target_field, edge)
+    boundary_rel_l2 = float(
+        np.linalg.norm(pred_edge - target_edge)
+        / max(np.linalg.norm(target_edge), 1e-12)
+    )
+    boundary_rmse_1e5 = float(
+        np.sqrt(np.mean(np.square(pred_edge - target_edge))) / 1.0e-5
+    )
+
+    return {
+        "label": label,
+        "step": int(step),
+        "train_loss": train_loss,
+        "rel_l2": rel_l2,
+        "boundary_rel_l2": boundary_rel_l2,
+        "boundary_rmse_1e5": boundary_rmse_1e5,
+        "pred_edge": pred_edge,
+        "target_edge": target_edge,
+        "position": np.linspace(0.0, 1.0, pred_edge.size),
+    }
+
+
+def train_fast_darcy_boundary_trace():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    run_specs = (
+        ("Base", "base", None),
+        ("Sine", "sine", "darcy_sine_boundary_constraint"),
+    )
+    traces = {}
+    for model_label, run_label, constraint_name in run_specs:
+        cfg = _compose_darcy_boundary_trace_config(
+            label=run_label,
+            constraint=constraint_name,
+        )
+        seed_everything(training_seed(cfg))
+        print(
+            f"Training fast Darcy boundary trace: {model_label} "
+            f"({DARCY_BOUNDARY_TRACE_NTRAIN} samples, one epoch)"
+        )
+        train_loader, _val_loader = build_darcy_train_val_loaders(cfg)
+        test_loader = build_darcy_test_loader(cfg)
+        meta = darcy_adapter._get_meta(train_loader)
+        h_grid, w_grid = tuple(meta["shapelist"])
+
+        x_normalizer = _move_darcy_normalizer_to_device(
+            train_loader, "x_normalizer", device
+        )
+        y_normalizer = _move_darcy_normalizer_to_device(
+            train_loader, "y_normalizer", device
+        )
+        model, _model_args, _resolved_nsl_root = create_model(
+            cfg,
+            device=device,
+            runtime_overrides=darcy_adapter._runtime_overrides(meta),
+        )
+        _configure_darcy_constraint_for_trace(
+            model,
+            x_normalizer=x_normalizer,
+            y_normalizer=y_normalizer,
+        )
+        if constraint_name is not None and DARCY_BOUNDARY_TRACE_UNFREEZE_SINE_HEAD:
+            _unfreeze_sine_coeff_head_for_trace(model)
+
+        optimizer = _build_darcy_boundary_trace_optimizer(
+            model,
+            cfg.get("training", {}),
+            sine=constraint_name is not None,
+        )
+        sample_batch = _select_darcy_test_sample(
+            test_loader,
+            DARCY_BOUNDARY_TRACE_SAMPLE_IDX,
+            device,
+        )
+        trace = [
+            _capture_darcy_boundary_prediction(
+                model,
+                sample_batch=sample_batch,
+                x_normalizer=x_normalizer,
+                y_normalizer=y_normalizer,
+                h_grid=h_grid,
+                w_grid=w_grid,
+                label="init",
+                step=0,
+                edge=DARCY_BOUNDARY_TRACE_EDGE,
+            )
+        ]
+
+        model.train()
+        for step, batch in enumerate(train_loader, start=1):
+            coords = batch["coords"].to(device)
+            fx = batch["x"].to(device)
+            target = batch["y"].to(device)
+            out = forward_with_optional_aux(model, coords, fx)
+            pred_decoded = _decode_darcy_tensor(y_normalizer, out["pred"])
+            target_decoded = _decode_darcy_tensor(y_normalizer, target)
+            loss = torch.nn.functional.mse_loss(pred_decoded, target_decoded)
+            if out.get("extra_loss") is not None:
+                loss = loss + out["extra_loss"]
+
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            optimizer.step()
+
+            trace.append(
+                _capture_darcy_boundary_prediction(
+                    model,
+                    sample_batch=sample_batch,
+                    x_normalizer=x_normalizer,
+                    y_normalizer=y_normalizer,
+                    h_grid=h_grid,
+                    w_grid=w_grid,
+                    label=f"step {step}",
+                    step=step,
+                    edge=DARCY_BOUNDARY_TRACE_EDGE,
+                    train_loss=float(loss.detach().item()),
+                )
+            )
+            model.train()
+
+        traces[model_label] = trace
+        print(
+            f"{model_label}: captured {len(trace)} frames; "
+            f"final boundary RMSE={trace[-1]['boundary_rmse_1e5']:.3f}e-5"
+        )
+    return traces
+
+
+def _darcy_boundary_trace_ranges(traces):
+    all_frames = [frame for trace in traces.values() for frame in trace]
+    profile_ranges = {}
+    for model_label, trace in traces.items():
+        profiles = [frame["target_edge"] for frame in trace] + [
+            frame["pred_edge"] for frame in trace
+        ]
+        ymin = min(float(np.nanmin(profile)) for profile in profiles)
+        ymax = max(float(np.nanmax(profile)) for profile in profiles)
+        pad = 0.10 * max(ymax - ymin, 1.0e-6)
+        profile_ranges[model_label] = (ymin - pad, ymax + pad)
+    metrics = [frame["boundary_rmse_1e5"] for frame in all_frames]
+    metric_min = max(min(metrics) * 0.80, 1.0e-4)
+    metric_max = max(metrics) * 1.20
+    return profile_ranges, metric_min, max(metric_max, metric_min * 10.0)
+
+
+def _draw_darcy_boundary_trace_frame(
+    traces,
+    frame_idx,
+    *,
+    profile_ranges,
+    metric_ylim,
+):
+    model_labels = list(traces)
+    fig = plt.figure(figsize=(9.8, 4.0), facecolor="white")
+    row_y = [0.60, 0.20]
+    profile_axes = [
+        fig.add_axes([0.17, row_y[row], 0.50, 0.30])
+        for row in range(len(model_labels))
+    ]
+    ax_curve = fig.add_axes([0.74, 0.22, 0.21, 0.66])
+    colors = {
+        "GT": "0.18",
+        model_labels[0]: plt.cm.viridis(0.70),
+        model_labels[1]: plt.cm.plasma(0.70),
+    }
+    for row, model_label in enumerate(model_labels):
+        ax_profile = profile_axes[row]
+        trace = traces[model_label]
+        frame = trace[min(frame_idx, len(trace) - 1)]
+        ax_profile.plot(
+            frame["position"],
+            frame["pred_edge"],
+            color=colors[model_label],
+            linewidth=2.2,
+            linestyle="--" if model_label == model_labels[0] else "-",
+            label="Prediction",
+        )
+        ax_profile.plot(
+            frame["position"],
+            frame["target_edge"],
+            color=colors["GT"],
+            linewidth=2.0,
+            label="GT",
+        )
+        ax_profile.axhline(0.0, color="0.70", linewidth=0.8)
+        ax_profile.set_xlim(0.0, 1.0)
+        ax_profile.set_ylim(*profile_ranges[model_label])
+        ax_profile.grid(color="0.88", linewidth=0.6)
+        if row == len(model_labels) - 1:
+            ax_profile.set_xlabel("boundary coordinate")
+        else:
+            ax_profile.tick_params(labelbottom=False)
+        if row == 0:
+            ax_profile.set_title(
+                f"{DARCY_BOUNDARY_TRACE_EDGE.title()} boundary",
+                fontsize=11,
+            )
+            ax_profile.legend(frameon=False, loc="best", fontsize=8)
+        fig.text(
+            0.11,
+            row_y[row] + 0.13,
+            f"{model_label}\n{frame['label']}\nRMSE={frame['boundary_rmse_1e5']:.2f}",
+            ha="right",
+            va="center",
+            color="0.24",
+            fontsize=10,
+        )
+
+    for model_label in model_labels:
+        trace = traces[model_label]
+        shown_idx = min(frame_idx, len(trace) - 1)
+        steps = [f["step"] for f in trace[: shown_idx + 1]]
+        values = [f["boundary_rmse_1e5"] for f in trace[: shown_idx + 1]]
+        ax_curve.plot(
+            steps,
+            values,
+            marker="o",
+            markersize=2.8,
+            linewidth=1.7,
+            color=colors[model_label],
+            label=model_label,
+        )
+    all_steps = [frame["step"] for trace in traces.values() for frame in trace]
+    ax_curve.set_xlim(min(all_steps), max(all_steps))
+    ax_curve.set_ylim(*metric_ylim)
+    ax_curve.set_yscale("log")
+    ax_curve.set_xlabel("step")
+    ax_curve.set_ylabel("RMSE [$10^{-5}$]")
+    ax_curve.set_title("Test boundary error", fontsize=11)
+    ax_curve.grid(color="0.88", linewidth=0.6)
+    ax_curve.legend(frameon=False, loc="best", fontsize=8)
+    return fig
+
+
+def save_darcy_boundary_trace_gif(traces, *, out_path: Path, fps: int):
+    try:
+        from PIL import Image
+    except Exception as exc:
+        raise RuntimeError("Saving the Darcy boundary GIF requires Pillow.") from exc
+
+    profile_ranges, metric_min, metric_max = _darcy_boundary_trace_ranges(traces)
+    max_frames = max(len(trace) for trace in traces.values())
+    frames = []
+    first_fig = None
+    for frame_idx in range(max_frames):
+        fig = _draw_darcy_boundary_trace_frame(
+            traces,
+            frame_idx,
+            profile_ranges=profile_ranges,
+            metric_ylim=(metric_min, metric_max),
+        )
+        fig.canvas.draw()
+        rgba = np.asarray(fig.canvas.buffer_rgba()).copy()
+        frames.append(Image.fromarray(rgba))
+        if frame_idx == 0:
+            first_fig = fig
+        else:
+            plt.close(fig)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    duration_ms = max(int(1000 / max(int(fps), 1)), 1)
+    frames[0].save(
+        out_path,
+        save_all=True,
+        append_images=frames[1:],
+        duration=duration_ms,
+        loop=0,
+        disposal=2,
+    )
+    png_path = out_path.with_suffix(".png")
+    if first_fig is not None:
+        first_fig.savefig(png_path, bbox_inches="tight", dpi=180)
+        plt.close(first_fig)
+    print(f"Saved to {out_path}")
+    print(f"Saved to {png_path}")
+    return out_path, png_path
+
+
+if RUN_FAST_DARCY_BOUNDARY_TRACE:
+    print(
+        "Generating Darcy boundary learning trace; outputs will be written to "
+        f"{FIGURES_DIR / DARCY_BOUNDARY_TRACE_GIF_NAME}"
+    )
+    darcy_boundary_traces = train_fast_darcy_boundary_trace()
+    darcy_boundary_gif_path, darcy_boundary_png_path = save_darcy_boundary_trace_gif(
+        darcy_boundary_traces,
+        out_path=FIGURES_DIR / DARCY_BOUNDARY_TRACE_GIF_NAME,
+        fps=DARCY_BOUNDARY_TRACE_FPS,
+    )
+else:
+    print(
+        "Skipping Darcy boundary learning trace. Set "
+        "OMNI_HC_RUN_FAST_DARCY_BOUNDARY_TRACE=1 to generate it."
+    )
+
 
 # %% Empirical sine-head sweep — best val rel-L2 vs n_modes
 # Counterpart to the theoretical reconstruction curve above: this is what a

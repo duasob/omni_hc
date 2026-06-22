@@ -31,22 +31,27 @@ so slides should use domain-scoped relative paths:
 
 Use the browser version when presenting so animated GIFs continue to play.
 
-## Light and dark themes
+## Deck switches
 
-The deck uses the peril-inspired palette from `theme.css`. Change one line in
-the `slides.md` front matter to switch the whole deck:
+The deck uses the peril-inspired palette from `theme.css`. Change the `class:`
+line in the `slides.md` front matter to switch theme:
 
 ```yaml
 class: light
 ```
 
-or:
+Use `dark` instead of `light` for the dark theme. To hide the bottom
+Problem / Constraint / Results progress pills, set the top-level CSS variable
+in `slides.md` to `0`:
 
 ```yaml
-class: dark
+style: |
+  section {
+    --slide-state-progress-enabled: 0;
+  }
 ```
 
-To override a single slide, put this immediately after its opening `---`:
+To override a single slide theme, put this immediately after its opening `---`:
 
 ```markdown
 <!-- _class: dark -->
