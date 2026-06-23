@@ -78,6 +78,10 @@ Deck switches:
     <strong>Pipe flow</strong>
   </div>
   <div class="bench-tile">
+    <img class="blend-bg" src="assets/plasticity/plasticity_forging_cell_grid_sample_0100_focus.gif" alt="Plasticity forging samples">
+    <strong>Plasticity</strong>
+  </div>
+  <div class="bench-tile">
     <img src="assets/darcy/darcy_problem_3d.png" alt="Darcy flow pressure through porous medium">
     <strong>Darcy flow</strong>
   </div>
@@ -85,14 +89,36 @@ Deck switches:
     <img class="blend-bg" src="assets/elasticity/elasticity_diagram_output.png" alt="Elasticity setup samples">
     <strong>Elasticity</strong>
   </div>
-  <div class="bench-tile">
-    <img class="blend-bg" src="assets/plasticity/plasticity_forging_cell_grid_sample_0100_focus.gif" alt="Plasticity forging samples">
-    <strong>Plasticity</strong>
-  </div>
+
 </div>
 
 <!-- <p class="bench-thesis">For each domain, the architecture guarantees one physical property by construction.</p> -->
 
+
+---
+
+<!-- _class: code-slide constrained-model-slide -->
+
+<div class="constrained-model-layout">
+  <div>
+
+```python
+from omni_hc.constraints import (
+    ConstrainedModel,
+    DirichletBoundaryAnsatz,
+)
+
+backbone = TransformerBackbone()
+constraint = DirichletBoundaryAnsatz()
+model = ConstrainedModel(
+    backbone=backbone,
+    constraint=constraint,
+)
+```
+
+  </div>
+  <img src="assets/other/constrained_model.png" alt="ConstrainedModel wraps a backbone and constraint module">
+</div>
 
 ---
 <span class="title-marker"></span>
@@ -124,7 +150,6 @@ $$
   <span class="active-pill">Navier–Stokes</span>
   <span class="dot future"></span>
   <span class="dot future"></span>
-  <span class="dot future"></span>
 </div>
 
 ---
@@ -137,15 +162,11 @@ $$
 
 <img src="assets/ns/ns_mean_correction_diagram.png" alt="Global vorticity projection diagram">
 
-
 <div class="slide-bench-progress">
   <span class="active-pill">Navier–Stokes</span>
   <span class="dot future"></span>
   <span class="dot future"></span>
-  <span class="dot future"></span>
 </div>
-
-
 
 ---
 
@@ -216,7 +237,6 @@ $$
   <span class="active-pill">Navier–Stokes</span>
   <span class="dot future"></span>
   <span class="dot future"></span>
-  <span class="dot future"></span>
 </div>
 
 ---
@@ -229,7 +249,6 @@ $$
 <div class="slide-bench-progress">
   <span class="dot done"></span>
   <span class="active-pill">Pipe flow</span>
-  <span class="dot future"></span>
   <span class="dot future"></span>
 </div>
 
@@ -258,10 +277,10 @@ $$
 </div>
 
 ---
+
 <div class="slide-bench-progress">
   <span class="dot done"></span>
   <span class="active-pill">Pipe flow</span>
-  <span class="dot future"></span>
   <span class="dot future"></span>
 </div>
 
@@ -292,10 +311,10 @@ $$
 </div>
 
 ---
+
 <div class="slide-bench-progress">
   <span class="dot done"></span>
   <span class="active-pill">Pipe flow</span>
-  <span class="dot future"></span>
   <span class="dot future"></span>
 </div>
 
@@ -404,7 +423,6 @@ $$
   <span class="dot done"></span>
   <span class="active-pill">Pipe flow</span>
   <span class="dot future"></span>
-  <span class="dot future"></span>
 </div>
 
 ---
@@ -464,11 +482,9 @@ $$
 ##
 ##
 
-
 <div class="slide-bench-progress">
   <span class="dot done"></span>
   <span class="active-pill">Pipe flow</span>
-  <span class="dot future"></span>
   <span class="dot future"></span>
 </div>
 
@@ -490,7 +506,6 @@ $$
 <div class="slide-bench-progress">
   <span class="dot done"></span>
   <span class="active-pill">Pipe flow</span>
-  <span class="dot future"></span>
   <span class="dot future"></span>
 </div>
 
@@ -561,192 +576,6 @@ $$
   <span class="dot done"></span>
   <span class="active-pill">Pipe flow</span>
   <span class="dot future"></span>
-  <span class="dot future"></span>
-</div>
-
-
----
-<span class="title-marker"></span>
-
-# Elasticity
-
----
-
-<!-- _class: elasticity-problem-slide -->
-
-<div class="slide-state-progress">
-  <span class="active">Problem</span>
-  <span>Constraint</span>
-  <span>Results</span>
-</div>
-
-<div class="elasticity-setup-frame">
-  <img class="elasticity-setup-gif" src="assets/elasticity/elasticity_setup_schematic_samples.gif" alt="Elasticity plane-stress samples">
-</div>
-
-$$
-\mathbf{F}=\frac{\partial \mathbf{x}}{\partial \mathbf{ X}},
-\qquad
-\mathbf{\sigma (F)} =
-\begin{bmatrix}
-\sigma_{11} & \sigma _{12} & \sigma _{13} \\
-\sigma _{12}  & \sigma _{22}  & \sigma_{23} \\
-\sigma_{13} & \sigma _{23}  & \sigma _{33}
-\end{bmatrix},
-\qquad
-\sigma _{\text{VM}}(\mathbf{\sigma (F)}) \in \mathbb{R} 
-$$
-
-
-
-<div class="slide-bench-progress">
-  <span class="dot done"></span>
-  <span class="dot done"></span>
-  <span class="active-pill">Elasticity</span>
-  <span class="dot future"></span>
-</div>
-
----
-
-<!-- _class: elasticity-constraint-math-slide -->
-
-<div class="slide-state-progress">
-  <span>Problem</span>
-  <span class="active">Constraint</span>
-  <span>Results</span>
-</div>
-
-<div class="elasticity-constraint-math">
-
-
-$$
-\det \mathbf{F} =1,
-\qquad
-\mathbf{F}(\lambda)
-=
-\begin{bmatrix}
-\lambda_1 & 0 & 0 \\
-0 & \lambda_2 & 0 \\
-0 & 0 & \lambda_3
-\end{bmatrix}
-$$
-
-
-##
-
-$$
-(\lambda_1,\lambda_2,\lambda_3)
-=
-\left(e^{m+d},\,e^{m-d},\,e^{-2m}\right)
-$$
-
-
-##
-##
-
-$$
-\det \mathbf{F}
-=
-\lambda_1\lambda_2\lambda_3
-=
-e^{m+d}e^{m-d}e^{-2m}
-=1
-$$
-##
-##
-
-</div>
-
-<div class="slide-bench-progress">
-  <span class="dot done"></span>
-  <span class="dot done"></span>
-  <span class="active-pill">Elasticity</span>
-  <span class="dot future"></span>
-</div>
-
----
-
-<!-- _class: elasticity-constraint-visual-slide -->
-
-<div class="slide-state-progress">
-  <span>Problem</span>
-  <span class="active">Constraint</span>
-  <span>Results</span>
-</div>
-
-<div class="elasticity-constraint-visual-layout">
-  <img src="assets/elasticity/elasticity_constraint_pipeline.png" alt="Elasticity plane-stress constraint pipeline">
-  <img src="assets/elasticity/elasticity_reparameterization_real_output.png" alt="Elasticity reparameterization real output">
-</div>
-
-<div class="slide-bench-progress">
-  <span class="dot done"></span>
-  <span class="dot done"></span>
-  <span class="active-pill">Elasticity</span>
-  <span class="dot future"></span>
-</div>
-
----
-
-<!-- _class: elasticity-results-slide -->
-
-<div class="slide-state-progress">
-  <span>Problem</span>
-  <span >Constraint</span>
-  <span class="active" >Results</span>
-</div>
-
-<table class="elasticity-results-table">
-  <thead>
-    <tr>
-      <th>Budget<br><span>epoch / train</span></th>
-      <th>Base</th>
-      <th>Constraint</th>
-      <th>Relative Change</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>5 / 50</td>
-      <td>0.5552</td>
-      <td class="best">0.5161</td>
-      <td class="delta positive">+7.0%</td>
-    </tr>
-    <tr>
-      <td>10 / 100</td>
-      <td>0.5498</td>
-      <td class="best">0.4894</td>
-      <td class="delta positive">+11.0%</td>
-    </tr>
-    <tr>
-      <td>50 / 500</td>
-      <td class="best">0.0527</td>
-      <td>0.0622</td>
-      <td class="delta negative">-18.0%</td>
-    </tr>
-    <tr>
-      <td>100 / 900</td>
-      <td class="best">0.0208</td>
-      <td>0.0281</td>
-      <td class="delta negative">-35.1%</td>
-    </tr>
-    <tr>
-      <td>500 / 1000</td>
-      <td>0.0059</td>
-      <td class="best">0.0053</td>
-      <td class="delta positive">+10.2%</td>
-    </tr>
-  </tbody>
-</table>
-
-<p class="table-note">Relative L<sub>2</sub> test error. Lower is better.</p>
-
-
-<div class="slide-bench-progress">
-  <span class="dot done"></span>
-  <span class="dot done"></span>
-  <span class="active-pill">Elasticity</span>
-  <span class="dot future"></span>
 </div>
 
 ---
@@ -774,11 +603,7 @@ $$
 \mathcal{N_{\theta}(d, t)} \to (x_{i},y_{i})
 $$ -->
 
-
-
-
 <div class="slide-bench-progress">
-  <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="active-pill">Plasticity</span>
@@ -796,10 +621,7 @@ $$ -->
     <img class="plasticity-cell-focus-gif" src="assets/plasticity/plasticity_forging_cell_grid_sample_0100_focus.gif" alt="Plasticity forging cell grid focused rollout">
 </div>
 
-
-
 <div class="slide-bench-progress">
-  <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="active-pill">Plasticity</span>
@@ -820,7 +642,6 @@ $$ -->
 <div class="slide-bench-progress">
   <span class="dot done"></span>
   <span class="dot done"></span>
-  <span class="dot done"></span>
   <span class="active-pill">Plasticity</span>
 </div>
 
@@ -837,9 +658,7 @@ $$ -->
   <img class="plasticity-gif" src="assets/plasticity/plasticity_constraint_channel_cell_mapping.png" alt="Plasticity forging rollouts across multiple samples">
 </div>
 
-
 <div class="slide-bench-progress">
-  <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="active-pill">Plasticity</span>
@@ -882,9 +701,7 @@ $$
   </div>
 </div>
 
-
 <div class="slide-bench-progress">
-  <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="active-pill">Plasticity</span>
@@ -903,14 +720,11 @@ $$
   <img class="plasticity-gif" src="assets/plasticity/plasticity_fast_learning_trace_epoch1.gif" alt="Plasticity forging rollouts across multiple samples">
 </div>
 
-
 <div class="slide-bench-progress">
-  <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="active-pill">Plasticity</span>
 </div>
-
 
 ---
 
@@ -970,7 +784,6 @@ $$
 <div class="slide-bench-progress">
   <span class="dot done"></span>
   <span class="dot done"></span>
-  <span class="dot done"></span>
   <span class="active-pill">Plasticity</span>
 </div>
 
@@ -996,31 +809,6 @@ $$
 # Appendix
 
 
-
----
-
-<!-- _class: code-slide constrained-model-slide -->
-
-<div class="constrained-model-layout">
-  <div>
-
-```python
-from omni_hc.constraints import (
-    ConstrainedModel,
-    DirichletBoundaryAnsatz,
-)
-
-backbone = TransformerBackbone()
-constraint = DirichletBoundaryAnsatz()
-model = ConstrainedModel(
-    backbone=backbone,
-    constraint=constraint,
-)
-```
-
-  </div>
-  <img src="assets/other/constrained_model.png" alt="ConstrainedModel wraps a backbone and constraint module">
-</div>
 
 --- 
 <span class="title-marker"></span>
@@ -1166,6 +954,159 @@ $$ -->
 
 
 
+
+---
+<span class="title-marker"></span>
+
+# Elasticity
+
+---
+
+<!-- _class: elasticity-problem-slide -->
+
+<div class="slide-state-progress">
+  <span class="active">Problem</span>
+  <span>Constraint</span>
+  <span>Results</span>
+</div>
+
+<div class="elasticity-setup-frame">
+  <img class="elasticity-setup-gif" src="assets/elasticity/elasticity_setup_schematic_samples.gif" alt="Elasticity plane-stress samples">
+</div>
+
+$$
+\mathbf{F}=\frac{\partial \mathbf{x}}{\partial \mathbf{ X}},
+\qquad
+\mathbf{\sigma (F)} =
+\begin{bmatrix}
+\sigma_{11} & \sigma _{12} & \sigma _{13} \\
+\sigma _{12}  & \sigma _{22}  & \sigma_{23} \\
+\sigma_{13} & \sigma _{23}  & \sigma _{33}
+\end{bmatrix},
+\qquad
+\sigma _{\text{VM}}(\mathbf{\sigma (F)}) \in \mathbb{R} 
+$$
+##
+---
+
+<!-- _class: elasticity-constraint-math-slide -->
+
+<div class="slide-state-progress">
+  <span>Problem</span>
+  <span class="active">Constraint</span>
+  <span>Results</span>
+</div>
+
+<div class="elasticity-constraint-math">
+
+
+$$
+\det \mathbf{F} =1,
+\qquad
+\mathbf{F}(\lambda)
+=
+\begin{bmatrix}
+\lambda_1 & 0 & 0 \\
+0 & \lambda_2 & 0 \\
+0 & 0 & \lambda_3
+\end{bmatrix}
+$$
+
+
+##
+
+$$
+(\lambda_1,\lambda_2,\lambda_3)
+=
+\left(e^{m+d},\,e^{m-d},\,e^{-2m}\right)
+$$
+
+
+##
+##
+
+$$
+\det \mathbf{F}
+=
+\lambda_1\lambda_2\lambda_3
+=
+e^{m+d}e^{m-d}e^{-2m}
+=1
+$$
+##
+##
+
+</div>
+
+---
+
+<!-- _class: elasticity-constraint-visual-slide -->
+
+<div class="slide-state-progress">
+  <span>Problem</span>
+  <span class="active">Constraint</span>
+  <span>Results</span>
+</div>
+
+<div class="elasticity-constraint-visual-layout">
+  <img src="assets/elasticity/elasticity_constraint_pipeline.png" alt="Elasticity plane-stress constraint pipeline">
+  <img src="assets/elasticity/elasticity_reparameterization_real_output.png" alt="Elasticity reparameterization real output">
+</div>
+
+---
+
+<!-- _class: elasticity-results-slide -->
+
+<div class="slide-state-progress">
+  <span>Problem</span>
+  <span >Constraint</span>
+  <span class="active" >Results</span>
+</div>
+
+<table class="elasticity-results-table">
+  <thead>
+    <tr>
+      <th>Budget<br><span>epoch / train</span></th>
+      <th>Base</th>
+      <th>Constraint</th>
+      <th>Relative Change</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>5 / 50</td>
+      <td>0.5552</td>
+      <td class="best">0.5161</td>
+      <td class="delta positive">+7.0%</td>
+    </tr>
+    <tr>
+      <td>10 / 100</td>
+      <td>0.5498</td>
+      <td class="best">0.4894</td>
+      <td class="delta positive">+11.0%</td>
+    </tr>
+    <tr>
+      <td>50 / 500</td>
+      <td class="best">0.0527</td>
+      <td>0.0622</td>
+      <td class="delta negative">-18.0%</td>
+    </tr>
+    <tr>
+      <td>100 / 900</td>
+      <td class="best">0.0208</td>
+      <td>0.0281</td>
+      <td class="delta negative">-35.1%</td>
+    </tr>
+    <tr>
+      <td>500 / 1000</td>
+      <td>0.0059</td>
+      <td class="best">0.0053</td>
+      <td class="delta positive">+10.2%</td>
+    </tr>
+  </tbody>
+</table>
+
+<p class="table-note">Relative L<sub>2</sub> test error. Lower is better.</p>
 
 ---
 
