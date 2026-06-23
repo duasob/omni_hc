@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -40,6 +41,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ntrain", type=int, default=900)
     parser.add_argument("--ntest", type=int, default=80)
     parser.add_argument("--sample", type=int, default=0)
+    parser.add_argument(
+        "--samples",
+        type=int,
+        nargs="+",
+        default=None,
+        help=(
+            "Sample indices to concatenate into one GIF. If omitted, --sample "
+            "is used for backward-compatible single-sample output."
+        ),
+    )
     parser.add_argument(
         "--out-path",
         type=Path,
@@ -240,7 +251,9 @@ def make_animation(
                 0.0,
             )
         else:
-            die_speed_per_step = float(die_speed) * float(time_duration) / max(t_count, 1)
+            die_speed_per_step = (
+                float(die_speed) * float(time_duration) / max(t_count, 1)
+            )
         die_y_final = die_y_initial - die_speed_per_step * max(t_count - 1, 0)
     elif die_fit_mode == "contact-envelope":
         # The nominal upper edge is j=0, but the deformed cloud can contain
@@ -291,7 +304,7 @@ def make_animation(
         c="#cbd5e1",
         linewidths=0,
         alpha=0.35,
-        label="material grid",
+        # label="material grid",
     )
     scatter = ax.scatter(
         coords[:, :, 0, 0].reshape(-1),
@@ -322,12 +335,12 @@ def make_animation(
         alpha=0.10,
     )
 
-    cbar = fig.colorbar(scatter, ax=ax, pad=0.02)
-    cbar.set_label("displacement magnitude ||u||")
+    cbar = fig.colorbar(scatter, ax=ax, pad=0.015, fraction=0.03, shrink=0.7, aspect=30)
+    cbar.set_label("||u||")
 
     title = ax.set_title("")
-    ax.set_xlabel("physical x coordinate")
-    ax.set_ylabel("physical y coordinate")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
     ax.set_xlim(x_min - pad_x, x_max + pad_x)
     ax.set_ylim(y_min - pad_bottom, y_max + pad_top)
     ax.set_aspect("equal", adjustable="box")
@@ -396,6 +409,98 @@ def make_animation(
     return out_path
 
 
+def make_concatenated_animation(
+    *,
+    die_profiles: np.ndarray,
+    samples: np.ndarray,
+    sample_indices: list[int],
+    out_path: Path,
+    fps: int,
+    dpi: int,
+    point_size: float,
+    die_travel_fraction: float,
+    die_fit_mode: str,
+    die_speed: float | None,
+    time_duration: float,
+    die_gap_fraction: float,
+    die_amplitude_fraction: float,
+    flip_die_x: bool = False,
+) -> Path:
+    """Render selected samples and concatenate their frames into one GIF."""
+    if len(sample_indices) == 0:
+        raise ValueError("sample_indices must contain at least one sample")
+    validate_samples(sample_indices, int(samples.shape[0]))
+
+    if len(sample_indices) == 1:
+        sample_idx = int(sample_indices[0])
+        die_profile = die_profiles[sample_idx]
+        if flip_die_x:
+            die_profile = die_profile[::-1]
+        return make_animation(
+            die_profile=die_profile,
+            sample=samples[sample_idx],
+            sample_idx=sample_idx,
+            out_path=out_path,
+            fps=fps,
+            dpi=dpi,
+            point_size=point_size,
+            die_travel_fraction=die_travel_fraction,
+            die_fit_mode=die_fit_mode,
+            die_speed=die_speed,
+            time_duration=time_duration,
+            die_gap_fraction=die_gap_fraction,
+            die_amplitude_fraction=die_amplitude_fraction,
+        )
+
+    try:
+        from PIL import Image, ImageSequence
+    except ImportError as exc:
+        raise RuntimeError("Pillow is required to concatenate GIFs.") from exc
+
+    frames = []
+    with tempfile.TemporaryDirectory(prefix="plasticity_forging_gif_") as tmp_dir:
+        tmp_dir_path = Path(tmp_dir)
+        for sample_idx in sample_indices:
+            sample_idx = int(sample_idx)
+            die_profile = die_profiles[sample_idx]
+            if flip_die_x:
+                die_profile = die_profile[::-1]
+            tmp_path = tmp_dir_path / f"sample_{sample_idx:04d}.gif"
+            make_animation(
+                die_profile=die_profile,
+                sample=samples[sample_idx],
+                sample_idx=sample_idx,
+                out_path=tmp_path,
+                fps=fps,
+                dpi=dpi,
+                point_size=point_size,
+                die_travel_fraction=die_travel_fraction,
+                die_fit_mode=die_fit_mode,
+                die_speed=die_speed,
+                time_duration=time_duration,
+                die_gap_fraction=die_gap_fraction,
+                die_amplitude_fraction=die_amplitude_fraction,
+            )
+            with Image.open(tmp_path) as gif:
+                frames.extend(
+                    frame.convert("RGB") for frame in ImageSequence.Iterator(gif)
+                )
+
+    if not frames:
+        raise RuntimeError("No frames were rendered for concatenated GIF.")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    frame_duration_ms = int(round(1000 / max(int(fps), 1)))
+    frames[0].save(
+        out_path,
+        save_all=True,
+        append_images=frames[1:],
+        duration=frame_duration_ms,
+        loop=0,
+    )
+    return out_path
+
+
 def plot_boundary_debug(
     *,
     die_profile: np.ndarray,
@@ -445,14 +550,20 @@ def plot_boundary_debug(
             rcond=None,
         )
         flipped_fitted = flipped_coeff[0] - flipped_coeff[1] * die_norm
-        if np.nanmean((flipped_fitted - target) ** 2) < np.nanmean((fitted - target) ** 2):
+        if np.nanmean((flipped_fitted - target) ** 2) < np.nanmean(
+            (fitted - target) ** 2
+        ):
             coeff = np.array([flipped_coeff[0], -flipped_coeff[1]], dtype=np.float64)
             fitted = flipped_fitted
         rmse = float(np.sqrt(np.nanmean((fitted - target) ** 2)))
         fit_rows.append((rmse, timestep, coeff, fitted))
     if not fit_rows:
-        raise RuntimeError("Could not find a non-flat timestep for die/deformation fitting.")
-    best_rmse, best_timestep, best_coeff, best_die = min(fit_rows, key=lambda item: item[0])
+        raise RuntimeError(
+            "Could not find a non-flat timestep for die/deformation fitting."
+        )
+    best_rmse, best_timestep, best_coeff, best_die = min(
+        fit_rows, key=lambda item: item[0]
+    )
 
     fig, axes = plt.subplots(4, 1, figsize=(9.2, 11.0), dpi=150, sharex=True)
     ax = axes[0]
@@ -492,20 +603,30 @@ def plot_boundary_debug(
         linestyle="--",
         label=f"nominal j=0 edge at timestep {best_timestep}",
     )
-    ax.set_title(f"Plasticity sample {sample_idx}: input die versus top material points")
+    ax.set_title(
+        f"Plasticity sample {sample_idx}: input die versus top material points"
+    )
     ax.set_ylabel("physical y coordinate")
     ax.grid(True, alpha=0.25)
     ax.legend(fontsize=8)
 
     raw_ax = axes[1]
-    raw_ax.plot(x, die_profile, color="#2563eb", linewidth=2.0, label="given input die, x-aligned")
+    raw_ax.plot(
+        x,
+        die_profile,
+        color="#2563eb",
+        linewidth=2.0,
+        label="given input die, x-aligned",
+    )
     raw_ax.set_title("Given input die profile, raw dataset values")
     raw_ax.set_ylabel("input value")
     raw_ax.grid(True, alpha=0.25)
     raw_ax.legend(fontsize=8)
 
     profile_ax = axes[2]
-    profile_ax.plot(x, die_norm, color="#2563eb", linewidth=2.0, label="given input die, normalized")
+    profile_ax.plot(
+        x, die_norm, color="#2563eb", linewidth=2.0, label="given input die, normalized"
+    )
     profile_ax.plot(
         x,
         normalize_profile(indentation_depth[:, best_timestep]),
@@ -575,36 +696,45 @@ def main() -> None:
         ntrain=args.ntrain,
         ntest=args.ntest,
     )
-    validate_samples([args.sample], int(output.shape[0]))
+    sample_indices = (
+        [int(sample_idx) for sample_idx in args.samples]
+        if args.samples is not None
+        else [int(args.sample)]
+    )
+    validate_samples(sample_indices, int(output.shape[0]))
 
     out_path = args.out_path
     if out_path is None:
+        if len(sample_indices) == 1:
+            sample_tag = f"sample_{sample_indices[0]:04d}"
+        else:
+            sample_tag = "samples_" + "_".join(f"{idx:04d}" for idx in sample_indices)
         out_path = (
             Path("artifacts")
             / "plasticity"
             / "plasticity_forging_gif"
-            / f"plasticity_forging_sample_{args.sample:04d}.gif"
+            / f"plasticity_forging_{sample_tag}.gif"
         )
 
     if args.boundary_debug_path is not None:
-        die_profile = die[args.sample]
+        if len(sample_indices) != 1:
+            raise ValueError("--boundary-debug-path can only be used with one sample")
+        sample_idx = sample_indices[0]
+        die_profile = die[sample_idx]
         if args.flip_die_x:
             die_profile = die_profile[::-1]
         debug_path = plot_boundary_debug(
             die_profile=die_profile,
-            sample=output[args.sample],
-            sample_idx=args.sample,
+            sample=output[sample_idx],
+            sample_idx=sample_idx,
             out_path=args.boundary_debug_path,
         )
         print(f"Wrote boundary debug: {debug_path}")
 
-    die_profile = die[args.sample]
-    if args.flip_die_x:
-        die_profile = die_profile[::-1]
-    saved_path = make_animation(
-        die_profile=die_profile,
-        sample=output[args.sample],
-        sample_idx=args.sample,
+    saved_path = make_concatenated_animation(
+        die_profiles=die,
+        samples=output,
+        sample_indices=sample_indices,
         out_path=out_path,
         fps=args.fps,
         dpi=args.dpi,
@@ -615,6 +745,7 @@ def main() -> None:
         time_duration=args.time_duration,
         die_gap_fraction=args.die_gap_fraction,
         die_amplitude_fraction=args.die_amplitude_fraction,
+        flip_die_x=args.flip_die_x,
     )
     print(f"Loaded: {mat_path}")
     print(f"Wrote: {saved_path}")

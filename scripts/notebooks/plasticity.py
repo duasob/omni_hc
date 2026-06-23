@@ -10,6 +10,8 @@ import numpy as np
 import scipy.io as scio
 from matplotlib.patches import FancyArrowPatch, Rectangle
 
+IS_NOTEBOOK = "ipykernel" in sys.modules
+
 REPO_ROOT = next(
     p for p in [Path.cwd(), *Path.cwd().parents] if (p / "pyproject.toml").exists()
 )
@@ -17,7 +19,7 @@ PLASTICITY_DIAGNOSTICS = REPO_ROOT / "scripts" / "diagnostics" / "plasticity"
 sys.path.insert(0, str(PLASTICITY_DIAGNOSTICS))
 
 from _common import resolve_plasticity_mat
-from plasticity_forging_gif import infer_material_grid
+from plasticity_forging_gif import infer_material_grid, make_concatenated_animation
 
 DATA_DIR = REPO_ROOT / "data/plasticity"
 FIGURES_DIR = REPO_ROOT / "docs/figures/plasticity"
@@ -42,6 +44,46 @@ output = np.asarray(raw["output"], dtype=np.float64)  # (N, X, Y, T, C)
 print(f"Loaded {mat_path}")
 print(f"die: {die.shape}  output: {output.shape}")
 print("output channels used here: x, y, u_x, u_y")
+
+
+# %% Multi-sample forging GIF
+# Concatenates complete sample rollouts end-to-end into one animated GIF.
+FORGING_GIF_SAMPLES = [0, 10, 100]
+
+
+def save_multi_sample_forging_gif(
+    sample_indices,
+    *,
+    out_path=None,
+    fps=4,
+    dpi=130,
+    point_size=13.0,
+    die_fit_mode="raw-coordinate",
+    die_speed=6.0,
+):
+    sample_indices = [int(idx) for idx in sample_indices]
+    if out_path is None:
+        sample_tag = "_".join(f"{idx:04d}" for idx in sample_indices)
+        out_path = FIGURES_DIR / f"plasticity_forging_samples_{sample_tag}.gif"
+    return make_concatenated_animation(
+        die_profiles=die,
+        samples=output,
+        sample_indices=sample_indices,
+        out_path=Path(out_path),
+        fps=fps,
+        dpi=dpi,
+        point_size=point_size,
+        die_travel_fraction=0.18,
+        die_fit_mode=die_fit_mode,
+        die_speed=die_speed,
+        time_duration=1.0,
+        die_gap_fraction=0.09,
+        die_amplitude_fraction=0.07,
+    )
+
+
+multi_sample_gif_path = save_multi_sample_forging_gif(FORGING_GIF_SAMPLES)
+print(f"Saved {multi_sample_gif_path}")
 
 
 # %% Helpers
@@ -1054,10 +1096,21 @@ import torch
 from matplotlib.collections import LineCollection  # noqa: F401  (used via pmg.add_mesh)
 from matplotlib.lines import Line2D
 
-from omni_hc.benchmarks.plasticity.data import build_test_loader
+from omni_hc.benchmarks.plasticity import adapter as plasticity_adapter
+from omni_hc.benchmarks.plasticity.data import (
+    build_test_loader,
+    build_train_val_loaders,
+)
 from omni_hc.core import compose_run_config, parse_dotted_overrides
 from omni_hc.integrations.nsl import create_model
-from omni_hc.training.common import load_checkpoint_state, load_model_state_dict
+from omni_hc.training.common import (
+    build_optimizer,
+    forward_with_optional_aux,
+    load_checkpoint_state,
+    load_model_state_dict,
+    relative_l2_per_sample,
+)
+from omni_hc.training.reproducibility import seed_everything, training_seed
 
 OVERLAY_SAMPLE_IDX = 0
 OVERLAY_TIMESTEP = -1  # last timestep (fully deformed); set to an int in [0, T)
@@ -1082,10 +1135,11 @@ PRED_MESH_COLOR = "#dc2626"
 PRED_CACHE_DIR = REPO_ROOT / "artifacts/plasticity/pred_cache"
 
 
-def _pred_cache_path(run_dir, sample_idx):
+def _pred_cache_path(run_dir, sample_idx, *, cache_tag=None):
     # Slug from the trailing <family>/<backbone>/<budget>/<seed> path parts.
     slug = "_".join(Path(run_dir).parts[-4:])
-    return PRED_CACHE_DIR / f"{slug}__sample{int(sample_idx):04d}.npz"
+    tag = "" if cache_tag is None else f"__{cache_tag}"
+    return PRED_CACHE_DIR / f"{slug}__sample{int(sample_idx):04d}{tag}.npz"
 
 
 def _checkpoint_path(run_dir):
@@ -1094,7 +1148,15 @@ def _checkpoint_path(run_dir):
     return best if best.exists() else run_dir / "latest.pt"
 
 
-def predict_model_sequences(run_dir, sample_idx, *, device=None, use_cache=True):
+def predict_model_sequences(
+    run_dir,
+    sample_idx,
+    *,
+    device=None,
+    use_cache=True,
+    extra_override_strings=None,
+    cache_tag=None,
+):
     """Roll a trained checkpoint out on one test sample.
 
     Returns ``(pred_seq, target_seq, meta)`` with the raw 4-channel sequences
@@ -1106,7 +1168,7 @@ def predict_model_sequences(run_dir, sample_idx, *, device=None, use_cache=True)
     automatically when the checkpoint is newer than the cached file.
     """
     run_dir = Path(run_dir)
-    cache_path = _pred_cache_path(run_dir, sample_idx)
+    cache_path = _pred_cache_path(run_dir, sample_idx, cache_tag=cache_tag)
     checkpoint = _checkpoint_path(run_dir)
     if (
         use_cache
@@ -1127,10 +1189,13 @@ def predict_model_sequences(run_dir, sample_idx, *, device=None, use_cache=True)
 
     print(f"[pred cache] MISS {cache_path.name} (rolling out checkpoint...)")
     device = device or torch.device("cpu")
+    override_strings = [f"paths.root_dir={DATA_DIR}"]
+    if extra_override_strings:
+        override_strings.extend(str(item) for item in extra_override_strings)
     cfg = compose_run_config(
         experiment=str(run_dir / "resolved_config.yaml"),
         mode="test",
-        extra_overrides=parse_dotted_overrides([f"paths.root_dir={DATA_DIR}"]),
+        extra_overrides=parse_dotted_overrides(override_strings),
     )
     loader = build_test_loader(cfg)
     meta = loader.plasticity_meta
@@ -1184,10 +1249,180 @@ def predict_model_sequences(run_dir, sample_idx, *, device=None, use_cache=True)
     return pred_seq, target_seq, meta
 
 
-def load_model_prediction(run_dir, sample_idx, *, device=None):
+def load_model_prediction(
+    run_dir,
+    sample_idx,
+    *,
+    device=None,
+    extra_override_strings=None,
+    cache_tag=None,
+):
     """Return ``(pred_coords, target_coords)`` in physical space, each (H, W, T, 2)."""
     pred_seq, target_seq, _meta = predict_model_sequences(
-        run_dir, sample_idx, device=device
+        run_dir,
+        sample_idx,
+        device=device,
+        extra_override_strings=extra_override_strings,
+        cache_tag=cache_tag,
+    )
+    material = pmg.infer_material(target_seq)
+    return pmg.plot_coords(pred_seq, material), pmg.plot_coords(target_seq, material)
+
+
+def _plasticity_global_sample_batch(cfg, global_sample_idx, *, x_normalizer, y_normalizer, device):
+    data_cfg = cfg.get("data", {}) or {}
+    model_args = cfg.get("model", {}).get("args", {}) or {}
+    r1 = int(data_cfg.get("downsamplex", model_args.get("downsamplex", 1)))
+    r2 = int(data_cfg.get("downsampley", model_args.get("downsampley", 1)))
+    t_out = int(data_cfg.get("T_out", model_args.get("T_out", 20)))
+    out_dim = int(data_cfg.get("out_dim", model_args.get("out_dim", 4)))
+
+    global_sample_idx = int(global_sample_idx)
+    if global_sample_idx < 0 or global_sample_idx >= int(die.shape[0]):
+        raise IndexError(
+            f"global sample {global_sample_idx} is outside [0, {int(die.shape[0])})"
+        )
+
+    s1 = int(((int(die.shape[1]) - 1) / r1) + 1)
+    s2 = int(((int(output.shape[2]) - 1) / r2) + 1)
+    die_sample = die[global_sample_idx : global_sample_idx + 1, ::r1][:, :s1]
+    fx = die_sample.reshape(1, s1, 1).repeat(s2, axis=2).reshape(1, -1, 1)
+    y = output[
+        global_sample_idx : global_sample_idx + 1,
+        ::r1,
+        ::r2,
+        :t_out,
+        :out_dim,
+    ][:, :s1, :s2]
+    y = y.reshape(1, -1, t_out * out_dim)
+
+    xs = torch.linspace(0, 1, s2, dtype=torch.float32)
+    ys = torch.linspace(0, 1, s1, dtype=torch.float32)
+    yy, xx = torch.meshgrid(ys, xs, indexing="ij")
+    coords = torch.stack([xx, yy], dim=-1).reshape(1, -1, 2)
+    time = (torch.arange(t_out, dtype=torch.float32) / max(t_out, 1)).reshape(1, -1)
+
+    fx_tensor = torch.from_numpy(np.asarray(fx)).float()
+    y_tensor = torch.from_numpy(np.asarray(y)).float()
+    if x_normalizer is not None:
+        fx_tensor = x_normalizer.encode(fx_tensor)
+    if y_normalizer is not None:
+        y_tensor = y_normalizer.encode(y_tensor)
+
+    return {
+        "coords": coords.to(device),
+        "time": time.to(device),
+        "x": fx_tensor.to(device),
+        "y": y_tensor.to(device),
+    }
+
+
+def predict_model_global_sample_sequences(
+    run_dir,
+    global_sample_idx,
+    *,
+    device=None,
+    use_cache=True,
+    cache_tag=None,
+):
+    run_dir = Path(run_dir)
+    cache_path = _pred_cache_path(run_dir, global_sample_idx, cache_tag=cache_tag)
+    checkpoint = _checkpoint_path(run_dir)
+    if (
+        use_cache
+        and cache_path.exists()
+        and (
+            not checkpoint.exists()
+            or checkpoint.stat().st_mtime <= cache_path.stat().st_mtime
+        )
+    ):
+        cached = np.load(cache_path)
+        meta = {
+            "shapelist": tuple(int(v) for v in cached["shapelist"]),
+            "t_out": int(cached["t_out"]),
+            "out_dim": int(cached["out_dim"]),
+        }
+        print(f"[pred cache] HIT  {cache_path.name}")
+        return cached["pred_seq"], cached["target_seq"], meta
+
+    print(f"[pred cache] MISS {cache_path.name} (rolling out checkpoint...)")
+    device = device or torch.device("cpu")
+    cfg = compose_run_config(
+        experiment=str(run_dir / "resolved_config.yaml"),
+        mode="test",
+        extra_overrides=parse_dotted_overrides([f"paths.root_dir={DATA_DIR}"]),
+    )
+    loader = build_test_loader(cfg)
+    meta = loader.plasticity_meta
+    x_normalizer = getattr(loader, "x_normalizer", None)
+    if x_normalizer is not None:
+        x_normalizer = x_normalizer.to(device)
+    y_normalizer = getattr(loader, "y_normalizer", None)
+    if y_normalizer is not None:
+        y_normalizer = y_normalizer.to(device)
+
+    model, _, _ = create_model(
+        cfg,
+        device=device,
+        runtime_overrides=pmg.runtime_overrides(meta),
+    )
+    if (
+        x_normalizer is not None
+        and hasattr(model, "constraint")
+        and hasattr(model.constraint, "set_input_normalizer")
+    ):
+        model.constraint.set_input_normalizer(x_normalizer)
+
+    checkpoint_path = run_dir / "best.pt"
+    if not checkpoint_path.exists():
+        checkpoint_path = run_dir / "latest.pt"
+    checkpoint = load_checkpoint_state(checkpoint_path, device=device)
+    load_model_state_dict(model, checkpoint["model_state_dict"])
+    model.eval()
+
+    batch = _plasticity_global_sample_batch(
+        cfg,
+        global_sample_idx,
+        x_normalizer=x_normalizer,
+        y_normalizer=y_normalizer,
+        device=device,
+    )
+    pred, target, _ = pmg.predict_sequence(
+        model,
+        batch,
+        y_normalizer=y_normalizer,
+        t_out=int(meta["t_out"]),
+    )
+    h, w = tuple(meta["shapelist"])
+    t_out, out_dim = int(meta["t_out"]), int(meta["out_dim"])
+    pred_seq = pred[0].detach().cpu().reshape(h, w, t_out, out_dim).numpy()
+    target_seq = target[0].detach().cpu().reshape(h, w, t_out, out_dim).numpy()
+    if use_cache:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(
+            cache_path,
+            pred_seq=pred_seq,
+            target_seq=target_seq,
+            shapelist=np.asarray([h, w], dtype=np.int64),
+            t_out=np.int64(t_out),
+            out_dim=np.int64(out_dim),
+        )
+    return pred_seq, target_seq, meta
+
+
+def load_model_global_sample_prediction(
+    run_dir,
+    global_sample_idx,
+    *,
+    device=None,
+    cache_tag=None,
+):
+    """Return physical-space coords for a fixed global dataset sample."""
+    pred_seq, target_seq, _meta = predict_model_global_sample_sequences(
+        run_dir,
+        global_sample_idx,
+        device=device,
+        cache_tag=cache_tag,
     )
     material = pmg.infer_material(target_seq)
     return pmg.plot_coords(pred_seq, material), pmg.plot_coords(target_seq, material)
@@ -1311,6 +1546,463 @@ out_path = FIGURES_DIR / f"plasticity_val_rel_l2_{VAL_CURVE_BUDGET}.png"
 fig.savefig(out_path, bbox_inches="tight")
 plt.show()
 print(f"Saved {out_path}")
+
+
+# %% Fast learning trace — one epoch, unconstrained vs envelope constraint
+# Enable this block with:
+#   OMNI_HC_RUN_FAST_PLASTICITY_QUAL=1 python scripts/notebooks/plasticity.py
+# or set RUN_FAST_PLASTICITY_QUALITATIVE = True in a notebook before running it.
+RUN_FAST_PLASTICITY_QUALITATIVE = False
+RUN_FAST_PLASTICITY_QUALITATIVE = bool(
+    int(os.environ.get("OMNI_HC_RUN_FAST_PLASTICITY_QUAL", "0"))
+) or bool(globals().get("RUN_FAST_PLASTICITY_QUALITATIVE", False))
+FAST_PLASTICITY_BACKBONE = "FNO"
+FAST_PLASTICITY_SAMPLE_IDX = 0
+FAST_PLASTICITY_NTRAIN = 900
+FAST_PLASTICITY_BATCH_SIZE = 4
+FAST_PLASTICITY_OUTPUT_ROOT = Path(
+    os.environ.get(
+        "OMNI_HC_FAST_PLASTICITY_QUAL_OUTPUT_ROOT",
+        "/private/tmp/omni_hc_plasticity_fast_qualitative",
+    )
+)
+FAST_PLASTICITY_STORYBOARD_NAME = "plasticity_fast_learning_trace_epoch1.png"
+FAST_PLASTICITY_GIF_NAME = "plasticity_fast_learning_trace_epoch1.gif"
+FAST_PLASTICITY_GIF_FPS = 10
+FAST_PLASTICITY_MESH_STEP = 2
+
+
+def _fast_plasticity_overrides(output_dir: Path) -> dict:
+    return {
+        "paths": {
+            "root_dir": str(DATA_DIR),
+            "output_dir": str(output_dir),
+        },
+        "data": {
+            "ntrain": FAST_PLASTICITY_NTRAIN,
+            "ntest": 16,
+        },
+        "model": {
+            "args": {
+                "n_hidden": 32,
+                "n_heads": 4,
+                "n_layers": 2,
+                "modes": 8,
+                "slice_num": 16,
+            },
+        },
+        "training": {
+            "batch_size": FAST_PLASTICITY_BATCH_SIZE,
+            "val_size": 0,
+            "num_epochs": 1,
+            "scheduler": "none",
+            "seed": 42,
+        },
+        "evaluation": {
+            "batch_size": 1,
+        },
+        "wandb_logging": {
+            "wandb": False,
+            "log_every": None,
+            "image_log_every": None,
+        },
+    }
+
+
+def _compose_fast_plasticity_config(*, label: str, constraint: str | None):
+    output_dir = FAST_PLASTICITY_OUTPUT_ROOT / label / "seed_42"
+    return compose_run_config(
+        benchmark="plasticity",
+        backbone=FAST_PLASTICITY_BACKBONE,
+        constraint=constraint,
+        budget="debug",
+        mode="train",
+        seed=42,
+        extra_overrides=_fast_plasticity_overrides(output_dir),
+    )
+
+
+def _move_plasticity_normalizers(loader, device: torch.device):
+    x_normalizer = getattr(loader, "x_normalizer", None)
+    y_normalizer = getattr(loader, "y_normalizer", None)
+    if x_normalizer is not None:
+        x_normalizer = x_normalizer.to(device)
+    if y_normalizer is not None:
+        y_normalizer = y_normalizer.to(device)
+    return x_normalizer, y_normalizer
+
+
+def _batch_to_device(batch, device: torch.device):
+    return {key: value.to(device) for key, value in batch.items()}
+
+
+def _plasticity_sequence_loss(model, batch, *, y_normalizer, t_out: int, out_dim: int):
+    losses = []
+    extra_losses = []
+    for timestep in range(t_out):
+        input_t = batch["time"][:, timestep : timestep + 1].reshape(
+            batch["coords"].shape[0],
+            1,
+        )
+        out = forward_with_optional_aux(
+            model,
+            batch["coords"],
+            batch["x"],
+            T=input_t,
+        )
+        start = timestep * out_dim
+        stop = start + out_dim
+        pred_decoded = pmg.decode_if_needed(y_normalizer, out["pred"])
+        target_decoded = pmg.decode_if_needed(y_normalizer, batch["y"][..., start:stop])
+        losses.append(torch.nn.functional.mse_loss(pred_decoded, target_decoded))
+        if out.get("extra_loss") is not None:
+            extra_losses.append(out["extra_loss"])
+    loss = torch.stack(losses).mean()
+    if extra_losses:
+        loss = loss + torch.stack([extra.reshape(()) for extra in extra_losses]).mean()
+    return loss
+
+
+def _capture_fast_plasticity_prediction(
+    model,
+    *,
+    sample_batch,
+    y_normalizer,
+    h_grid: int,
+    w_grid: int,
+    t_out: int,
+    out_dim: int,
+    label: str,
+    step: int,
+    train_loss: float | None = None,
+):
+    model.eval()
+    pred, target, _aux = pmg.predict_sequence(
+        model,
+        sample_batch,
+        y_normalizer=y_normalizer,
+        t_out=t_out,
+    )
+    pred_seq = pred[0].detach().cpu().reshape(h_grid, w_grid, t_out, out_dim).numpy()
+    target_seq = (
+        target[0].detach().cpu().reshape(h_grid, w_grid, t_out, out_dim).numpy()
+    )
+    material = pmg.infer_material(target_seq)
+    rel_l2 = float(relative_l2_per_sample(pred, target).mean().item())
+    return {
+        "label": label,
+        "step": int(step),
+        "train_loss": train_loss,
+        "rel_l2": rel_l2,
+        "pred_coords": pmg.plot_coords(pred_seq, material),
+        "target_coords": pmg.plot_coords(target_seq, material),
+    }
+
+
+def train_fast_plasticity_learning_trace():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    run_specs = (
+        ("Unconstrained", "unconstrained", None),
+        ("Envelope", "envelope", "plasticity_envelope_constraint"),
+    )
+    traces = {}
+    for model_label, run_label, constraint_name in run_specs:
+        cfg = _compose_fast_plasticity_config(
+            label=run_label,
+            constraint=constraint_name,
+        )
+        seed_everything(training_seed(cfg))
+        print(
+            f"Training fast plasticity learning trace: {model_label} "
+            f"({FAST_PLASTICITY_NTRAIN} samples, one epoch)"
+        )
+        train_loader, _val_loader = build_train_val_loaders(cfg)
+        test_loader = build_test_loader(cfg)
+        meta = plasticity_adapter._get_meta(train_loader)
+        h_grid, w_grid = tuple(meta["shapelist"])
+        t_out = int(meta["t_out"])
+        out_dim = int(meta["out_dim"])
+        x_normalizer, y_normalizer = _move_plasticity_normalizers(
+            train_loader,
+            device,
+        )
+
+        model, _model_args, _resolved_nsl_root = create_model(
+            cfg,
+            device=device,
+            runtime_overrides=plasticity_adapter._runtime_overrides(meta),
+        )
+        if (
+            x_normalizer is not None
+            and hasattr(model, "constraint")
+            and hasattr(model.constraint, "set_input_normalizer")
+        ):
+            model.constraint.set_input_normalizer(x_normalizer)
+
+        optimizer = build_optimizer(model, cfg.get("training", {}))
+        sample_batch = pmg.get_sample_batch(
+            test_loader,
+            FAST_PLASTICITY_SAMPLE_IDX,
+            device=device,
+        )
+        trace = [
+            _capture_fast_plasticity_prediction(
+                model,
+                sample_batch=sample_batch,
+                y_normalizer=y_normalizer,
+                h_grid=h_grid,
+                w_grid=w_grid,
+                t_out=t_out,
+                out_dim=out_dim,
+                label="init",
+                step=0,
+            )
+        ]
+
+        model.train()
+        for step, batch in enumerate(train_loader, start=1):
+            batch = _batch_to_device(batch, device)
+            loss = _plasticity_sequence_loss(
+                model,
+                batch,
+                y_normalizer=y_normalizer,
+                t_out=t_out,
+                out_dim=out_dim,
+            )
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            optimizer.step()
+
+            trace.append(
+                _capture_fast_plasticity_prediction(
+                    model,
+                    sample_batch=sample_batch,
+                    y_normalizer=y_normalizer,
+                    h_grid=h_grid,
+                    w_grid=w_grid,
+                    t_out=t_out,
+                    out_dim=out_dim,
+                    label=f"step {step}",
+                    step=step,
+                    train_loss=float(loss.detach().item()),
+                )
+            )
+            model.train()
+
+        traces[model_label] = trace
+        print(
+            f"{model_label}: captured {len(trace)} frames; "
+            f"final rel. L2={trace[-1]['rel_l2']:.3f}"
+        )
+    return traces
+
+
+def _plasticity_trace_limits(traces):
+    coords = []
+    rel_values = []
+    for trace in traces.values():
+        for frame in trace:
+            coords.append(frame["pred_coords"][:, :, -1])
+            coords.append(frame["target_coords"][:, :, -1])
+            rel_values.append(frame["rel_l2"])
+    merged = np.concatenate([coord.reshape(-1, 2) for coord in coords], axis=0)
+    x_min, y_min = np.nanmin(merged, axis=0)
+    x_max, y_max = np.nanmax(merged, axis=0)
+    x_span = max(float(x_max - x_min), 1.0e-6)
+    y_span = max(float(y_max - y_min), 1.0e-6)
+    rel_min, rel_max = float(min(rel_values)), float(max(rel_values))
+    rel_pad = 0.06 * max(rel_max - rel_min, 1.0e-12)
+    return {
+        "xlim": (float(x_min) - 0.05 * x_span, float(x_max) + 0.05 * x_span),
+        "ylim": (float(y_min) - 0.05 * y_span, float(y_max) + 0.05 * y_span),
+        "rel_ylim": (rel_min - rel_pad, rel_max + rel_pad),
+    }
+
+
+def _draw_plasticity_trace_mesh(ax, frame, *, limits, title: str | None = None):
+    pred_t = frame["pred_coords"][:, :, -1]
+    target_t = frame["target_coords"][:, :, -1]
+    pmg.add_mesh(
+        ax,
+        target_t,
+        color="#94a3b8",
+        linewidth=0.34,
+        alpha=0.85,
+        step=FAST_PLASTICITY_MESH_STEP,
+    )
+    pmg.add_mesh(
+        ax,
+        pred_t,
+        color="#dc2626",
+        linewidth=0.42,
+        alpha=0.82,
+        step=FAST_PLASTICITY_MESH_STEP,
+    )
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlim(*limits["xlim"])
+    ax.set_ylim(*limits["ylim"])
+    ax.tick_params(labelsize=7, length=2)
+    if title:
+        ax.set_title(title, fontsize=9)
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_color("#111111")
+        spine.set_linewidth(0.8)
+
+
+def plot_fast_plasticity_learning_storyboard(traces, *, out_path: Path):
+    limits = _plasticity_trace_limits(traces)
+    max_frames = max(len(trace) for trace in traces.values())
+    model_labels = list(traces)
+    fig, axes = plt.subplots(
+        len(model_labels),
+        max_frames,
+        figsize=(2.0 * max_frames, 2.1 * len(model_labels)),
+        squeeze=False,
+        constrained_layout=True,
+    )
+    for row, model_label in enumerate(model_labels):
+        trace = traces[model_label]
+        for col in range(max_frames):
+            ax = axes[row, col]
+            if col >= len(trace):
+                ax.axis("off")
+                continue
+            frame = trace[col]
+            _draw_plasticity_trace_mesh(
+                ax,
+                frame,
+                limits=limits,
+                title=f"{frame['label']}\nrel. $L_2$={frame['rel_l2']:.2f}",
+            )
+        axes[row, 0].set_ylabel(
+            model_label,
+            rotation=0,
+            ha="right",
+            va="center",
+            labelpad=52,
+            fontsize=10,
+        )
+    fig.suptitle(
+        "One-epoch plasticity learning trace on one held-out sample",
+        fontsize=13,
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, bbox_inches="tight", dpi=180)
+    if IS_NOTEBOOK:
+        plt.show()
+    else:
+        plt.close(fig)
+    print(f"Saved to {out_path}")
+    return out_path
+
+
+def _draw_fast_plasticity_learning_frame(traces, frame_idx, *, limits):
+    model_labels = list(traces)
+    fig = plt.figure(figsize=(10.4, 5.4), facecolor="white")
+    row_y = [0.58, 0.33]
+    mesh_left = 0.22
+    mesh_width = 0.56
+    mesh_height = 0.22
+    curve_colors = {
+        model_labels[0]: "#64748b",
+        model_labels[1]: "#0f766e",
+    }
+    for row, model_label in enumerate(model_labels):
+        trace = traces[model_label]
+        frame = trace[min(frame_idx, len(trace) - 1)]
+        ax = fig.add_axes([mesh_left, row_y[row], mesh_width, mesh_height])
+        _draw_plasticity_trace_mesh(ax, frame, limits=limits)
+        fig.text(
+            0.16,
+            row_y[row] + 0.5 * mesh_height,
+            f"{model_label}\n{frame['label']}\nrel. $L_2$={frame['rel_l2']:.3f}",
+            ha="right",
+            va="center",
+            color="#4f4f55",
+            fontsize=11,
+        )
+    fig.legend(
+        handles=[
+            Line2D([], [], color="#94a3b8", linewidth=1.6, label="ground truth"),
+            Line2D([], [], color="#dc2626", linewidth=1.4, label="prediction"),
+        ],
+        loc="upper center",
+        bbox_to_anchor=(0.50, 0.94),
+        ncol=2,
+        fontsize=9,
+        frameon=False,
+    )
+    ax_curve = fig.add_axes([0.22, 0.10, 0.56, 0.14])
+    for model_label in model_labels:
+        trace = traces[model_label]
+        shown_idx = min(frame_idx, len(trace) - 1)
+        steps = [f["step"] for f in trace[: shown_idx + 1]]
+        values = [f["rel_l2"] for f in trace[: shown_idx + 1]]
+        ax_curve.plot(
+            steps,
+            values,
+            marker="o",
+            markersize=3.0,
+            linewidth=1.5,
+            color=curve_colors.get(model_label),
+            label=model_label,
+        )
+    all_steps = [f["step"] for trace in traces.values() for f in trace]
+    ax_curve.set_xlim(min(all_steps), max(all_steps))
+    ax_curve.set_ylim(*limits["rel_ylim"])
+    ax_curve.set_title("Test rel. $L_2$", fontsize=9, pad=4)
+    ax_curve.set_xlabel("training step", fontsize=8, labelpad=1)
+    ax_curve.tick_params(axis="both", labelsize=7, length=2, pad=1)
+    ax_curve.grid(color="0.88", linewidth=0.55)
+    ax_curve.legend(frameon=False, loc="upper right", fontsize=7, handlelength=1.2)
+    return fig
+
+
+def save_fast_plasticity_learning_gif(traces, *, out_path: Path):
+    from PIL import Image
+
+    limits = _plasticity_trace_limits(traces)
+    max_frames = max(len(trace) for trace in traces.values())
+    frames = []
+    for frame_idx in range(max_frames):
+        fig = _draw_fast_plasticity_learning_frame(
+            traces,
+            frame_idx,
+            limits=limits,
+        )
+        fig.canvas.draw()
+        rgba = np.asarray(fig.canvas.buffer_rgba()).copy()
+        frames.append(Image.fromarray(rgba))
+        if IS_NOTEBOOK:
+            plt.show()
+        else:
+            plt.close(fig)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    duration_ms = max(int(1000 / max(int(FAST_PLASTICITY_GIF_FPS), 1)), 1)
+    frames[0].save(
+        out_path,
+        save_all=True,
+        append_images=frames[1:],
+        duration=duration_ms,
+        loop=0,
+        disposal=2,
+    )
+    print(f"Saved to {out_path}")
+    return out_path
+
+
+if RUN_FAST_PLASTICITY_QUALITATIVE:
+    fast_plasticity_traces = train_fast_plasticity_learning_trace()
+    fast_plasticity_storyboard_path = plot_fast_plasticity_learning_storyboard(
+        fast_plasticity_traces,
+        out_path=FIGURES_DIR / FAST_PLASTICITY_STORYBOARD_NAME,
+    )
+    fast_plasticity_gif_path = save_fast_plasticity_learning_gif(
+        fast_plasticity_traces,
+        out_path=FIGURES_DIR / FAST_PLASTICITY_GIF_NAME,
+    )
 
 
 # %% Failure mode 1: cell collapse (filmstrip from the constraint-failure GIF)
@@ -1479,6 +2171,9 @@ print(f"Saved {out_path}")
 # with the rel-L2 printed. Rows are constraint families, columns are data budgets.
 FIG3_SAMPLE = 0
 FIG3_TIMESTEP = -1
+FIG3_GIF_FPS = 6
+FIG3_GIF_NTEST = 200
+FIG3_GIF_GLOBAL_SAMPLE = int(die.shape[0]) - FIG3_GIF_NTEST + FIG3_SAMPLE
 FIG3_FAMILIES = (
     ("Unconstrained", "none"),
     ("Mesh", "plasticity_mesh_consistency_constraint"),
@@ -1492,6 +2187,8 @@ FIG3_BUDGETS = (
     ("Full", "final"),
 )
 
+f3_runs = {}
+f3_sequences = {}
 f3_cells = {}
 f3_err_max = 0.0
 for family_label, family_dir in FIG3_FAMILIES:
@@ -1500,7 +2197,9 @@ for family_label, family_dir in FIG3_FAMILIES:
             REPO_ROOT
             / f"outputs/plasticity/{family_dir}/transolver/{budget_dir}/seed_42"
         )
+        f3_runs[(family_label, budget_label)] = run
         pred_coords, target_coords = load_model_prediction(run, FIG3_SAMPLE)
+        f3_sequences[(family_label, budget_label)] = (pred_coords, target_coords)
         pred_t = pred_coords[:, :, FIG3_TIMESTEP]
         target_t = target_coords[:, :, FIG3_TIMESTEP]
         node_err = np.linalg.norm(pred_t - target_t, axis=-1)
@@ -1509,7 +2208,20 @@ for family_label, family_dir in FIG3_FAMILIES:
             / max(np.linalg.norm(target_t.reshape(-1)), 1.0e-12)
         )
         f3_cells[(family_label, budget_label)] = (pred_t, target_t, node_err, rel_l2)
-        f3_err_max = max(f3_err_max, float(np.nanpercentile(node_err, 99)))
+        all_node_err = np.linalg.norm(pred_coords - target_coords, axis=-1)
+        f3_err_max = max(f3_err_max, float(np.nanpercentile(all_node_err, 99)))
+
+f3_gif_sequences = {}
+f3_gif_err_max = 0.0
+for key, run in f3_runs.items():
+    pred_coords, target_coords = load_model_global_sample_prediction(
+        run,
+        FIG3_GIF_GLOBAL_SAMPLE,
+        cache_tag=f"global{FIG3_GIF_GLOBAL_SAMPLE}",
+    )
+    f3_gif_sequences[key] = (pred_coords, target_coords)
+    all_node_err = np.linalg.norm(pred_coords - target_coords, axis=-1)
+    f3_gif_err_max = max(f3_gif_err_max, float(np.nanpercentile(all_node_err, 99)))
 
 # Budgets down the rows, the three families across the columns: each row is a
 # like-for-like comparison of the families at one data budget.
@@ -1523,61 +2235,135 @@ col_width = 2.5
 row_height = 1.15
 f3_hspace = 0.05
 f3_wspace = 0.05
-fig, axes = plt.subplots(
-    f3_rows,
-    f3_cols,
-    figsize=(col_width * f3_cols, row_height * f3_rows),
-    sharex=True,
-    sharey=True,
-)
-axes = np.atleast_2d(axes)
-last_scatter = None
-for r, (budget_label, _budget_dir) in enumerate(FIG3_BUDGETS):
-    for c, (family_label, _family_dir) in enumerate(FIG3_FAMILIES):
-        ax = axes[r, c]
-        pred_t, target_t, node_err, rel_l2 = f3_cells[(family_label, budget_label)]
-        pmg.add_mesh(ax, target_t, color="#cbd5e1", linewidth=0.3, alpha=0.85, step=1)
-        last_scatter = ax.scatter(
-            pred_t[..., 0].reshape(-1),
-            pred_t[..., 1].reshape(-1),
-            c=node_err.reshape(-1),
-            s=3.0,
-            cmap="plasma",
-            vmin=0.0,
-            vmax=f3_err_max,
-            linewidths=0,
-        )
-        ax.set_aspect("equal", adjustable="box")
-        if r == 0:
-            ax.set_title(family_label, fontsize=10)
-        if c == 0:
-            ax.set_ylabel(budget_label, fontsize=10)
-        # ax.text(
-        #     0.03,
-        #     0.96,
-        #     rf"rel $L_2$={rel_l2:.3f}",
-        #     transform=ax.transAxes,
-        #     fontsize=7,
-        #     va="top",
-        #     ha="left",
-        # )
-        ax.tick_params(labelsize=6, length=2)
 
-f3_coord_sets = []
-for pred_t, target_t, _err, _rel in f3_cells.values():
-    f3_coord_sets.append(pred_t)
-    f3_coord_sets.append(target_t)
-pmg.set_shared_limits(axes.reshape(-1), *f3_coord_sets)
-fig.subplots_adjust(hspace=f3_hspace, wspace=f3_wspace)
-fig.colorbar(
-    last_scatter,
-    ax=axes,
-    fraction=0.015,
-    pad=0.01,
-    label=r"node error $\|\hat{p} - p\|$",
-)
+
+def draw_failure_budget_qualitative_frame(
+    timestep,
+    *,
+    show_timestep=False,
+    sequences=None,
+    err_max=None,
+):
+    sequences = f3_sequences if sequences is None else sequences
+    err_max = f3_err_max if err_max is None else float(err_max)
+    fig, axes = plt.subplots(
+        f3_rows,
+        f3_cols,
+        figsize=(col_width * f3_cols, row_height * f3_rows),
+        sharex=True,
+        sharey=True,
+    )
+    axes = np.atleast_2d(axes)
+    last_scatter = None
+    for r, (budget_label, _budget_dir) in enumerate(FIG3_BUDGETS):
+        for c, (family_label, _family_dir) in enumerate(FIG3_FAMILIES):
+            ax = axes[r, c]
+            pred_coords, target_coords = sequences[(family_label, budget_label)]
+            pred_t = pred_coords[:, :, timestep]
+            target_t = target_coords[:, :, timestep]
+            node_err = np.linalg.norm(pred_t - target_t, axis=-1)
+            rel_l2 = float(
+                np.linalg.norm((pred_t - target_t).reshape(-1))
+                / max(np.linalg.norm(target_t.reshape(-1)), 1.0e-12)
+            )
+            pmg.add_mesh(
+                ax, target_t, color="#cbd5e1", linewidth=0.3, alpha=0.85, step=1
+            )
+            last_scatter = ax.scatter(
+                pred_t[..., 0].reshape(-1),
+                pred_t[..., 1].reshape(-1),
+                c=node_err.reshape(-1),
+                s=3.0,
+                cmap="plasma",
+                vmin=0.0,
+                vmax=err_max,
+                linewidths=0,
+            )
+            ax.set_aspect("equal", adjustable="box")
+            if r == 0:
+                ax.set_title(family_label, fontsize=10)
+            if c == 0:
+                ax.set_ylabel(budget_label, fontsize=10)
+            if show_timestep and r == f3_rows - 1 and c == f3_cols - 1:
+                ax.text(
+                    0.97,
+                    0.06,
+                    f"t={timestep}",
+                    transform=ax.transAxes,
+                    fontsize=7,
+                    va="bottom",
+                    ha="right",
+                    color="#111111",
+                )
+            # ax.text(
+            #     0.03,
+            #     0.96,
+            #     rf"rel $L_2$={rel_l2:.3f}",
+            #     transform=ax.transAxes,
+            #     fontsize=7,
+            #     va="top",
+            #     ha="left",
+            # )
+            ax.tick_params(labelsize=6, length=2)
+
+    f3_coord_sets = []
+    for pred_coords, target_coords in sequences.values():
+        f3_coord_sets.append(pred_coords[:, :, timestep])
+        f3_coord_sets.append(target_coords[:, :, timestep])
+    pmg.set_shared_limits(axes.reshape(-1), *f3_coord_sets)
+    fig.subplots_adjust(hspace=f3_hspace, wspace=f3_wspace)
+    fig.colorbar(
+        last_scatter,
+        ax=axes,
+        fraction=0.015,
+        pad=0.01,
+        label=r"node error $\|\hat{p} - p\|$",
+    )
+    return fig
+
+
+fig = draw_failure_budget_qualitative_frame(FIG3_TIMESTEP)
 
 out_path = FIGURES_DIR / "plasticity_failure_budget_qualitative.png"
 fig.savefig(out_path, bbox_inches="tight")
 plt.show()
 print(f"Saved {out_path}")
+
+
+def save_failure_budget_qualitative_gif(*, out_path: Path, fps: int):
+    from PIL import Image
+
+    sample_sequence = next(iter(f3_gif_sequences.values()))[0]
+    t_count = int(sample_sequence.shape[2])
+    frames = []
+    for timestep in range(t_count):
+        frame_fig = draw_failure_budget_qualitative_frame(
+            timestep,
+            show_timestep=True,
+            sequences=f3_gif_sequences,
+            err_max=f3_gif_err_max,
+        )
+        frame_fig.canvas.draw()
+        frames.append(
+            Image.fromarray(np.asarray(frame_fig.canvas.buffer_rgba()).copy())
+        )
+        plt.close(frame_fig)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    duration_ms = max(int(1000 / max(int(fps), 1)), 1)
+    frames[0].save(
+        out_path,
+        save_all=True,
+        append_images=frames[1:],
+        duration=duration_ms,
+        loop=0,
+        disposal=2,
+    )
+    return out_path
+
+
+gif_path = save_failure_budget_qualitative_gif(
+    out_path=FIGURES_DIR / "plasticity_failure_budget_qualitative.gif",
+    fps=FIG3_GIF_FPS,
+)
+print(f"Saved {gif_path}")

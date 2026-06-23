@@ -9,7 +9,7 @@ title: OmniHC
 description: Hard constraints for neural PDE surrogates
 style: |
   section {
-    --slide-state-progress-enabled: 0;
+    --slide-state-progress-enabled: 1;
   }
 ---
 
@@ -23,11 +23,43 @@ Deck switches:
 
 # Towards physics-preserving transformer architectures
 
-<!-- ## Hard constraints for neural PDE surrogates -->
-
 **Bruno Duaso**
 
+## Supervised by Prof. Giordano Scarciotti
+
 <!-- Final Year Project -->
+
+
+
+---
+
+<!-- _class: bench-overview-slide -->
+
+
+<div class="bench-overview-grid">
+  <div class="bench-tile">
+    <img src="assets/ns/ns_benchmark_rollout_square.gif" alt="Navier-Stokes vorticity rollout">
+    <strong>Navier-Stokes</strong>
+  </div>
+  <div class="bench-tile">
+    <img src="assets/pipe/pipe_flow_tracers.gif" alt="Pipe flow tracer animation">
+    <strong>Pipe flow</strong>
+  </div>
+  <div class="bench-tile">
+    <img src="assets/darcy/darcy_problem_3d.png" alt="Darcy flow pressure through porous medium">
+    <strong>Darcy flow</strong>
+  </div>
+  <div class="bench-tile">
+    <img class="blend-bg" src="assets/elasticity/elasticity_diagram_output.png" alt="Elasticity setup samples">
+    <strong>Elasticity</strong>
+  </div>
+  <div class="bench-tile">
+    <img class="blend-bg" src="assets/plasticity/plasticity_forging_cell_grid_sample_0100_focus.gif" alt="Plasticity forging samples">
+    <strong>Plasticity</strong>
+  </div>
+</div>
+
+<!-- <p class="bench-thesis">For each domain, the architecture guarantees one physical property by construction.</p> -->
 
 ---
 
@@ -42,6 +74,12 @@ model = ConstrainedModel(
     constraint=constraint,
 )
 ```
+
+
+---
+<span class="title-marker"></span>
+
+# Navier-Stokes
 
 ---
 
@@ -140,6 +178,7 @@ $$
   </tbody>
 </table>
 
+
 <!-- <div class="result-grid three compact-results">
   <div class="metric">
     <strong>4 / 4</strong>
@@ -164,6 +203,11 @@ $$
   <span class="dot future"></span>
   <span class="dot future"></span>
 </div>
+
+---
+<span class="title-marker"></span>
+
+# Pipe Flow
 
 ---
 
@@ -225,8 +269,8 @@ l(\eta) \times \mathcal{N}(\theta) = \mathbf u,
 \qquad
 l(\eta)=\eta(1-\eta)
 $$
-
-
+##
+##
 
 <div class="slide-state-progress">
   <span >Problem</span>
@@ -297,19 +341,10 @@ $$
 $$ -->
 ##
 $$
-
-\nabla  = \begin{bmatrix}
-\frac{\partial}{\partial x} \\ 
-\frac{\partial}{\partial y} 
-\end{bmatrix} 
-\qquad
-\mathbf u = \begin{bmatrix}
-u_x \\ 
-u_y 
-\end{bmatrix}
-\qquad 
-\nabla\cdot \mathbf u = \frac{\partial u_x}{\partial x} + \frac{\partial u_y}{\partial y} 
-
+\nabla\cdot \mathbf u 
+=
+\frac{\partial u_x}{\partial x} + \frac{\partial u_y}{\partial y}
+= 0 
 $$
 
 ##
@@ -463,8 +498,8 @@ $$
     <tr>
       <th>Budget<br><span>epoch / train</span></th>
       <th>Base</th>
-      <th>$u_x$</th>
-      <th>Stream</th>
+      <th>(1) + (2)</th>
+      <th>(1) + (2) + (3)</th>
     </tr>
   </thead>
   <tbody>
@@ -512,12 +547,22 @@ $$
 </div>
 
 ---
+<span class="title-marker"></span>
+
+# Darcy Flow
+
+---
+
 
 
 <!-- # Darcy flow: pressure through a porous medium -->
 ##
 ##
-$$-\nabla\cdot(a\nabla u)=f=1,\qquad u|_{\partial\Omega}=0$$
+$$
+u|_{\partial\Omega}=0,
+\qquad 
+-\nabla\cdot(a\nabla u)=f=1
+$$
 
 <div class="slide-state-progress">
   <span class="active">Problem</span>
@@ -547,156 +592,6 @@ $$-\nabla\cdot(a\nabla u)=f=1,\qquad u|_{\partial\Omega}=0$$
   <span class="dot future"></span>
 </div>
 
----
-
-<!-- _class: darcy-constraint-slide -->
-
-# Dirichlet Ansatz
-
-<div class="slide-state-progress">
-  <span>Problem</span>
-  <span class="active">Constraint</span>
-  <span>Results</span>
-</div>
-
-<div class="darcy-constraint-layout">
-  <div class="darcy-constraint-card distance-card">
-    <img src="assets/darcy/darcy_distance_p1.png" alt="Darcy distance function for p equals one">
-  </div>
-  <div class="darcy-constraint-card performance-card">
-    <img src="assets/darcy/darcy_distance_power_bars.png" alt="Darcy final validation performance across distance powers">
-  </div>
-</div>
-
-##
-$$
-u^*(x,y)=\ell_p(x,y)\,\mathcal{N}_\theta(x,y)
-$$
-##
-<!-- $$
-\ell_p(x,y)=\left[x(1-x)y(1-y)\right]^p
-$$ -->
-
-<div class="slide-bench-progress">
-  <span class="dot done"></span>
-  <span class="dot done"></span>
-  <span class="active-pill">Darcy</span>
-  <span class="dot future"></span>
-  <span class="dot future"></span>
-</div>
-
----
-
-<!-- _class: darcy-boundary-slide -->
-
-# The data boundary is not exactly zero
-
-<div class="slide-state-progress">
-  <span>Problem</span>
-  <span class="active">Constraint</span>
-  <span>Results</span>
-</div>
-
-<div class="darcy-boundary-slide">
-  <img src="assets/darcy/darcy_boundary_profiles_combined.png" alt="Darcy boundary pressure profiles across dataset">
-</div>
-
-<!-- <div class="darcy-boundary-layout">
-  <div class="darcy-boundary-card profile-grid">
-    <img src="assets/darcy/darcy_boundary_profiles_grid.png" alt="Darcy boundary pressure profiles across dataset">
-  </div>
-  <div class="darcy-boundary-card profile-field">
-    <img src="assets/darcy/darcy_boundary_profiles_2d.png" alt="Darcy pressure field with boundary profiles">
-  </div>
-</div> -->
-
-<!-- <p class="takeaway">The physical condition is \(u=0\), but the benchmark fields contain a small systematic boundary profile.</p> -->
-
-<div class="slide-bench-progress">
-  <span class="dot done"></span>
-  <span class="dot done"></span>
-  <span class="active-pill">Darcy</span>
-  <span class="dot future"></span>
-  <span class="dot future"></span>
-</div>
-
----
-
-<!-- _class: darcy-sine-boundary-slide -->
-
-# Sine boundary constraint
-
-<div class="slide-state-progress">
-  <span>Problem</span>
-  <span class="active">Constraint</span>
-  <span>Results</span>
-</div>
-
-<div class="darcy-sine-layout">
-  <div class="darcy-sine-boundary-arch">
-    <img src="assets/darcy/darcy_sine_boundary_architecture.png" alt="Sine boundary constraint architecture">
-  </div>
-  <div class="darcy-sine-results">
-    <table class="darcy-boundary-heads-table">
-      <thead>
-        <tr>
-          <th>Model</th>
-          <th>Bnd. rel-L₂ ↓</th>
-          <th>RMSE [10⁻⁵] ↓</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <th>Transolver</th>
-          <td>0.285</td>
-          <td>1.70</td>
-        </tr>
-        <tr>
-          <th>+ Dirichlet</th>
-          <td>1.000</td>
-          <td>5.92</td>
-        </tr>
-        <tr>
-          <th>+ Sine</th>
-          <td class="best">0.126</td>
-          <td class="best">0.81</td>
-        </tr>
-      </tbody>
-    </table>
-    <div class="result-note">
-      <strong>Boundary prediction</strong>
-      <span>Darcy test set</span>
-    </div>
-  </div>
-</div>
-
-<div class="slide-bench-progress">
-  <span class="dot done"></span>
-  <span class="dot done"></span>
-  <span class="active-pill">Darcy</span>
-  <span class="dot future"></span>
-  <span class="dot future"></span>
-</div>
-
----
-
-<!-- _class: darcy-boundary-learning-slide -->
-
-<div class="slide-state-progress">
-  <span>Problem</span>
-  <span>Constraint</span>
-  <span class="active">Results</span>
-</div>
-
-<img class="darcy-boundary-learning-gif" src="assets/darcy/darcy_boundary_learning_trace_epoch1.gif" alt="One-epoch Darcy boundary learning trace comparing base and sine boundary models">
-
-<div class="slide-bench-progress">
-  <span class="dot done"></span>
-  <span class="dot done"></span>
-  <span class="active-pill">Darcy</span>
-  <span class="dot future"></span>
-  <span class="dot future"></span>
-</div>
 
 ---
 
@@ -746,10 +641,56 @@ $$
 
 ---
 
+<!-- _class: darcy-results-slide -->
+
 <div class="slide-state-progress">
   <span>Problem</span>
   <span>Constraint</span>
   <span class="active">Results</span>
+</div>
+
+<div class="darcy-results-layout">
+  <img src="assets/darcy/darcy_problem_3d.png" alt="3D Darcy flow concept diagram">
+
+  <div class="darcy-results-panel">
+    <table class="darcy-results-table">
+      <thead>
+        <tr>
+          <th>Budget<br><span>epoch / train</span></th>
+          <th>Baseline</th>
+          <th>Flux Constraint</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>5 / 50</td>
+          <td class="best">0.2522</td>
+          <td>0.3195</td>
+        </tr>
+        <tr>
+          <td>10 / 100</td>
+          <td class="best">0.2226</td>
+          <td>0.3271</td>
+        </tr>
+        <tr>
+          <td>50 / 500</td>
+          <td class="best">0.0232</td>
+          <td>0.0286</td>
+        </tr>
+        <tr>
+          <td>100 / 900</td>
+          <td>0.0268</td>
+          <td class="best">0.0136</td>
+        </tr>
+        <tr>
+          <td>500 / 1000</td>
+          <td class="best">0.0057</td>
+          <td>0.0088</td>
+        </tr>
+      </tbody>
+    </table>
+
+  </div>
 </div>
 
 <div class="slide-bench-progress">
@@ -759,6 +700,12 @@ $$
   <span class="dot future"></span>
   <span class="dot future"></span>
 </div>
+
+
+---
+<span class="title-marker"></span>
+
+# Elasticity
 
 ---
 
@@ -786,7 +733,7 @@ $$
 \qquad
 \sigma _{\text{VM}}(\mathbf{\sigma (F)}) \in \mathbb{R} 
 $$
-##
+
 
 
 <div class="slide-bench-progress">
@@ -799,13 +746,54 @@ $$
 
 ---
 
+<!-- _class: elasticity-constraint-math-slide -->
 
 <div class="slide-state-progress">
   <span>Problem</span>
-  <span>Constraint</span>
-  <span class="active">Results</span>
+  <span class="active">Constraint</span>
+  <span>Results</span>
 </div>
 
+<div class="elasticity-constraint-math">
+
+
+$$
+\det \mathbf{F} =1,
+\qquad
+\mathbf{F}(\lambda)
+=
+\begin{bmatrix}
+\lambda_1 & 0 & 0 \\
+0 & \lambda_2 & 0 \\
+0 & 0 & \lambda_3
+\end{bmatrix}
+$$
+
+
+##
+
+$$
+(\lambda_1,\lambda_2,\lambda_3)
+=
+\left(e^{m+d},\,e^{m-d},\,e^{-2m}\right)
+$$
+
+
+##
+##
+
+$$
+\det \mathbf{F}
+=
+\lambda_1\lambda_2\lambda_3
+=
+e^{m+d}e^{m-d}e^{-2m}
+=1
+$$
+##
+##
+
+</div>
 
 <div class="slide-bench-progress">
   <span class="dot done"></span>
@@ -817,6 +805,94 @@ $$
 
 ---
 
+<!-- _class: elasticity-constraint-visual-slide -->
+
+<div class="slide-state-progress">
+  <span>Problem</span>
+  <span class="active">Constraint</span>
+  <span>Results</span>
+</div>
+
+<div class="elasticity-constraint-visual-layout">
+  <img src="assets/elasticity/elasticity_constraint_pipeline.png" alt="Elasticity plane-stress constraint pipeline">
+  <img src="assets/elasticity/elasticity_reparameterization_real_output.png" alt="Elasticity reparameterization real output">
+</div>
+
+<div class="slide-bench-progress">
+  <span class="dot done"></span>
+  <span class="dot done"></span>
+  <span class="dot done"></span>
+  <span class="active-pill">Elasticity</span>
+  <span class="dot future"></span>
+</div>
+
+---
+
+<!-- _class: elasticity-results-slide -->
+
+<div class="slide-state-progress">
+  <span>Problem</span>
+  <span >Constraint</span>
+  <span class="active" >Results</span>
+</div>
+
+<table class="elasticity-results-table">
+  <thead>
+    <tr>
+      <th>Budget<br><span>epoch / train</span></th>
+      <th>Base</th>
+      <th>PS<br>latent</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>5 / 50</td>
+      <td>0.5552</td>
+      <td class="best">0.5161</td>
+    </tr>
+    <tr>
+      <td>10 / 100</td>
+      <td>0.5498</td>
+      <td class="best">0.4894</td>
+    </tr>
+    <tr>
+      <td>50 / 500</td>
+      <td class="best">0.0527</td>
+      <td>0.0622</td>
+    </tr>
+    <tr>
+      <td>100 / 900</td>
+      <td class="best">0.0208</td>
+      <td>0.0281</td>
+    </tr>
+    <tr>
+      <td>500 / 1000</td>
+      <td>0.0059</td>
+      <td class="best">0.0053</td>
+    </tr>
+  </tbody>
+</table>
+
+<p class="table-note">Relative L<sub>2</sub> test error. Lower is better.</p>
+
+<div class="slide-bench-progress">
+  <span class="dot done"></span>
+  <span class="dot done"></span>
+  <span class="dot done"></span>
+  <span class="active-pill">Elasticity</span>
+  <span class="dot future"></span>
+</div>
+
+---
+<span class="title-marker"></span>
+
+# Plasticity
+
+---
+
+![hydraulic_press](assets/plasticity/hydraulic_press.png)
+
+--- 
 
 <div class="slide-state-progress">
   <span class="active">Problem</span>
@@ -824,6 +900,58 @@ $$
   <span>Results</span>
 </div>
 
+<div class="ns-problem-card plasticity-problem-card">
+  <img class="plasticity-gif" src="assets/plasticity/plasticity_forging_samples_0000_0010_0100.gif" alt="Plasticity forging rollouts across multiple samples">
+</div>
+
+<!-- $$
+\mathcal{N_{\theta}(d, t)} \to (x_{i},y_{i})
+$$ -->
+
+
+
+
+<div class="slide-bench-progress">
+  <span class="dot done"></span>
+  <span class="dot done"></span>
+  <span class="dot done"></span>
+  <span class="dot done"></span>
+  <span class="active-pill">Plasticity</span>
+</div>
+
+---
+
+<div class="slide-state-progress">
+  <span class="active">Problem</span>
+  <span>Constraint</span>
+  <span>Results</span>
+</div>
+
+<div class="ns-problem-card plasticity-problem-card">
+    <img class="plasticity-cell-focus-gif" src="assets/plasticity/plasticity_forging_cell_grid_sample_0100_focus.gif" alt="Plasticity forging cell grid focused rollout">
+</div>
+
+
+
+<div class="slide-bench-progress">
+  <span class="dot done"></span>
+  <span class="dot done"></span>
+  <span class="dot done"></span>
+  <span class="dot done"></span>
+  <span class="active-pill">Plasticity</span>
+</div>
+
+---
+
+<div class="slide-state-progress">
+  <span class="active">Problem</span>
+  <span>Constraint</span>
+  <span>Results</span>
+</div>
+
+<div class="ns-problem-card plasticity-problem-card">
+  <img class="plasticity-gif" src="assets/plasticity/plasticity_valid_invalid_cell_evolution.png" alt="Valid and invalid plasticity cell evolution">
+</div>
 
 <div class="slide-bench-progress">
   <span class="dot done"></span>
@@ -838,8 +966,12 @@ $$
 
 <div class="slide-state-progress">
   <span>Problem</span>
-  <span>Constraint</span>
-  <span class="active">Results</span>
+  <span class="active" >Constraint</span>
+  <span >Results</span>
+</div>
+
+<div class="ns-problem-card plasticity-problem-card">
+  <img class="plasticity-gif" src="assets/plasticity/plasticity_constraint_channel_cell_mapping.png" alt="Plasticity forging rollouts across multiple samples">
 </div>
 
 
@@ -853,11 +985,134 @@ $$
 
 ---
 
+<!-- _class: plasticity-envelope-slide -->
+
+<div class="slide-state-progress">
+  <span>Problem</span>
+  <span class="active" >Constraint</span>
+  <span >Results</span>
+</div>
+
+<div class="plasticity-envelope-layout">
+  <img src="assets/plasticity/plasticity_envelope_constraint_schematic.png" alt="Plasticity envelope constraint schematic">
+
+  <div class="plasticity-envelope-equations">
+
+$$
+{\color{#0f766e}{c_i}} = e_i(t)-{\color{#7c3aed}{g_i}}
+$$
+##
+
+$$
+w_{i,j}
+=
+\frac{\mathrm{softplus}(\hat{w}_{i,j})}
+{\sum_k \mathrm{softplus}(\hat{w}_{i,k})}
+$$
+##
+
+$$
+{\color{#dc2626}{\Delta y_{i,j}}}
+=
+w_{i,j}\left({\color{#0f766e}{c_i}}-y_{\text{bottom}}\right)
+$$
+
+  </div>
+</div>
+
+
+<div class="slide-bench-progress">
+  <span class="dot done"></span>
+  <span class="dot done"></span>
+  <span class="dot done"></span>
+  <span class="dot done"></span>
+  <span class="active-pill">Plasticity</span>
+</div>
+
 ---
 
-# Conclusions
+
+<div class="slide-state-progress">
+  <span>Problem</span>
+  <span >Constraint</span>
+  <span  class="active" >Results</span>
+</div>
+
+<div class="ns-problem-card plasticity-problem-card">
+  <img class="plasticity-gif" src="assets/plasticity/plasticity_fast_learning_trace_epoch1.gif" alt="Plasticity forging rollouts across multiple samples">
+</div>
+
+
+<div class="slide-bench-progress">
+  <span class="dot done"></span>
+  <span class="dot done"></span>
+  <span class="dot done"></span>
+  <span class="dot done"></span>
+  <span class="active-pill">Plasticity</span>
+</div>
+
 
 ---
 
+<!-- _class: plasticity-results-slide -->
 
-# Questions
+<div class="slide-state-progress">
+  <span>Problem</span>
+  <span>Constraint</span>
+  <span class="active">Results</span>
+</div>
+
+<table class="plasticity-results-table">
+  <thead>
+    <tr>
+      <th>Budget<br><span>epoch / train</span></th>
+      <th>Base</th>
+      <th>Envelope</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>5 / 50</td>
+      <td>0.1446</td>
+      <td class="best">0.0365</td>
+    </tr>
+    <tr>
+      <td>10 / 100</td>
+      <td>0.0367</td>
+      <td class="best">0.0357</td>
+    </tr>
+    <tr>
+      <td>50 / 500</td>
+      <td class="best">0.0095</td>
+      <td>0.0149</td>
+    </tr>
+    <tr>
+      <td>100 / 900</td>
+      <td class="best">0.0067</td>
+      <td>0.0119</td>
+    </tr>
+    <tr>
+      <td>500 / 1000</td>
+      <td class="best">0.0020</td>
+      <td>0.0022</td>
+    </tr>
+  </tbody>
+</table>
+
+<p class="table-note">Relative L<sub>2</sub> test error. Lower is better.</p>
+
+<div class="slide-bench-progress">
+  <span class="dot done"></span>
+  <span class="dot done"></span>
+  <span class="dot done"></span>
+  <span class="dot done"></span>
+  <span class="active-pill">Plasticity</span>
+</div>
+
+---
+
+<span class="title-marker"></span>
+
+# Conclusions & Future Work
+
+---

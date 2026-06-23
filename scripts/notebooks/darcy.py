@@ -317,9 +317,9 @@ print(f"Saved to {table_path}")
 # Match the report stencil exactly: finite_difference_gradient_2d followed by
 # finite_difference_divergence_2d on flux = -a grad u.
 import csv
+import sys
 
 import torch
-import sys
 
 from omni_hc.constraints.utils.spectral import (
     finite_difference_divergence_2d,
@@ -1639,6 +1639,7 @@ from omni_hc.benchmarks.darcy.data import build_test_loader as build_darcy_test_
 from omni_hc.benchmarks.darcy.data import (
     build_train_val_loaders as build_darcy_train_val_loaders,
 )
+from omni_hc.constraints import SineBoundaryConstraint
 from omni_hc.core import compose_run_config
 from omni_hc.integrations.nsl.modeling import create_model
 from omni_hc.training.common import (
@@ -1659,12 +1660,14 @@ RUN_FAST_DARCY_BOUNDARY_TRACE = bool(
 DARCY_BOUNDARY_TRACE_BACKBONE = "FNO"
 DARCY_BOUNDARY_TRACE_SAMPLE_IDX = 0
 DARCY_BOUNDARY_TRACE_EDGE = "right"
-DARCY_BOUNDARY_TRACE_NTRAIN = 100
+DARCY_BOUNDARY_TRACE_NTRAIN = 1000
 DARCY_BOUNDARY_TRACE_BATCH_SIZE = 2
-DARCY_BOUNDARY_TRACE_FPS = 2
-DARCY_BOUNDARY_TRACE_PRETRAIN_SINE = True
-DARCY_BOUNDARY_TRACE_UNFREEZE_SINE_HEAD = True
-DARCY_BOUNDARY_TRACE_SINE_HEAD_LR_SCALE = 0.02
+DARCY_BOUNDARY_TRACE_FPS = 10
+DARCY_BOUNDARY_TRACE_BASE_EPOCHS = 1
+DARCY_BOUNDARY_TRACE_SINE_EPOCHS = 50
+DARCY_BOUNDARY_TRACE_SINE_LR = 1.0e-7
+DARCY_BOUNDARY_TRACE_SINE_WEIGHT_DECAY = 1.0e-4
+DARCY_BOUNDARY_TRACE_SINE_BATCH_SIZE = 32
 DARCY_BOUNDARY_TRACE_GIF_NAME = "darcy_boundary_learning_trace_epoch1.gif"
 DARCY_BOUNDARY_TRACE_PNG_NAME = "darcy_boundary_learning_trace_epoch1.png"
 DARCY_BOUNDARY_TRACE_OUTPUT_ROOT = Path(
@@ -1675,7 +1678,7 @@ DARCY_BOUNDARY_TRACE_OUTPUT_ROOT = Path(
 )
 
 
-def _darcy_boundary_trace_overrides(output_dir: Path, *, sine: bool) -> dict:
+def _darcy_boundary_trace_overrides(output_dir: Path) -> dict:
     overrides = {
         "paths": {
             "root_dir": str(DATA_DIR),
@@ -1696,7 +1699,7 @@ def _darcy_boundary_trace_overrides(output_dir: Path, *, sine: bool) -> dict:
         "training": {
             "batch_size": DARCY_BOUNDARY_TRACE_BATCH_SIZE,
             "val_size": 0,
-            "num_epochs": 1,
+            "num_epochs": DARCY_BOUNDARY_TRACE_BASE_EPOCHS,
             "scheduler": "none",
             "derivloss": False,
             "seed": 42,
@@ -1710,23 +1713,6 @@ def _darcy_boundary_trace_overrides(output_dir: Path, *, sine: bool) -> dict:
             "image_log_every": None,
         },
     }
-    if sine:
-        overrides["constraint"] = {
-            "n_modes": 21,
-            "hidden_dim": 64,
-            "n_layers": 2,
-            "feature_mode": "boundary",
-        }
-        if DARCY_BOUNDARY_TRACE_PRETRAIN_SINE:
-            overrides["constraint"]["coeff_head_pretrain"] = {
-                "epochs": 15,
-                "lr": 1.0e-3,
-                "weight_decay": 1.0e-4,
-                "batch_size": 32,
-                "max_samples": DARCY_BOUNDARY_TRACE_NTRAIN,
-                "val_frac": 0.0,
-                "seed": 42,
-            }
     return overrides
 
 
@@ -1739,10 +1725,7 @@ def _compose_darcy_boundary_trace_config(*, label: str, constraint: str | None):
         budget="debug",
         mode="train",
         seed=42,
-        extra_overrides=_darcy_boundary_trace_overrides(
-            output_dir,
-            sine=constraint is not None,
-        ),
+        extra_overrides=_darcy_boundary_trace_overrides(output_dir),
     )
 
 
@@ -1755,9 +1738,7 @@ def _decode_darcy_tensor(normalizer, tensor):
     return normalizer.decode(tensor) if normalizer is not None else tensor
 
 
-def _configure_darcy_constraint_for_trace(
-    model, *, x_normalizer, y_normalizer
-) -> None:
+def _configure_darcy_constraint_for_trace(model, *, x_normalizer, y_normalizer) -> None:
     constraint = getattr(model, "constraint", None)
     if constraint is None:
         return
@@ -1765,46 +1746,6 @@ def _configure_darcy_constraint_for_trace(
         constraint.set_target_normalizer(y_normalizer)
     if x_normalizer is not None and hasattr(constraint, "set_input_normalizer"):
         constraint.set_input_normalizer(x_normalizer)
-
-
-def _unfreeze_sine_coeff_head_for_trace(model) -> None:
-    constraint = getattr(model, "constraint", None)
-    coeff_head = getattr(constraint, "coeff_head", None)
-    if coeff_head is None:
-        return
-    for param in coeff_head.parameters():
-        param.requires_grad = True
-    coeff_head.train()
-
-
-def _build_darcy_boundary_trace_optimizer(model, training_cfg: dict, *, sine: bool):
-    if not sine or not DARCY_BOUNDARY_TRACE_UNFREEZE_SINE_HEAD:
-        return build_optimizer(model, training_cfg)
-
-    constraint = getattr(model, "constraint", None)
-    coeff_head = getattr(constraint, "coeff_head", None)
-    if coeff_head is None:
-        return build_optimizer(model, training_cfg)
-
-    coeff_param_ids = {id(param) for param in coeff_head.parameters()}
-    base_params = [
-        param
-        for param in model.parameters()
-        if param.requires_grad and id(param) not in coeff_param_ids
-    ]
-    coeff_params = [param for param in coeff_head.parameters() if param.requires_grad]
-    lr = float(training_cfg.get("learning_rate", 1e-3))
-    weight_decay = float(training_cfg.get("weight_decay", 0.0))
-    return torch.optim.AdamW(
-        [
-            {"params": base_params, "lr": lr, "weight_decay": weight_decay},
-            {
-                "params": coeff_params,
-                "lr": lr * DARCY_BOUNDARY_TRACE_SINE_HEAD_LR_SCALE,
-                "weight_decay": weight_decay,
-            },
-        ]
-    )
 
 
 def _select_darcy_test_sample(loader, sample_idx: int, device: torch.device):
@@ -1877,73 +1818,200 @@ def _capture_darcy_boundary_prediction(
     }
 
 
-def train_fast_darcy_boundary_trace():
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    run_specs = (
-        ("Base", "base", None),
-        ("Sine", "sine", "darcy_sine_boundary_constraint"),
+def _sine_boundary_unique_target(constraint, target_decoded: torch.Tensor):
+    return torch.cat(
+        [
+            target_decoded[:, constraint.idx_bottom, 0],
+            target_decoded[:, constraint.idx_top, 0],
+            target_decoded[:, constraint.idx_left[1:-1], 0],
+            target_decoded[:, constraint.idx_right[1:-1], 0],
+        ],
+        dim=-1,
     )
-    traces = {}
-    for model_label, run_label, constraint_name in run_specs:
-        cfg = _compose_darcy_boundary_trace_config(
-            label=run_label,
-            constraint=constraint_name,
-        )
-        seed_everything(training_seed(cfg))
-        print(
-            f"Training fast Darcy boundary trace: {model_label} "
-            f"({DARCY_BOUNDARY_TRACE_NTRAIN} samples, one epoch)"
-        )
-        train_loader, _val_loader = build_darcy_train_val_loaders(cfg)
-        test_loader = build_darcy_test_loader(cfg)
-        meta = darcy_adapter._get_meta(train_loader)
-        h_grid, w_grid = tuple(meta["shapelist"])
 
-        x_normalizer = _move_darcy_normalizer_to_device(
-            train_loader, "x_normalizer", device
-        )
-        y_normalizer = _move_darcy_normalizer_to_device(
-            train_loader, "y_normalizer", device
-        )
-        model, _model_args, _resolved_nsl_root = create_model(
-            cfg,
-            device=device,
-            runtime_overrides=darcy_adapter._runtime_overrides(meta),
-        )
-        _configure_darcy_constraint_for_trace(
+
+def _sine_selected_edge_target(
+    constraint,
+    target_decoded: torch.Tensor,
+    edge: str,
+):
+    if edge == "bottom":
+        return target_decoded[:, constraint.idx_bottom, 0]
+    if edge == "top":
+        return target_decoded[:, constraint.idx_top, 0]
+    if edge == "left":
+        return target_decoded[:, constraint.idx_left, 0]
+    if edge == "right":
+        return target_decoded[:, constraint.idx_right, 0]
+    raise ValueError(f"Unknown Darcy boundary edge {edge!r}")
+
+
+def _sine_boundary_edges(
+    constraint,
+    fx_encoded: torch.Tensor,
+    *,
+    physical: bool = True,
+):
+    feats = constraint._boundary_feats(fx_encoded)
+    coeffs = constraint.coeff_head(feats).view(fx_encoded.shape[0], 4, constraint.n_modes)
+    edges = {
+        "bottom": coeffs[:, 0] @ constraint.basis_h.T,
+        "top": coeffs[:, 1] @ constraint.basis_h.T,
+        "left": coeffs[:, 2] @ constraint.basis_v.T,
+        "right": coeffs[:, 3] @ constraint.basis_v.T,
+    }
+    if not physical:
+        return edges
+    scale = float(getattr(constraint, "_trace_y_scale", 1.0))
+    return {name: values * scale for name, values in edges.items()}
+
+
+def _capture_sine_boundary_only_prediction(
+    constraint,
+    *,
+    sample_batch,
+    y_normalizer,
+    label: str,
+    step: int,
+    edge: str,
+    train_loss: float | None = None,
+):
+    constraint.eval()
+    with torch.no_grad():
+        edges = _sine_boundary_edges(constraint, sample_batch["x"], physical=True)
+        target_decoded = _decode_darcy_tensor(y_normalizer, sample_batch["y"])
+
+    target_field = (
+        target_decoded[0, :, 0]
+        .reshape(constraint.H, constraint.W)
+        .detach()
+        .cpu()
+        .numpy()
+    )
+    pred_edge = edges[edge][0].detach().cpu().numpy()
+    target_edge = _darcy_boundary_profile(target_field, edge)
+    boundary_rel_l2 = float(
+        np.linalg.norm(pred_edge - target_edge)
+        / max(np.linalg.norm(target_edge), 1e-12)
+    )
+    boundary_rmse_1e5 = float(
+        np.sqrt(np.mean(np.square(pred_edge - target_edge))) / 1.0e-5
+    )
+    return {
+        "label": label,
+        "step": int(step),
+        "train_loss": train_loss,
+        "rel_l2": np.nan,
+        "boundary_rel_l2": boundary_rel_l2,
+        "boundary_rmse_1e5": boundary_rmse_1e5,
+        "pred_edge": pred_edge,
+        "target_edge": target_edge,
+        "position": np.linspace(0.0, 1.0, pred_edge.size),
+    }
+
+
+def _build_sine_boundary_only_constraint(
+    *, meta, x_normalizer, device: torch.device
+) -> SineBoundaryConstraint:
+    constraint = SineBoundaryConstraint(
+        grid_shape=tuple(meta["shapelist"]),
+        n_modes=21,
+        hidden_dim=64,
+        n_layers=2,
+        feature_mode="boundary",
+    ).to(device)
+    constraint.set_input_normalizer(x_normalizer)
+    for module in reversed(list(constraint.coeff_head.modules())):
+        if isinstance(module, torch.nn.Linear):
+            torch.nn.init.zeros_(module.weight)
+            torch.nn.init.zeros_(module.bias)
+            break
+    return constraint
+
+
+def _fit_sine_boundary_feature_stats(
+    constraint,
+    loader,
+    *,
+    device: torch.device,
+):
+    features = []
+    with torch.no_grad():
+        for batch in loader:
+            fx = batch["x"].to(device)
+            if constraint.input_normalizer is not None:
+                fx = constraint.input_normalizer.decode(fx)
+            features.append(constraint._raw_permeability_feats(fx))
+    raw_feats = torch.cat(features, dim=0)
+    constraint._feat_mean = raw_feats.mean(0)
+    constraint._feat_std = raw_feats.std(0).clamp(min=1e-6)
+
+
+def _sine_boundary_y_scale(
+    constraint,
+    loader,
+    *,
+    y_normalizer,
+    device: torch.device,
+    edge: str,
+):
+    targets = []
+    with torch.no_grad():
+        for batch in loader:
+            target = _decode_darcy_tensor(y_normalizer, batch["y"].to(device))
+            targets.append(_sine_selected_edge_target(constraint, target, edge))
+    boundary = torch.cat(targets, dim=0)
+    return float(torch.sqrt(boundary.square().mean()).item()) + 1e-12
+
+
+def _train_base_darcy_boundary_trace(*, device: torch.device):
+    cfg = _compose_darcy_boundary_trace_config(label="base", constraint=None)
+    seed_everything(training_seed(cfg))
+    print(
+        f"Training fast Darcy boundary trace: Base "
+        f"({DARCY_BOUNDARY_TRACE_NTRAIN} samples, "
+        f"{DARCY_BOUNDARY_TRACE_BASE_EPOCHS} epoch(s))"
+    )
+    train_loader, _val_loader = build_darcy_train_val_loaders(cfg)
+    test_loader = build_darcy_test_loader(cfg)
+    meta = darcy_adapter._get_meta(train_loader)
+    h_grid, w_grid = tuple(meta["shapelist"])
+    x_normalizer = _move_darcy_normalizer_to_device(
+        train_loader, "x_normalizer", device
+    )
+    y_normalizer = _move_darcy_normalizer_to_device(
+        train_loader, "y_normalizer", device
+    )
+    model, _model_args, _resolved_nsl_root = create_model(
+        cfg,
+        device=device,
+        runtime_overrides=darcy_adapter._runtime_overrides(meta),
+    )
+    optimizer = build_optimizer(model, cfg.get("training", {}))
+    sample_batch = _select_darcy_test_sample(
+        test_loader,
+        DARCY_BOUNDARY_TRACE_SAMPLE_IDX,
+        device,
+    )
+    trace = [
+        _capture_darcy_boundary_prediction(
             model,
+            sample_batch=sample_batch,
             x_normalizer=x_normalizer,
             y_normalizer=y_normalizer,
+            h_grid=h_grid,
+            w_grid=w_grid,
+            label="init",
+            step=0,
+            edge=DARCY_BOUNDARY_TRACE_EDGE,
         )
-        if constraint_name is not None and DARCY_BOUNDARY_TRACE_UNFREEZE_SINE_HEAD:
-            _unfreeze_sine_coeff_head_for_trace(model)
+    ]
 
-        optimizer = _build_darcy_boundary_trace_optimizer(
-            model,
-            cfg.get("training", {}),
-            sine=constraint_name is not None,
-        )
-        sample_batch = _select_darcy_test_sample(
-            test_loader,
-            DARCY_BOUNDARY_TRACE_SAMPLE_IDX,
-            device,
-        )
-        trace = [
-            _capture_darcy_boundary_prediction(
-                model,
-                sample_batch=sample_batch,
-                x_normalizer=x_normalizer,
-                y_normalizer=y_normalizer,
-                h_grid=h_grid,
-                w_grid=w_grid,
-                label="init",
-                step=0,
-                edge=DARCY_BOUNDARY_TRACE_EDGE,
-            )
-        ]
-
+    global_step = 0
+    for epoch in range(DARCY_BOUNDARY_TRACE_BASE_EPOCHS):
         model.train()
-        for step, batch in enumerate(train_loader, start=1):
+        for batch in train_loader:
+            global_step += 1
             coords = batch["coords"].to(device)
             fx = batch["x"].to(device)
             target = batch["y"].to(device)
@@ -1951,13 +2019,9 @@ def train_fast_darcy_boundary_trace():
             pred_decoded = _decode_darcy_tensor(y_normalizer, out["pred"])
             target_decoded = _decode_darcy_tensor(y_normalizer, target)
             loss = torch.nn.functional.mse_loss(pred_decoded, target_decoded)
-            if out.get("extra_loss") is not None:
-                loss = loss + out["extra_loss"]
-
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()
-
             trace.append(
                 _capture_darcy_boundary_prediction(
                     model,
@@ -1966,20 +2030,116 @@ def train_fast_darcy_boundary_trace():
                     y_normalizer=y_normalizer,
                     h_grid=h_grid,
                     w_grid=w_grid,
-                    label=f"step {step}",
-                    step=step,
+                    label=f"step {global_step}",
+                    step=global_step,
                     edge=DARCY_BOUNDARY_TRACE_EDGE,
                     train_loss=float(loss.detach().item()),
                 )
             )
-            model.train()
+    print(
+        f"Base: captured {len(trace)} frames; "
+        f"final boundary RMSE={trace[-1]['boundary_rmse_1e5']:.3f}e-5"
+    )
+    return trace
 
-        traces[model_label] = trace
-        print(
-            f"{model_label}: captured {len(trace)} frames; "
-            f"final boundary RMSE={trace[-1]['boundary_rmse_1e5']:.3f}e-5"
+
+def _train_sine_boundary_only_trace(*, device: torch.device):
+    cfg = _compose_darcy_boundary_trace_config(label="sine_boundary_only", constraint=None)
+    cfg.setdefault("training", {})["batch_size"] = DARCY_BOUNDARY_TRACE_SINE_BATCH_SIZE
+    seed_everything(training_seed(cfg))
+    print(
+        f"Training Darcy sine boundary-only trace "
+        f"({DARCY_BOUNDARY_TRACE_NTRAIN} samples, "
+        f"{DARCY_BOUNDARY_TRACE_SINE_EPOCHS} epoch(s))"
+    )
+    train_loader, _val_loader = build_darcy_train_val_loaders(cfg)
+    test_loader = build_darcy_test_loader(cfg)
+    meta = darcy_adapter._get_meta(train_loader)
+    x_normalizer = _move_darcy_normalizer_to_device(
+        train_loader, "x_normalizer", device
+    )
+    y_normalizer = _move_darcy_normalizer_to_device(
+        train_loader, "y_normalizer", device
+    )
+    constraint = _build_sine_boundary_only_constraint(
+        meta=meta,
+        x_normalizer=x_normalizer,
+        device=device,
+    )
+    _fit_sine_boundary_feature_stats(constraint, train_loader, device=device)
+    y_scale = _sine_boundary_y_scale(
+        constraint,
+        train_loader,
+        y_normalizer=y_normalizer,
+        device=device,
+        edge=DARCY_BOUNDARY_TRACE_EDGE,
+    )
+    constraint._trace_y_scale = y_scale
+    optimizer = torch.optim.AdamW(
+        constraint.coeff_head.parameters(),
+        lr=DARCY_BOUNDARY_TRACE_SINE_LR,
+        weight_decay=DARCY_BOUNDARY_TRACE_SINE_WEIGHT_DECAY,
+    )
+    sample_batch = _select_darcy_test_sample(
+        test_loader,
+        DARCY_BOUNDARY_TRACE_SAMPLE_IDX,
+        device,
+    )
+    trace = [
+        _capture_sine_boundary_only_prediction(
+            constraint,
+            sample_batch=sample_batch,
+            y_normalizer=y_normalizer,
+            label="init",
+            step=0,
+            edge=DARCY_BOUNDARY_TRACE_EDGE,
         )
-    return traces
+    ]
+    global_step = 0
+    for epoch in range(DARCY_BOUNDARY_TRACE_SINE_EPOCHS):
+        constraint.train()
+        for batch in train_loader:
+            fx = batch["x"].to(device)
+            target_decoded = _decode_darcy_tensor(y_normalizer, batch["y"].to(device))
+            edges = _sine_boundary_edges(constraint, fx, physical=False)
+            pred_edge = edges[DARCY_BOUNDARY_TRACE_EDGE]
+            target_edge = _sine_selected_edge_target(
+                constraint,
+                target_decoded,
+                DARCY_BOUNDARY_TRACE_EDGE,
+            )
+            loss = torch.nn.functional.mse_loss(
+                pred_edge,
+                target_edge / y_scale,
+            )
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            optimizer.step()
+        global_step += 1
+        trace.append(
+            _capture_sine_boundary_only_prediction(
+                constraint,
+                sample_batch=sample_batch,
+                y_normalizer=y_normalizer,
+                label=f"epoch {epoch + 1}",
+                step=global_step,
+                edge=DARCY_BOUNDARY_TRACE_EDGE,
+                train_loss=float(loss.detach().item()),
+            )
+        )
+    print(
+        f"Sine boundary-only: captured {len(trace)} frames; "
+        f"final boundary RMSE={trace[-1]['boundary_rmse_1e5']:.3f}e-5"
+    )
+    return trace
+
+
+def train_fast_darcy_boundary_trace():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    return {
+        "Base": _train_base_darcy_boundary_trace(device=device),
+        "Sine": _train_sine_boundary_only_trace(device=device),
+    }
 
 
 def _darcy_boundary_trace_ranges(traces):
@@ -2010,8 +2170,7 @@ def _draw_darcy_boundary_trace_frame(
     fig = plt.figure(figsize=(9.8, 4.0), facecolor="white")
     row_y = [0.60, 0.20]
     profile_axes = [
-        fig.add_axes([0.17, row_y[row], 0.50, 0.30])
-        for row in range(len(model_labels))
+        fig.add_axes([0.17, row_y[row], 0.50, 0.30]) for row in range(len(model_labels))
     ]
     ax_curve = fig.add_axes([0.74, 0.22, 0.21, 0.66])
     colors = {

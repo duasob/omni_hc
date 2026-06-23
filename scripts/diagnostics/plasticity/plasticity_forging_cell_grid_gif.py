@@ -305,7 +305,7 @@ def make_animation(
         edgecolors="#94a3b8",
         linewidths=max(float(reference_linewidth), 0.0),
         alpha=0.45,
-        label="reference cell grid",
+        # label="reference cell grid",
     )
     ax.add_collection(reference_grid)
 
@@ -340,11 +340,11 @@ def make_animation(
     )
 
     cbar = fig.colorbar(cell_grid, ax=ax, pad=0.02)
-    cbar.set_label("cell-averaged displacement magnitude ||u||")
+    cbar.set_label("||u||")
 
     title = ax.set_title("")
-    ax.set_xlabel("physical x coordinate")
-    ax.set_ylabel("physical y coordinate")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
     ax.set_xlim(*xlim)
     ax.set_ylim(*ylim)
     ax.set_aspect("equal", adjustable="box")

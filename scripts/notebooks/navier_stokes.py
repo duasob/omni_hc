@@ -278,6 +278,60 @@ print(f"Saved presentation WebP to {ns_problem_webp}")
 print(f"Saved fallback GIF to {ns_problem_gif}")
 
 
+# %% Benchmark overview asset — square single-sample vorticity rollout
+BENCHMARK_ROLLOUT_SAMPLE_IDX = 0
+BENCHMARK_ROLLOUT_FPS = 5
+BENCHMARK_ROLLOUT_DPI = 130
+
+
+def save_ns_benchmark_rollout_gif(sample_idx: int, out_path: Path) -> Path:
+    """Save a square raw-vorticity rollout for the benchmark overview slide."""
+    try:
+        from PIL import Image
+    except Exception as exc:
+        raise RuntimeError("Saving the benchmark rollout GIF requires Pillow.") from exc
+
+    seq = np.asarray(u[int(sample_idx)], dtype=np.float64)
+    vmin = float(seq.min())
+    vmax = float(seq.max())
+    frames = []
+    for timestep in range(seq.shape[-1]):
+        fig, ax = plt.subplots(figsize=(3.8, 3.8), facecolor="white")
+        ax.imshow(
+            seq[:, :, timestep],
+            cmap=CMAP,
+            origin="lower",
+            vmin=vmin,
+            vmax=vmax,
+            interpolation="bilinear",
+        )
+        ax.set_axis_off()
+        fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+        fig.set_dpi(BENCHMARK_ROLLOUT_DPI)
+        fig.canvas.draw()
+        frames.append(Image.fromarray(np.asarray(fig.canvas.buffer_rgba()).copy()))
+        plt.close(fig)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    duration_ms = max(int(1000 / max(int(BENCHMARK_ROLLOUT_FPS), 1)), 1)
+    frames[0].save(
+        out_path,
+        save_all=True,
+        append_images=frames[1:],
+        duration=duration_ms,
+        loop=0,
+        disposal=2,
+    )
+    return out_path
+
+
+ns_benchmark_rollout_gif = save_ns_benchmark_rollout_gif(
+    BENCHMARK_ROLLOUT_SAMPLE_IDX,
+    FIGURES_DIR / "ns_benchmark_rollout_square.gif",
+)
+print(f"Saved benchmark rollout GIF to {ns_benchmark_rollout_gif}")
+
+
 # %% Spatial-mean vorticity statistics across timesteps
 # Left:  spatial mean of ω  — should hover near zero (conservation law).
 # Right: spatial mean of |ω| — captures the growing magnitude of the field.

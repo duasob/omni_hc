@@ -1603,3 +1603,76 @@ setup_gif_path = _save_elasticity_setup_schematic_gif(
     FIGURES_DIR / "elasticity_setup_schematic_samples.gif",
 )
 print(f"Saved {setup_gif_path}")
+
+
+# %% Benchmark overview asset - square stress fields across samples
+ELASTICITY_BENCHMARK_GIF_SAMPLES = [0, 100, 500, 1000]
+ELASTICITY_BENCHMARK_GIF_FPS = 2
+ELASTICITY_BENCHMARK_GIF_DPI = 130
+
+
+def _save_elasticity_benchmark_square_gif(sample_indices, out_path: Path):
+    try:
+        from PIL import Image
+    except Exception as exc:
+        raise RuntimeError("Saving the elasticity benchmark GIF requires Pillow.") from exc
+
+    sample_indices = [int(idx) for idx in sample_indices]
+    if not sample_indices:
+        raise ValueError("sample_indices must contain at least one sample index.")
+    if min(sample_indices) < 0 or max(sample_indices) >= coords.shape[0]:
+        raise ValueError(f"sample_indices must be in [0, {coords.shape[0] - 1}].")
+
+    vmin = float(min(sigma[idx].min() for idx in sample_indices))
+    vmax = float(max(sigma[idx].max() for idx in sample_indices))
+    merged = np.concatenate([coords[idx] for idx in sample_indices], axis=0)
+    x_min, y_min = np.nanmin(merged, axis=0)
+    x_max, y_max = np.nanmax(merged, axis=0)
+    x_span = max(float(x_max - x_min), 1.0e-6)
+    y_span = max(float(y_max - y_min), 1.0e-6)
+    span = max(x_span, y_span)
+    x_mid = 0.5 * float(x_min + x_max)
+    y_mid = 0.5 * float(y_min + y_max)
+    pad = 0.07 * span
+
+    frames = []
+    for sample_idx in sample_indices:
+        fig, ax = plt.subplots(figsize=(3.8, 3.8), facecolor="white")
+        ax.scatter(
+            coords[sample_idx, :, 0],
+            coords[sample_idx, :, 1],
+            c=sigma[sample_idx],
+            cmap=CMAP,
+            s=18,
+            linewidths=0,
+            vmin=vmin,
+            vmax=vmax,
+        )
+        ax.set_aspect("equal")
+        ax.set_xlim(x_mid - 0.5 * span - pad, x_mid + 0.5 * span + pad)
+        ax.set_ylim(y_mid - 0.5 * span - pad, y_mid + 0.5 * span + pad)
+        ax.set_axis_off()
+        fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+        fig.set_dpi(ELASTICITY_BENCHMARK_GIF_DPI)
+        fig.canvas.draw()
+        frames.append(Image.fromarray(np.asarray(fig.canvas.buffer_rgba()).copy()))
+        plt.close(fig)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    duration_ms = max(int(1000 / max(int(ELASTICITY_BENCHMARK_GIF_FPS), 1)), 1)
+    frames[0].save(
+        out_path,
+        save_all=True,
+        append_images=frames[1:],
+        duration=duration_ms,
+        loop=0,
+        disposal=2,
+    )
+    return out_path
+
+
+elasticity_benchmark_gif_path = _save_elasticity_benchmark_square_gif(
+    ELASTICITY_BENCHMARK_GIF_SAMPLES,
+    FIGURES_DIR / "elasticity_benchmark_samples_square.gif",
+)
+print(f"Saved {elasticity_benchmark_gif_path}")

@@ -438,7 +438,7 @@ def plot_pipe_boundary_constraint_construction(out_path: Path):
         vmin=0.0,
         vmax=1.0,
     )
-    _draw_pipe_field(
+    constrained_mesh = _draw_pipe_field(
         axes[2],
         xi,
         yi,
@@ -454,7 +454,10 @@ def plot_pipe_boundary_constraint_construction(out_path: Path):
     canvas.text(0.352, 0.52, r"$\times$", ha="center", va="center", fontsize=34)
     canvas.text(0.648, 0.52, r"$=$", ha="center", va="center", fontsize=34)
 
-    # TODO add colourbar
+    u_cax = fig.add_axes([0.935, 0.36, 0.010, 0.30])
+    cbar = fig.colorbar(constrained_mesh, cax=u_cax)
+    cbar.outline.set_linewidth(0.5)
+    cbar.ax.tick_params(labelsize=7, length=2, width=0.5, pad=1)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, bbox_inches="tight", dpi=180)
@@ -503,7 +506,7 @@ def plot_pipe_inlet_wall_constraint_construction(out_path: Path):
         fig.add_axes([0.515, 0.30, 0.18, 0.46]),
         fig.add_axes([0.755, 0.30, 0.18, 0.46]),
     ]
-    g_mesh = _draw_pipe_field(
+    _draw_pipe_field(
         axes[0],
         xi,
         yi,
@@ -524,14 +527,10 @@ def plot_pipe_inlet_wall_constraint_construction(out_path: Path):
             vmax=vmax,
         )
 
-    g_cax = fig.add_axes([0.222, 0.36, 0.010, 0.30])
     shared_cax = fig.add_axes([0.948, 0.36, 0.010, 0.30])
-    for cbar in (
-        fig.colorbar(g_mesh, cax=g_cax),
-        fig.colorbar(shared_mesh, cax=shared_cax),
-    ):
-        cbar.outline.set_linewidth(0.5)
-        cbar.ax.tick_params(labelsize=7, length=2, width=0.5, pad=1)
+    cbar = fig.colorbar(shared_mesh, cax=shared_cax)
+    cbar.outline.set_linewidth(0.5)
+    cbar.ax.tick_params(labelsize=7, length=2, width=0.5, pad=1)
 
     canvas.text(0.125, 0.18, r"$g$", ha="center", va="center", fontsize=28)
     canvas.text(0.365, 0.18, r"$l$", ha="center", va="center", fontsize=28)
@@ -2133,7 +2132,7 @@ FAST_QUALITATIVE_OUTPUT_ROOT = Path(
 )
 FAST_QUALITATIVE_STORYBOARD_NAME = "pipe_fast_learning_trace_epoch1.png"
 FAST_QUALITATIVE_GIF_NAME = "pipe_fast_learning_trace_epoch1.gif"
-FAST_QUALITATIVE_GIF_FPS = 5
+FAST_QUALITATIVE_GIF_FPS = 15
 
 
 def _fast_pipe_qualitative_overrides(output_dir: Path) -> dict:
@@ -2430,12 +2429,12 @@ def _draw_fast_pipe_learning_frame(
     traces, frame_idx, *, field_vmin, field_vmax, error_scale
 ):
     model_labels = list(traces)
-    fig = plt.figure(figsize=(12.2, 2.6), facecolor="white")
-    row_y = [0.55, 0.29]
-    pred_left = 0.19
-    err_left = 0.52
-    field_width = 0.23
-    field_height = 0.22
+    fig = plt.figure(figsize=(12.2, 4.4), facecolor="white")
+    row_y = [0.68, 0.43]
+    pred_left = 0.20
+    err_left = 0.56
+    field_width = 0.28
+    field_height = 0.19
     axes = np.empty((len(model_labels), 2), dtype=object)
     field_mesh = None
     error_mesh = None
@@ -2443,9 +2442,7 @@ def _draw_fast_pipe_learning_frame(
         trace = traces[model_label]
         frame = trace[min(frame_idx, len(trace) - 1)]
         error = frame["pred"] - frame["target"]
-        axes[row, 0] = fig.add_axes(
-            [pred_left, row_y[row], field_width, field_height]
-        )
+        axes[row, 0] = fig.add_axes([pred_left, row_y[row], field_width, field_height])
         axes[row, 1] = fig.add_axes([err_left, row_y[row], field_width, field_height])
         for ax in axes[row]:
             ax.set_facecolor("white")
@@ -2478,7 +2475,7 @@ def _draw_fast_pipe_learning_frame(
         )
     fig.text(
         pred_left + 0.5 * field_width,
-        0.86,
+        0.93,
         "Pred $u_x$",
         ha="center",
         va="center",
@@ -2486,14 +2483,14 @@ def _draw_fast_pipe_learning_frame(
     )
     fig.text(
         err_left + 0.5 * field_width,
-        0.86,
+        0.93,
         "Pred - GT",
         ha="center",
         va="center",
         fontsize=11,
     )
-    field_cax = fig.add_axes([0.445, 0.31, 0.008, 0.42])
-    error_cax = fig.add_axes([0.785, 0.31, 0.008, 0.42])
+    field_cax = fig.add_axes([0.495, 0.44, 0.008, 0.41])
+    error_cax = fig.add_axes([0.855, 0.44, 0.008, 0.41])
     field_bar = fig.colorbar(
         field_mesh,
         cax=field_cax,
@@ -2504,7 +2501,7 @@ def _draw_fast_pipe_learning_frame(
     )
     for cbar in (field_bar, error_bar):
         cbar.ax.tick_params(labelsize=7, length=2, pad=1)
-    ax_curve = fig.add_axes([0.835, 0.28, 0.135, 0.50])
+    ax_curve = fig.add_axes([0.20, 0.10, 0.66, 0.22])
     ax_curve.set_facecolor("white")
     curve_colors = {
         model_labels[0]: plt.get_cmap(CMAP)(0.85),
