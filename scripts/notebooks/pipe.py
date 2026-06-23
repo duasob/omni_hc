@@ -2133,6 +2133,14 @@ FAST_QUALITATIVE_OUTPUT_ROOT = Path(
 FAST_QUALITATIVE_STORYBOARD_NAME = "pipe_fast_learning_trace_epoch1.png"
 FAST_QUALITATIVE_GIF_NAME = "pipe_fast_learning_trace_epoch1.gif"
 FAST_QUALITATIVE_GIF_FPS = 15
+FAST_TRACE_LABEL_COLORS = {
+    "Unconstrained": plt.get_cmap(CMAP)(0.85),
+    "Stream ansatz": EDGE_COLORS["inlet"],
+}
+FAST_TRACE_DISPLAY_LABELS = {
+    "Unconstrained": "Unconstrained",
+    "Stream ansatz": "Stream Ansatz",
+}
 
 
 def _fast_pipe_qualitative_overrides(output_dir: Path) -> dict:
@@ -2402,11 +2410,13 @@ def plot_fast_pipe_learning_storyboard(traces, *, out_path: Path):
                 fontsize=9,
             )
         axes[row, 0].set_ylabel(
-            model_label,
+            FAST_TRACE_DISPLAY_LABELS.get(model_label, model_label),
             rotation=0,
             ha="right",
             va="center",
             labelpad=54,
+            color=FAST_TRACE_LABEL_COLORS.get(model_label, "#4f4f55"),
+            fontweight="bold",
             fontsize=10,
         )
     fig.colorbar(mesh, ax=axes.ravel().tolist(), shrink=0.52, pad=0.01)
@@ -2467,10 +2477,12 @@ def _draw_fast_pipe_learning_frame(
         fig.text(
             0.135,
             row_y[row] + 0.5 * field_height,
-            f"{model_label}\n{frame['label']}\nrel. $L_2$={frame['rel_l2']:.3f}",
+            f"{FAST_TRACE_DISPLAY_LABELS.get(model_label, model_label)}\n"
+            f"{frame['label']}\nrel. $L_2$={frame['rel_l2']:.3f}",
             ha="right",
             va="center",
-            color="#4f4f55",
+            color=FAST_TRACE_LABEL_COLORS.get(model_label, "#4f4f55"),
+            fontweight="bold",
             fontsize=11,
         )
     fig.text(
@@ -2503,10 +2515,6 @@ def _draw_fast_pipe_learning_frame(
         cbar.ax.tick_params(labelsize=7, length=2, pad=1)
     ax_curve = fig.add_axes([0.20, 0.10, 0.66, 0.22])
     ax_curve.set_facecolor("white")
-    curve_colors = {
-        model_labels[0]: plt.get_cmap(CMAP)(0.85),
-        model_labels[1]: EDGE_COLORS["inlet"],
-    }
     for model_label in model_labels:
         trace = traces[model_label]
         shown_idx = min(frame_idx, len(trace) - 1)
@@ -2518,8 +2526,8 @@ def _draw_fast_pipe_learning_frame(
             marker="o",
             markersize=2.6,
             linewidth=1.5,
-            color=curve_colors.get(model_label),
-            label="Base" if model_label == model_labels[0] else "Stream",
+            color=FAST_TRACE_LABEL_COLORS.get(model_label),
+            label=FAST_TRACE_DISPLAY_LABELS.get(model_label, model_label),
         )
     all_steps = [f["step"] for trace in traces.values() for f in trace]
     all_values = [f["rel_l2"] for trace in traces.values() for f in trace]

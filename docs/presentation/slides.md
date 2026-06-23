@@ -33,6 +33,38 @@ Deck switches:
 
 ---
 
+<!-- _class: science-usecases-slide -->
+
+# Scientific Machine Learning
+
+<div class="science-usecases-grid">
+  <figure>
+    <img src="assets/other/weather.png" alt="Weather simulation field">
+    <figcaption>
+      <strong>Weather</strong>
+    </figcaption>
+  </figure>
+  <figure>
+    <img src="assets/other/plasma.gif" alt="Plasma shape evolution in fusion reactor">
+    <figcaption>
+      <strong>Fusion plasma</strong>
+    </figcaption>
+  </figure>
+  <figure>
+    <img src="assets/other/protein.webp" alt="Protein structure prediction">
+    <figcaption>
+      <strong>Protein folding</strong>
+    </figcaption>
+  </figure>
+</div>
+
+##
+
+<p class="limitations-thesis">Low error is not enough. Predictions must be physically valid by construction.</p>
+
+<!-- <p class="limitations-thesis">The goal is to build neural surrogates that are accurate, modular, and physically valid by construction.</p> -->
+
+---
 <!-- _class: bench-overview-slide -->
 
 
@@ -60,20 +92,6 @@ Deck switches:
 </div>
 
 <!-- <p class="bench-thesis">For each domain, the architecture guarantees one physical property by construction.</p> -->
-
----
-
-```python
-from omni_hc.constraints import ConstrainedModel, DirichletBoundaryAnsatz
-
-backbone = TransformerBackbone()
-constraint = DirichletBoundaryAnsatz()
-
-model = ConstrainedModel(
-    backbone=backbone,
-    constraint=constraint,
-)
-```
 
 
 ---
@@ -107,7 +125,6 @@ $$
   <span class="dot future"></span>
   <span class="dot future"></span>
   <span class="dot future"></span>
-  <span class="dot future"></span>
 </div>
 
 ---
@@ -123,7 +140,6 @@ $$
 
 <div class="slide-bench-progress">
   <span class="active-pill">Navier–Stokes</span>
-  <span class="dot future"></span>
   <span class="dot future"></span>
   <span class="dot future"></span>
   <span class="dot future"></span>
@@ -162,7 +178,7 @@ $$
       <td>0.0900</td>
     </tr>
     <tr>
-      <td class="model-name">Mean constrained</td>
+      <td class="model-name">Constraint</td>
       <td class="best">0.0836</td>
       <td class="best">0.0648</td>
       <td class="best">0.1148</td>
@@ -201,7 +217,6 @@ $$
   <span class="dot future"></span>
   <span class="dot future"></span>
   <span class="dot future"></span>
-  <span class="dot future"></span>
 </div>
 
 ---
@@ -216,7 +231,6 @@ $$
   <span class="active-pill">Pipe flow</span>
   <span class="dot future"></span>
   <span class="dot future"></span>
-  <span class="dot future"></span>
 </div>
 
 <div class="ns-problem-card">
@@ -229,9 +243,9 @@ $$
 
 $$
 \begin{array}{ll@{\qquad}r}
-\mathbf{Wall}& \mathbf u|_{\Gamma_w} = 0 &(1) \\[0.7em]
-\mathbf{Inlet}& u_x|_{\Gamma_{\mathrm{in}}} = 4U\eta(1-\eta) &(2) \\[0.7em]
-\mathbf{Divergence}& \nabla\cdot \mathbf u = 0 &(3)
+\mathbf{Wall}& \mathbf u|_{\Gamma_w} = 0 &{\color{#9fbe6f}{\mathbf{(1)}}} \\[0.7em]
+\mathbf{Inlet}& u_x|_{\Gamma_{\mathrm{in}}} = 4U\eta(1-\eta) &{\color{#c05621}{\mathbf{(2)}}} \\[0.7em]
+\mathbf{Divergence}& \nabla\cdot \mathbf u = 0 &{\color{#1d4ed8}{\mathbf{(3)}}}
 \end{array}
 $$
 
@@ -249,13 +263,12 @@ $$
   <span class="active-pill">Pipe flow</span>
   <span class="dot future"></span>
   <span class="dot future"></span>
-  <span class="dot future"></span>
 </div>
 
 # Wall Constraint
 $$
 \begin{array}{cl@{\qquad}r}
-\mathbf u|_{\Gamma_w} = 0 &(1) \\[0.7em]
+\mathbf u|_{\Gamma_w} = 0 &{\color{#9fbe6f}{\mathbf{(1)}}} \\[0.7em]
 \end{array}
 $$
 
@@ -284,16 +297,15 @@ $$
   <span class="active-pill">Pipe flow</span>
   <span class="dot future"></span>
   <span class="dot future"></span>
-  <span class="dot future"></span>
 </div>
 
 # Wall + Inlet Constraint
 
 $$
 \begin{array}{cl@{\qquad}r}
-\mathbf u|_{\Gamma_w} = 0 &(1),
+\mathbf u|_{\Gamma_w} = 0 &{\color{#9fbe6f}{\mathbf{(1)}}},
 \qquad
-u_x|_{\Gamma_{\mathrm{in}}} = 4U\eta(1-\eta) &(2)
+u_x|_{\Gamma_{\mathrm{in}}} = 4U\eta(1-\eta) &{\color{#c05621}{\mathbf{(2)}}}
 \end{array}
 $$
 
@@ -344,7 +356,8 @@ $$
 \nabla\cdot \mathbf u 
 =
 \frac{\partial u_x}{\partial x} + \frac{\partial u_y}{\partial y}
-= 0 
+= 0  
+\quad {\color{#1d4ed8}{\mathbf{(3)}}}
 $$
 
 ##
@@ -381,7 +394,6 @@ $$
 \frac{\partial^2\psi}{\partial y\partial x}
 =
 0
-\quad (3)
 $$
 
 ##
@@ -391,7 +403,6 @@ $$
 <div class="slide-bench-progress">
   <span class="dot done"></span>
   <span class="active-pill">Pipe flow</span>
-  <span class="dot future"></span>
   <span class="dot future"></span>
   <span class="dot future"></span>
 </div>
@@ -404,8 +415,12 @@ $$
 </div>
 
 # Wall + Inlet + Divergence Constraint
-##
 
+$$
+{\color{#9fbe6f}{\mathbf{(1)}}} 
++ {\color{#c05621}{\mathbf{(2)}}}
++ {\color{#1d4ed8}{\mathbf{(3)}}}
+$$
 $$
 \psi_\theta = g_\psi + l_\psi N_\theta,
 \qquad
@@ -416,7 +431,7 @@ $$
 -\partial_x \psi_\theta
 \end{bmatrix}
 $$
-##
+
 ##
 $$
 \begin{array}{lll}
@@ -455,7 +470,6 @@ $$
   <span class="active-pill">Pipe flow</span>
   <span class="dot future"></span>
   <span class="dot future"></span>
-  <span class="dot future"></span>
 </div>
 
 ---
@@ -476,7 +490,6 @@ $$
 <div class="slide-bench-progress">
   <span class="dot done"></span>
   <span class="active-pill">Pipe flow</span>
-  <span class="dot future"></span>
   <span class="dot future"></span>
   <span class="dot future"></span>
 </div>
@@ -500,6 +513,7 @@ $$
       <th>Base</th>
       <th>(1) + (2)</th>
       <th>(1) + (2) + (3)</th>
+      <th>Relative<br><span>vs best constraint</span></th>
     </tr>
   </thead>
   <tbody>
@@ -508,195 +522,44 @@ $$
       <td>0.4437</td>
       <td>0.1642</td>
       <td class="best">0.1507</td>
+      <td class="delta positive">+66.0%</td>
     </tr>
     <tr>
       <td>10 / 100</td>
       <td>0.3498</td>
       <td>0.1648</td>
       <td class="best">0.1451</td>
+      <td class="delta positive">+58.5%</td>
     </tr>
     <tr>
       <td>50 / 500</td>
       <td class="best">0.0130</td>
       <td>0.0163</td>
       <td>0.0159</td>
+      <td class="delta negative">-22.3%</td>
     </tr>
     <tr>
       <td>100 / 900</td>
       <td>0.0080</td>
       <td class="best">0.0074</td>
       <td>0.0141</td>
+      <td class="delta positive">+7.5%</td>
     </tr>
     <tr>
       <td>500 / 1000</td>
       <td>0.0056</td>
       <td class="best">0.0054</td>
       <td>0.0114</td>
+      <td class="delta positive">+3.6%</td>
     </tr>
   </tbody>
 </table>
 
-<p class="table-note">Relative L<sub>2</sub> test error. Lower is better.</p>
+<p class="table-note">Relative L<sub>2</sub> test error. Change compares the baseline with the best constrained variant.</p>
 
 <div class="slide-bench-progress">
   <span class="dot done"></span>
   <span class="active-pill">Pipe flow</span>
-  <span class="dot future"></span>
-  <span class="dot future"></span>
-  <span class="dot future"></span>
-</div>
-
----
-<span class="title-marker"></span>
-
-# Darcy Flow
-
----
-
-
-
-<!-- # Darcy flow: pressure through a porous medium -->
-##
-##
-$$
-u|_{\partial\Omega}=0,
-\qquad 
--\nabla\cdot(a\nabla u)=f=1
-$$
-
-<div class="slide-state-progress">
-  <span class="active">Problem</span>
-  <span>Constraint</span>
-  <span>Results</span>
-</div>
-
-<div class="darcy-problem-layout">
-  <!-- <div class="darcy-figure-card concept"> -->
-    <img src="assets/darcy/darcy_problem_3d.png" alt="3D Darcy flow concept diagram">
-    <!-- <span>Forcing through heterogeneous permeability produces pressure.</span> -->
-  <!-- </div> -->
-  <!-- <div class="darcy-figure-card sample"> -->
-    <img src="assets/darcy/darcy_dataset_sample.png" alt="Darcy dataset sample showing permeability and pressure">
-    <!-- <span>Learning task: map permeability <strong>a(x,y)</strong> to pressure <strong>u(x,y)</strong>.</span> -->
-  <!-- </div> -->
-</div>
-
-
-<!-- </div> -->
-
-<div class="slide-bench-progress">
-  <span class="dot done"></span>
-  <span class="dot done"></span>
-  <span class="active-pill">Darcy</span>
-  <span class="dot future"></span>
-  <span class="dot future"></span>
-</div>
-
-
----
-
-<!-- _class: darcy-flux-slide -->
-
-# Flux constraint
-
-<div class="slide-state-progress">
-  <span>Problem</span>
-  <span class="active">Constraint</span>
-  <span>Results</span>
-</div>
-
-<div class="darcy-flux-layout">
-  <div class="darcy-flux-arch">
-    <img src="assets/darcy/darcy_flux_pipeline.png" alt="Darcy flux constraint pipeline">
-  </div>
-  <div class="darcy-flux-equations">
-
-$$
-\mathbf{v}_{\mathrm{valid}}
-= \mathbf{v}_{\mathrm{part}} + \nabla^\perp \psi
-$$
-
-$$
-\nabla\!\cdot\mathbf{v}_{\mathrm{valid}} = 1
-$$
-
-$$
-\mathbf{w}=-\mathbf{v}_{\mathrm{valid}}/a
-$$
-
-$$
-\nabla^2 u = \nabla\!\cdot\mathbf{w}
-$$
-
-  </div>
-</div>
-
-<div class="slide-bench-progress">
-  <span class="dot done"></span>
-  <span class="dot done"></span>
-  <span class="active-pill">Darcy</span>
-  <span class="dot future"></span>
-  <span class="dot future"></span>
-</div>
-
----
-
-<!-- _class: darcy-results-slide -->
-
-<div class="slide-state-progress">
-  <span>Problem</span>
-  <span>Constraint</span>
-  <span class="active">Results</span>
-</div>
-
-<div class="darcy-results-layout">
-  <img src="assets/darcy/darcy_problem_3d.png" alt="3D Darcy flow concept diagram">
-
-  <div class="darcy-results-panel">
-    <table class="darcy-results-table">
-      <thead>
-        <tr>
-          <th>Budget<br><span>epoch / train</span></th>
-          <th>Baseline</th>
-          <th>Flux Constraint</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>5 / 50</td>
-          <td class="best">0.2522</td>
-          <td>0.3195</td>
-        </tr>
-        <tr>
-          <td>10 / 100</td>
-          <td class="best">0.2226</td>
-          <td>0.3271</td>
-        </tr>
-        <tr>
-          <td>50 / 500</td>
-          <td class="best">0.0232</td>
-          <td>0.0286</td>
-        </tr>
-        <tr>
-          <td>100 / 900</td>
-          <td>0.0268</td>
-          <td class="best">0.0136</td>
-        </tr>
-        <tr>
-          <td>500 / 1000</td>
-          <td class="best">0.0057</td>
-          <td>0.0088</td>
-        </tr>
-      </tbody>
-    </table>
-
-  </div>
-</div>
-
-<div class="slide-bench-progress">
-  <span class="dot done"></span>
-  <span class="dot done"></span>
-  <span class="active-pill">Darcy</span>
   <span class="dot future"></span>
   <span class="dot future"></span>
 </div>
@@ -737,7 +600,6 @@ $$
 
 
 <div class="slide-bench-progress">
-  <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="active-pill">Elasticity</span>
@@ -798,7 +660,6 @@ $$
 <div class="slide-bench-progress">
   <span class="dot done"></span>
   <span class="dot done"></span>
-  <span class="dot done"></span>
   <span class="active-pill">Elasticity</span>
   <span class="dot future"></span>
 </div>
@@ -821,7 +682,6 @@ $$
 <div class="slide-bench-progress">
   <span class="dot done"></span>
   <span class="dot done"></span>
-  <span class="dot done"></span>
   <span class="active-pill">Elasticity</span>
   <span class="dot future"></span>
 </div>
@@ -841,7 +701,8 @@ $$
     <tr>
       <th>Budget<br><span>epoch / train</span></th>
       <th>Base</th>
-      <th>PS<br>latent</th>
+      <th>Constraint</th>
+      <th>Relative Change</th>
     </tr>
   </thead>
   <tbody>
@@ -849,34 +710,39 @@ $$
       <td>5 / 50</td>
       <td>0.5552</td>
       <td class="best">0.5161</td>
+      <td class="delta positive">+7.0%</td>
     </tr>
     <tr>
       <td>10 / 100</td>
       <td>0.5498</td>
       <td class="best">0.4894</td>
+      <td class="delta positive">+11.0%</td>
     </tr>
     <tr>
       <td>50 / 500</td>
       <td class="best">0.0527</td>
       <td>0.0622</td>
+      <td class="delta negative">-18.0%</td>
     </tr>
     <tr>
       <td>100 / 900</td>
       <td class="best">0.0208</td>
       <td>0.0281</td>
+      <td class="delta negative">-35.1%</td>
     </tr>
     <tr>
       <td>500 / 1000</td>
       <td>0.0059</td>
       <td class="best">0.0053</td>
+      <td class="delta positive">+10.2%</td>
     </tr>
   </tbody>
 </table>
 
 <p class="table-note">Relative L<sub>2</sub> test error. Lower is better.</p>
 
+
 <div class="slide-bench-progress">
-  <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="active-pill">Elasticity</span>
@@ -890,7 +756,7 @@ $$
 
 ---
 
-![hydraulic_press](assets/plasticity/hydraulic_press.png)
+![hydraulic_press](assets/plasticity/hydraulic.gif)
 
 --- 
 
@@ -915,7 +781,6 @@ $$ -->
   <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="dot done"></span>
-  <span class="dot done"></span>
   <span class="active-pill">Plasticity</span>
 </div>
 
@@ -934,7 +799,6 @@ $$ -->
 
 
 <div class="slide-bench-progress">
-  <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="dot done"></span>
@@ -957,7 +821,6 @@ $$ -->
   <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="dot done"></span>
-  <span class="dot done"></span>
   <span class="active-pill">Plasticity</span>
 </div>
 
@@ -976,7 +839,6 @@ $$ -->
 
 
 <div class="slide-bench-progress">
-  <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="dot done"></span>
@@ -1025,7 +887,6 @@ $$
   <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="dot done"></span>
-  <span class="dot done"></span>
   <span class="active-pill">Plasticity</span>
 </div>
 
@@ -1044,7 +905,6 @@ $$
 
 
 <div class="slide-bench-progress">
-  <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="dot done"></span>
@@ -1067,7 +927,8 @@ $$
     <tr>
       <th>Budget<br><span>epoch / train</span></th>
       <th>Base</th>
-      <th>Envelope</th>
+      <th>Constraint</th>
+      <th>Relative Change </th>
     </tr>
   </thead>
   <tbody>
@@ -1075,26 +936,31 @@ $$
       <td>5 / 50</td>
       <td>0.1446</td>
       <td class="best">0.0365</td>
+      <td class="delta positive">+74.8%</td>
     </tr>
     <tr>
       <td>10 / 100</td>
       <td>0.0367</td>
       <td class="best">0.0357</td>
+      <td class="delta positive">+2.7%</td>
     </tr>
     <tr>
       <td>50 / 500</td>
       <td class="best">0.0095</td>
       <td>0.0149</td>
+      <td class="delta negative">-56.8%</td>
     </tr>
     <tr>
       <td>100 / 900</td>
       <td class="best">0.0067</td>
       <td>0.0119</td>
+      <td class="delta negative">-77.6%</td>
     </tr>
     <tr>
       <td>500 / 1000</td>
       <td class="best">0.0020</td>
       <td>0.0022</td>
+      <td class="delta negative">-10.0%</td>
     </tr>
   </tbody>
 </table>
@@ -1105,7 +971,6 @@ $$
   <span class="dot done"></span>
   <span class="dot done"></span>
   <span class="dot done"></span>
-  <span class="dot done"></span>
   <span class="active-pill">Plasticity</span>
 </div>
 
@@ -1113,6 +978,438 @@ $$
 
 <span class="title-marker"></span>
 
-# Conclusions & Future Work
+# Conclusions & Further Work
+
 
 ---
+
+
+<span class="title-marker"></span>
+
+# Thank you
+
+
+---
+
+<span class="title-marker"></span>
+
+# Appendix
+
+
+
+---
+
+<!-- _class: code-slide constrained-model-slide -->
+
+<div class="constrained-model-layout">
+  <div>
+
+```python
+from omni_hc.constraints import (
+    ConstrainedModel,
+    DirichletBoundaryAnsatz,
+)
+
+backbone = TransformerBackbone()
+constraint = DirichletBoundaryAnsatz()
+model = ConstrainedModel(
+    backbone=backbone,
+    constraint=constraint,
+)
+```
+
+  </div>
+  <img src="assets/other/constrained_model.png" alt="ConstrainedModel wraps a backbone and constraint module">
+</div>
+
+--- 
+<span class="title-marker"></span>
+
+# Darcy Flow
+
+---
+
+
+
+<!-- # Darcy flow: pressure through a porous medium -->
+##
+##
+$$
+u|_{\partial\Omega}=0,
+\qquad 
+-\nabla\cdot(a\nabla u)=f=1
+$$
+
+<div class="slide-state-progress">
+  <span class="active">Problem</span>
+  <span>Constraint</span>
+  <span>Results</span>
+</div>
+
+<div class="darcy-problem-layout">
+  <!-- <div class="darcy-figure-card concept"> -->
+    <img src="assets/darcy/darcy_problem_3d.png" alt="3D Darcy flow concept diagram">
+    <!-- <span>Forcing through heterogeneous permeability produces pressure.</span> -->
+  <!-- </div> -->
+  <!-- <div class="darcy-figure-card sample"> -->
+    <img src="assets/darcy/darcy_dataset_sample.png" alt="Darcy dataset sample showing permeability and pressure">
+    <!-- <span>Learning task: map permeability <strong>a(x,y)</strong> to pressure <strong>u(x,y)</strong>.</span> -->
+  <!-- </div> -->
+</div>
+
+
+<!-- </div> -->
+
+
+
+
+---
+
+<!-- _class: darcy-flux-slide -->
+
+# Flux constraint
+
+<div class="slide-state-progress">
+  <span>Problem</span>
+  <span class="active">Constraint</span>
+  <span>Results</span>
+</div>
+
+<!-- <div class="darcy-flux-layout"> -->
+  <div class="darcy-flux-arch">
+    <img src="assets/darcy/darcy_flux_pipeline.png" alt="Darcy flux constraint pipeline">
+  </div>
+  <!-- <div class="darcy-flux-equations"> -->
+
+<!-- $$
+\mathbf{v}_{\mathrm{valid}}
+= \mathbf{v}_{\mathrm{part}} + \nabla^\perp \psi
+$$
+
+$$
+\nabla\!\cdot\mathbf{v}_{\mathrm{valid}} = 1
+$$
+
+$$
+\mathbf{w}=-\mathbf{v}_{\mathrm{valid}}/a
+$$
+
+$$
+\nabla^2 u = \nabla\!\cdot\mathbf{w}
+$$ -->
+
+  </div>
+</div>
+
+
+
+---
+
+<!-- _class: darcy-results-slide -->
+
+<div class="slide-state-progress">
+  <span>Problem</span>
+  <span>Constraint</span>
+  <span class="active">Results</span>
+</div>
+
+<div class="darcy-results-layout">
+  <img src="assets/darcy/darcy_problem_3d.png" alt="3D Darcy flow concept diagram">
+
+  <div class="darcy-results-panel">
+    <table class="darcy-results-table">
+      <thead>
+        <tr>
+          <th>Budget<br><span>epoch / train</span></th>
+          <th>Baseline</th>
+          <th>Constraint</th>
+          <th>Relative Change </th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>5 / 50</td>
+          <td class="best">0.2522</td>
+          <td>0.3195</td>
+          <td class="delta negative">-26.7%</td>
+        </tr>
+        <tr>
+          <td>10 / 100</td>
+          <td class="best">0.2226</td>
+          <td>0.3271</td>
+          <td class="delta negative">-46.9%</td>
+        </tr>
+        <tr>
+          <td>50 / 500</td>
+          <td class="best">0.0232</td>
+          <td>0.0286</td>
+          <td class="delta negative">-23.3%</td>
+        </tr>
+        <tr>
+          <td>100 / 900</td>
+          <td>0.0268</td>
+          <td class="best">0.0136</td>
+          <td class="delta positive">+49.3%</td>
+        </tr>
+        <tr>
+          <td>500 / 1000</td>
+          <td class="best">0.0057</td>
+          <td>0.0088</td>
+          <td class="delta negative">-54.4%</td>
+        </tr>
+      </tbody>
+    </table>
+
+  </div>
+</div>
+
+
+
+
+
+---
+
+
+
+<!-- _class: appendix-table-slide -->
+
+# Navier-Stokes ablation
+
+<table class="appendix-results-table appendix-ns-table">
+  <thead>
+    <tr>
+      <th>Mode</th>
+      <th><code>post_output</code></th>
+      <th><code>post_output_learned</code></th>
+      <th><code>latent</code></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Rel L<sub>2</sub></td>
+      <td>0.1260</td>
+      <td>0.1258</td>
+      <td class="best">0.1162</td>
+    </tr>
+  </tbody>
+</table>
+
+<p class="table-note">Relative L<sub>2</sub> test error. Lower is better.</p>
+
+---
+
+<!-- _class: appendix-table-slide appendix-wide-table-slide -->
+
+# Constraint validation errors
+
+<table class="appendix-results-table appendix-wide-table constraint-validation-table">
+  <thead>
+    <tr>
+      <th>Benchmark</th>
+      <th>Constraint</th>
+      <th>GT error</th>
+      <th>Unconstrained error</th>
+      <th>Constraint module</th>
+      <th>Constrained error</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Navier-Stokes</td>
+      <td>Global vorticity mean</td>
+      <td>1.41 &times; 10<sup>-4</sup></td>
+      <td>2.10 &times; 10<sup>-3</sup></td>
+      <td>Mean constraint</td>
+      <td>7.16 &times; 10<sup>-7</sup></td>
+    </tr>
+    <tr>
+      <td>Darcy Flow</td>
+      <td>Dirichlet boundary (strict)</td>
+      <td>5.07 &times; 10<sup>-4</sup></td>
+      <td>2.29 &times; 10<sup>-4</sup></td>
+      <td>Dirichlet ansatz</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td>Sine boundary</td>
+      <td>1.23 &times; 10<sup>-4</sup></td>
+    </tr>
+    <tr>
+      <td></td>
+      <td>Dirichlet boundary (corners)</td>
+      <td>2.95 &times; 10<sup>-6</sup></td>
+      <td>8.41 &times; 10<sup>-5</sup></td>
+      <td>Dirichlet ansatz</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td>Sine boundary</td>
+      <td class="best">0</td>
+    </tr>
+    <tr>
+      <td></td>
+      <td>Flux constraint</td>
+      <td>3.65 &times; 10<sup>-1</sup></td>
+      <td>5.13 &times; 10<sup>-1</sup></td>
+      <td>Flux constraint</td>
+      <td>3.77 &times; 10<sup>-1</sup></td>
+    </tr>
+    <tr>
+      <td>Pipe Flow</td>
+      <td>Zero wall velocity</td>
+      <td>0</td>
+      <td>6.65 &times; 10<sup>-4</sup></td>
+      <td><em>u</em><sub>x</sub> boundary ansatz</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td>Stream-function ansatz</td>
+      <td>4.70 &times; 10<sup>-2</sup></td>
+    </tr>
+    <tr>
+      <td></td>
+      <td>Parabolic inlet</td>
+      <td>1.24 &times; 10<sup>-8</sup></td>
+      <td>8.66 &times; 10<sup>-5</sup></td>
+      <td><em>u</em><sub>x</sub> boundary ansatz</td>
+      <td>1.22 &times; 10<sup>-8</sup></td>
+    </tr>
+    <tr>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td>Stream-function ansatz</td>
+      <td>1.70 &times; 10<sup>-8</sup></td>
+    </tr>
+    <tr>
+      <td></td>
+      <td>Divergence-free</td>
+      <td>9.73 &times; 10<sup>-1</sup></td>
+      <td>/</td>
+      <td>Stream-function ansatz</td>
+      <td>1.21 &times; 10<sup>-2</sup></td>
+    </tr>
+    <tr>
+      <td>Elasticity</td>
+      <td>Incompressibility</td>
+      <td>/</td>
+      <td>/</td>
+      <td>Plane-stress</td>
+      <td>2.38 &times; 10<sup>-7</sup></td>
+    </tr>
+    <tr>
+      <td>Plasticity</td>
+      <td>Negative spacing</td>
+      <td>0</td>
+      <td>0</td>
+      <td>Mesh consistency projection</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td></td>
+      <td>Above top die</td>
+      <td>8.78 &times; 10<sup>-5</sup></td>
+      <td>6.87 &times; 10<sup>-3</sup></td>
+      <td>Envelope projection</td>
+      <td class>0</td>
+    </tr>
+    <tr>
+      <td></td>
+      <td>Pinned bottom</td>
+      <td>0</td>
+      <td>7.83 &times; 10<sup>-3</sup></td>
+      <td>Envelope projection</td>
+      <td>9.33 &times; 10<sup>-7</sup></td>
+    </tr>
+  </tbody>
+</table>
+
+---
+
+<!-- _class: appendix-table-slide appendix-wide-table-slide -->
+
+# Constraint overhead
+
+<table class="appendix-results-table appendix-wide-table constraint-overhead-table">
+  <thead>
+    <tr>
+      <th>Benchmark</th>
+      <th>Constraint</th>
+      <th>Params [M]</th>
+      <th>&Delta;%</th>
+      <th>FLOPs/step [T]</th>
+      <th>&Delta;%</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Navier-Stokes</td>
+      <td>MeanConstraint</td>
+      <td>4.39</td>
+      <td>+4.5%</td>
+      <td>2.21</td>
+      <td>+4.4%</td>
+    </tr>
+    <tr>
+      <td>Darcy Flow</td>
+      <td>DirichletAnsatz</td>
+      <td>3.09</td>
+      <td>+0.0%</td>
+      <td>0.29</td>
+      <td>+0.0%</td>
+    </tr>
+    <tr>
+      <td>Darcy Flow</td>
+      <td>DarcyFluxConstraint</td>
+      <td>3.09</td>
+      <td>+0.0%</td>
+      <td>0.29</td>
+      <td>+0.0%</td>
+    </tr>
+    <tr>
+      <td>Pipe Flow</td>
+      <td>StructuredWallDirichlet</td>
+      <td>3.07</td>
+      <td>+0.0%</td>
+      <td>0.04</td>
+      <td>+0.0%</td>
+    </tr>
+    <tr>
+      <td>Pipe Flow</td>
+      <td>StreamFunctionAnsatz</td>
+      <td>3.07</td>
+      <td>+0.0%</td>
+      <td>0.04</td>
+      <td>+0.0%</td>
+    </tr>
+    <tr>
+      <td>Elasticity</td>
+      <td>PlaneStressVM</td>
+      <td>0.98</td>
+      <td>+6.8%</td>
+      <td>0.01</td>
+      <td>+5.7%</td>
+    </tr>
+    <tr>
+      <td>Plasticity</td>
+      <td>MeshConsistency</td>
+      <td>2.84</td>
+      <td>+0.0%</td>
+      <td>4.34</td>
+      <td>+0.0%</td>
+    </tr>
+  </tbody>
+</table>

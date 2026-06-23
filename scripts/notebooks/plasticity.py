@@ -1570,6 +1570,29 @@ FAST_PLASTICITY_STORYBOARD_NAME = "plasticity_fast_learning_trace_epoch1.png"
 FAST_PLASTICITY_GIF_NAME = "plasticity_fast_learning_trace_epoch1.gif"
 FAST_PLASTICITY_GIF_FPS = 10
 FAST_PLASTICITY_MESH_STEP = 2
+FAST_PLASTICITY_MAX_PLOT_STEP = 100
+FAST_PLASTICITY_TRACE_LABEL_COLORS = {
+    "Unconstrained": "#1f77b4",
+    "Envelope": "#ff9900",
+}
+FAST_PLASTICITY_TRACE_DISPLAY_LABELS = {
+    "Unconstrained": "Unconstrained",
+    "Envelope": "Constraint",
+}
+
+
+def _filter_fast_plasticity_trace_for_plot(trace):
+    if FAST_PLASTICITY_MAX_PLOT_STEP is None:
+        return list(trace)
+    max_step = int(FAST_PLASTICITY_MAX_PLOT_STEP)
+    return [frame for frame in trace if int(frame["step"]) <= max_step]
+
+
+def _filter_fast_plasticity_traces_for_plot(traces):
+    return {
+        model_label: _filter_fast_plasticity_trace_for_plot(trace)
+        for model_label, trace in traces.items()
+    }
 
 
 def _fast_plasticity_overrides(output_dir: Path) -> dict:
@@ -1798,6 +1821,7 @@ def train_fast_plasticity_learning_trace():
 
 
 def _plasticity_trace_limits(traces):
+    traces = _filter_fast_plasticity_traces_for_plot(traces)
     coords = []
     rel_values = []
     for trace in traces.values():
@@ -1851,6 +1875,7 @@ def _draw_plasticity_trace_mesh(ax, frame, *, limits, title: str | None = None):
 
 
 def plot_fast_plasticity_learning_storyboard(traces, *, out_path: Path):
+    traces = _filter_fast_plasticity_traces_for_plot(traces)
     limits = _plasticity_trace_limits(traces)
     max_frames = max(len(trace) for trace in traces.values())
     model_labels = list(traces)
@@ -1876,11 +1901,13 @@ def plot_fast_plasticity_learning_storyboard(traces, *, out_path: Path):
                 title=f"{frame['label']}\nrel. $L_2$={frame['rel_l2']:.2f}",
             )
         axes[row, 0].set_ylabel(
-            model_label,
+            FAST_PLASTICITY_TRACE_DISPLAY_LABELS.get(model_label, model_label),
             rotation=0,
             ha="right",
             va="center",
             labelpad=52,
+            color=FAST_PLASTICITY_TRACE_LABEL_COLORS.get(model_label, "#4f4f55"),
+            fontweight="bold",
             fontsize=10,
         )
     fig.suptitle(
@@ -1904,23 +1931,31 @@ def _draw_fast_plasticity_learning_frame(traces, frame_idx, *, limits):
     mesh_left = 0.22
     mesh_width = 0.56
     mesh_height = 0.22
-    curve_colors = {
-        model_labels[0]: "#64748b",
-        model_labels[1]: "#0f766e",
-    }
     for row, model_label in enumerate(model_labels):
         trace = traces[model_label]
         frame = trace[min(frame_idx, len(trace) - 1)]
         ax = fig.add_axes([mesh_left, row_y[row], mesh_width, mesh_height])
         _draw_plasticity_trace_mesh(ax, frame, limits=limits)
+        label_y = row_y[row] + 0.5 * mesh_height
         fig.text(
             0.16,
-            row_y[row] + 0.5 * mesh_height,
-            f"{model_label}\n{frame['label']}\nrel. $L_2$={frame['rel_l2']:.3f}",
+            label_y + 0.050,
+            FAST_PLASTICITY_TRACE_DISPLAY_LABELS.get(model_label, model_label),
             ha="right",
             va="center",
-            color="#4f4f55",
+            color=FAST_PLASTICITY_TRACE_LABEL_COLORS.get(model_label, "#4f4f55"),
+            fontweight="bold",
             fontsize=11,
+        )
+        fig.text(
+            0.16,
+            label_y - 0.020,
+            f"{frame['label']}\nrel. $L_2$={frame['rel_l2']:.3f}",
+            ha="right",
+            va="center",
+            color=FAST_PLASTICITY_TRACE_LABEL_COLORS.get(model_label, "#4f4f55"),
+            fontsize=11,
+            linespacing=1.15,
         )
     fig.legend(
         handles=[
@@ -1945,8 +1980,8 @@ def _draw_fast_plasticity_learning_frame(traces, frame_idx, *, limits):
             marker="o",
             markersize=3.0,
             linewidth=1.5,
-            color=curve_colors.get(model_label),
-            label=model_label,
+            color=FAST_PLASTICITY_TRACE_LABEL_COLORS.get(model_label),
+            label=FAST_PLASTICITY_TRACE_DISPLAY_LABELS.get(model_label, model_label),
         )
     all_steps = [f["step"] for trace in traces.values() for f in trace]
     ax_curve.set_xlim(min(all_steps), max(all_steps))
@@ -1962,6 +1997,7 @@ def _draw_fast_plasticity_learning_frame(traces, frame_idx, *, limits):
 def save_fast_plasticity_learning_gif(traces, *, out_path: Path):
     from PIL import Image
 
+    traces = _filter_fast_plasticity_traces_for_plot(traces)
     limits = _plasticity_trace_limits(traces)
     max_frames = max(len(trace) for trace in traces.values())
     frames = []
